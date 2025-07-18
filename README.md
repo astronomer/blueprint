@@ -46,7 +46,7 @@ class DailyETLConfig(BaseModel):
 
 class DailyETL(Blueprint[DailyETLConfig]):
     """Daily ETL job that moves data between tables with configurable scheduling."""
-    
+
     # Name is auto-generated as "daily_etl" from class name
     # Or specify explicitly:
     # name = "daily_etl_job"
@@ -136,7 +136,7 @@ with open('etl_config.json') as f:
 for config in table_configs:
     schedule = "@hourly" if config["priority"] == "high" else "@daily"
     retries = 5 if config["is_critical"] else 2
-    
+
     dag = DailyETL.build(
         job_id=f"{config['name']}-etl",
         source_table=config["source"],
@@ -155,7 +155,7 @@ import os
 # Only create production DAGs in production environment
 if os.getenv("AIRFLOW_ENV") == "production":
     critical_tables = ["users", "transactions", "orders"]
-    
+
     for table in critical_tables:
         dag = DailyETL.build(
             job_id=f"prod-{table}-sync",
@@ -179,7 +179,7 @@ class DailyETLConfig(BaseModel):
     target_table: str = Field(description="Target table name")
     schedule: str = Field(default="@daily", description="Cron or preset schedule")
     retries: int = Field(default=2, ge=0, le=5, description="Number of retries")
-    
+
     @field_validator('schedule')
     def validate_schedule(cls, v):
         valid_presets = ['@once', '@hourly', '@daily', '@weekly', '@monthly', '@yearly']
@@ -189,7 +189,7 @@ class DailyETLConfig(BaseModel):
 
 class DailyETL(Blueprint[DailyETLConfig]):
     """Daily ETL job that moves data between tables."""
-    
+
     def render(self, config: DailyETLConfig) -> DAG:
         with DAG(
             dag_id=config.job_id,
@@ -236,7 +236,7 @@ def test_daily_etl_config():
     )
     assert dag.dag_id == "test-etl"
     assert dag.schedule_interval == "@daily"
-    
+
     # Test validation errors
     with pytest.raises(ValueError, match="Invalid schedule"):
         DailyETL.build(
@@ -262,15 +262,15 @@ When validation fails, you get clear feedback:
 $ blueprint lint
 ✗ customer_etl.dag.yaml
   ValidationError: 3 validation errors for DailyETLConfig
-  
+
   job_id
     String does not match pattern '^[a-zA-Z0-9_-]+$' (type=value_error.str.regex)
     Given: "customer sync!" (contains spaces)
-  
+
   retries
     ensure this value is less than or equal to 5 (type=value_error.number.not_le)
     Given: 10
-  
+
   schedule
     Invalid schedule format (type=value_error)
     Given: "every hour" (use "@hourly" or valid cron expression)
@@ -286,7 +286,7 @@ class ETLConfig(BaseModel):
     job_id: str = Field(pattern=r'^[a-zA-Z0-9_-]+$')
     retries: int = Field(ge=0, le=5)
     timeout_minutes: int = Field(gt=0, le=1440)  # 1-1440 minutes
-    
+
     # Custom validation
     @field_validator('schedule')
     def validate_schedule(cls, v):
@@ -355,7 +355,7 @@ class S3ImportConfig(BaseETLConfig):
 
 class BaseETL(Blueprint[BaseETLConfig]):
     """Base blueprint with common ETL parameters."""
-    
+
     def get_default_args(self, config: BaseETLConfig):
         return {
             "owner": config.owner,
@@ -365,7 +365,7 @@ class BaseETL(Blueprint[BaseETLConfig]):
 
 class S3Import(Blueprint[S3ImportConfig]):
     """Import data from S3."""
-    
+
     def render(self, config: S3ImportConfig) -> DAG:
         # Has access to all BaseETLConfig fields plus S3-specific ones
         default_args = self.get_default_args(config)

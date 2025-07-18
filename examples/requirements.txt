@@ -1,0 +1,6 @@
+# Blueprint library (installed from parent directory in docker-compose)
+# ../blueprint
+
+# Any additional dependencies for example DAGs
+pandas>=2.0.0
+requests>=2.31.0

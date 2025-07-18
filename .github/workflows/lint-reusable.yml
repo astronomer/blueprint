@@ -1,0 +1,37 @@
+name: Lint (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to use for linting"
+        required: false
+        type: string
+        default: "3.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ inputs.python-version }}
+        run: uv python install ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run linting
+        run: uv run ruff check blueprint/ tests/
+
+      - name: Run formatting check
+        run: uv run ruff format --check blueprint/ tests/
+
+      - name: Run type checking
+        run: uv run ty check blueprint/

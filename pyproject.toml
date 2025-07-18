@@ -3,8 +3,12 @@ name = "astronomer-blueprint"
 version = "0.1.0"
 description = "Create reusable Airflow DAG templates with validated configurations"
 readme = "README.md"
+license = {text = "MIT"}
 authors = [
-    { name = "Julian LaNeve", email = "lanevejulian@gmail.com" }
+    { name = "Astronomer", email = "humans@astronomer.io" }
+]
+maintainers = [
+    { name = "Astronomer", email = "humans@astronomer.io" }
 ]
 requires-python = ">=3.8"
 dependencies = [
@@ -12,10 +16,28 @@ dependencies = [
     "apache-airflow>=2.5.0",
     "typing-extensions>=4.0.0; python_version<'3.9'",
     "click>=8.0.0",
+    "pydantic>=2.10.6",
+    "rich>=13.9.4",
+]
+keywords = ["airflow", "dags", "templates", "blueprints", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Framework :: Apache Airflow",
 ]
 
 [project.scripts]
-blueprint = "blueprint.cli:main"
+blueprint = "blueprint.cli:cli"
 
 [project.urls]
 "Homepage" = "https://github.com/astronomer/blueprint"
@@ -25,3 +47,72 @@ blueprint = "blueprint.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["blueprint"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.113.0",
+    "pre-commit>=3.5.0",
+    "pytest>=8.3.5",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.12.3",
+    "pyright>=1.1.0",
+    "ty>=0.0.1a15",
+]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "T10", # flake8-debugger
+    "DJ", # flake8-django
+    "EM", # flake8-errmsg
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "G", # flake8-logging-format
+    "PIE", # flake8-pie
+    "Q", # flake8-quotes
+    "RSE", # flake8-raise
+    "RET", # flake8-return
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "TCH", # flake8-type-checking
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate
+    "PGH", # pygrep-hooks
+    "PL", # Pylint
+    "TRY", # tryceratops
+    "FLY", # flynt
+    "RUF", # Ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "PLR0913", # too many arguments
+    "TRY003", # long exception messages
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["blueprint"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
