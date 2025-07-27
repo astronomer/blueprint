@@ -163,7 +163,7 @@ def describe(blueprint_name: str, template_dir: Optional[str]):
 @cli.command()
 @click.argument("blueprint_name")
 @click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
-@click.option("--template-dir", default=".astro/templates", help="Template directory path")
+@click.option("--template-dir", default="dags/blueprints/templates", help="Template directory path")
 def schema(blueprint_name: str, output: Optional[str], template_dir: str):
     """Generate JSON Schema for a blueprint.
 
@@ -353,22 +353,20 @@ def detect_environment() -> Dict[str, str]:
     """Detect project structure and suggest defaults."""
     suggestions = {}
 
-    # Check for Astronomer
-    if Path(".astro").exists():
-        suggestions["template_path"] = ".astro/templates"
-        suggestions["dags_folder"] = "dags"
-    # Check for standalone Airflow
-    elif Path("dags").exists():
-        suggestions["template_path"] = "dags/templates"
+    # Check for dags directory
+    if Path("dags").exists():
+        suggestions["template_path"] = "dags/blueprints/templates"
         suggestions["dags_folder"] = "dags"
     else:
         # Try to get dags folder from Airflow
         try:
             suggestions["dags_folder"] = str(get_airflow_dags_folder())
+            suggestions["template_path"] = f"{suggestions['dags_folder']}/blueprints/templates"
         except Exception:
             suggestions["dags_folder"] = "dags"
+            suggestions["template_path"] = "dags/blueprints/templates"
 
-    suggestions["output_dir"] = f"{suggestions.get('dags_folder', 'dags')}/configs"
+    suggestions["output_dir"] = f"{suggestions.get('dags_folder', 'dags')}/blueprints/instances"
     return suggestions
 
 
@@ -407,25 +405,31 @@ def create_example_blueprint(template_path: str, force: bool):
     console.print(f"  ✅ Created example blueprint: {example_path}")
 
 
-def update_gitignore():
-    """Add blueprint.toml to .gitignore if not already there."""
-    gitignore_path = Path(".gitignore")
+def handle_requirements_txt():
+    """Check and update requirements.txt with airflow-blueprint package."""
+    requirements_path = Path("requirements.txt")
+    package_name = "airflow-blueprint"
 
-    entries_to_add = []
+    if requirements_path.exists():
+        content = requirements_path.read_text()
+        # Check if package is already in requirements
+        if package_name in content:
+            return
 
-    if gitignore_path.exists():
-        content = gitignore_path.read_text()
-        if "blueprint.toml" not in content:
-            entries_to_add.append("blueprint.toml")
+        # Ask user if they want to add it
+        if click.confirm(f"\n  Add {package_name} to requirements.txt?", default=True):
+            with requirements_path.open("a") as f:
+                f.write(f"\n{package_name}\n")
+            console.print(f"  ✅ Added {package_name} to requirements.txt")
+        else:
+            console.print(
+                f"\n  [yellow]⚠️  Remember to add '{package_name}' to your requirements.txt[/yellow]"
+            )
     else:
-        entries_to_add.append("blueprint.toml")
-
-    if entries_to_add:
-        with gitignore_path.open("a") as f:
-            f.write("\n# Blueprint local config\n")
-            for entry in entries_to_add:
-                f.write(f"{entry}\n")
-        console.print("  ✅ Updated .gitignore")
+        console.print(
+            f"\n  [yellow]⚠️  No requirements.txt found. Make sure to install '{package_name}' "
+            "in your Airflow environment.[/yellow]"
+        )
 
 
 @cli.command()
@@ -448,10 +452,12 @@ def init(force: bool):
     # 2. Configure paths
     console.print("📁 [bold]Configure Paths[/bold]")
     template_path = click.prompt(
-        "  Template directory", default=detected_env.get("template_path", ".astro/templates")
+        "  Template directory",
+        default=detected_env.get("template_path", "dags/blueprints/templates"),
     )
     output_dir = click.prompt(
-        "  Output directory for configs", default=detected_env.get("output_dir", "dags/configs")
+        "  Output directory for configs",
+        default=detected_env.get("output_dir", "dags/blueprints/instances"),
     )
 
     # 3. DAG loader setup
@@ -460,7 +466,7 @@ def init(force: bool):
 
     loader_path = None
     if setup_loader:
-        default_loader_path = f"{detected_env.get('dags_folder', 'dags')}/load_blueprints.py"
+        default_loader_path = f"{detected_env.get('dags_folder', 'dags')}/blueprints/loader.py"
         loader_path = click.prompt("  DAG loader location", default=default_loader_path)
 
     # 4. Example blueprint
@@ -490,8 +496,8 @@ def init(force: bool):
     if create_example:
         create_example_blueprint(template_path, force)
 
-    # Update .gitignore
-    update_gitignore()
+    # Handle requirements.txt
+    handle_requirements_txt()
 
     # 6. Next steps
     console.print("\n[green]✨ Blueprint initialized![/green]")
@@ -499,7 +505,7 @@ def init(force: bool):
     console.print("  1. Run [cyan]blueprint list[/cyan] to see available blueprints")
     if create_example:
         console.print("  2. Run [cyan]blueprint new[/cyan] to create a DAG from the example")
-    console.print("  3. Edit [cyan]blueprint.toml[/cyan] to adjust settings")
+    console.print("  3. Commit [cyan]blueprint.toml[/cyan] to share configuration with your team")
     if setup_loader:
         console.print(f"  4. Ensure [cyan]{loader_path}[/cyan] is in your DAGs folder")
 
