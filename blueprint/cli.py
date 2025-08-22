@@ -30,7 +30,7 @@ DESCRIPTION_TRUNCATE_LENGTH = 47
 
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="airflow-blueprint")
 def cli():
     """Blueprint - Reusable, validated Airflow DAG templates.
 
