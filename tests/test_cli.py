@@ -15,6 +15,13 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Blueprint - Reusable, validated Airflow DAG templates" in result.output
 
+    def test_cli_version(self):
+        """Test that CLI shows version information."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+        assert "airflow-blueprint" in result.output.lower()
+
     def test_list_command_empty(self, tmp_path):
         """Test list command with no blueprints."""
         runner = CliRunner()
