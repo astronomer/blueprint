@@ -242,3 +242,135 @@ retries: 10
             # Config should be unchanged
             content = config_file.read_text()
             assert content == "# Existing config"
+
+    def test_lint_duplicate_dag_ids(self, tmp_path):
+        """Test linting detects duplicate DAG IDs across multiple files."""
+        # Create blueprint
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+
+        blueprint_code = """
+from blueprint import Blueprint, BaseModel
+from airflow import DAG
+from datetime import datetime
+
+class DuplicateTestConfig(BaseModel):
+    job_id: str
+
+class DuplicateTestBlueprint(Blueprint[DuplicateTestConfig]):
+    def render(self, config: DuplicateTestConfig) -> DAG:
+        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+"""
+        (template_dir / "duplicate_test.py").write_text(blueprint_code)
+
+        # Create two config files with same DAG ID
+        config_file1 = tmp_path / "config1.dag.yaml"
+        config_file1.write_text("""
+blueprint: duplicate_test_blueprint
+job_id: same-dag-id
+""")
+
+        config_file2 = tmp_path / "config2.dag.yaml"
+        config_file2.write_text("""
+blueprint: duplicate_test_blueprint
+job_id: same-dag-id
+""")
+
+        # Change to tmp_path directory so lint command finds both files
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(str(tmp_path))
+            
+            runner = CliRunner()
+            result = runner.invoke(cli, ["lint", "--template-dir", str(template_dir)])
+            assert result.exit_code == 1  # Should fail due to duplicate
+            assert "Duplicate DAG ID" in result.output
+            assert "same-dag-id" in result.output
+            assert "config1.dag.yaml" in result.output
+            assert "config2.dag.yaml" in result.output
+        finally:
+            os.chdir(original_dir)
+
+    def test_lint_no_duplicate_dag_ids(self, tmp_path):
+        """Test linting passes when DAG IDs are unique."""
+        # Create blueprint
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+
+        blueprint_code = """
+from blueprint import Blueprint, BaseModel
+from airflow import DAG
+from datetime import datetime
+
+class UniqueTestConfig(BaseModel):
+    job_id: str
+
+class UniqueTestBlueprint(Blueprint[UniqueTestConfig]):
+    def render(self, config: UniqueTestConfig) -> DAG:
+        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+"""
+        (template_dir / "unique_test.py").write_text(blueprint_code)
+
+        # Create two config files with different DAG IDs
+        config_file1 = tmp_path / "config1.dag.yaml"
+        config_file1.write_text("""
+blueprint: unique_test_blueprint
+job_id: first-dag-id
+""")
+
+        config_file2 = tmp_path / "config2.dag.yaml"
+        config_file2.write_text("""
+blueprint: unique_test_blueprint
+job_id: second-dag-id
+""")
+
+        # Change to tmp_path directory so lint command finds both files
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(str(tmp_path))
+            
+            runner = CliRunner()
+            result = runner.invoke(cli, ["lint", "--template-dir", str(template_dir)])
+            assert result.exit_code == 0  # Should pass
+            assert "✅" in result.output
+            assert "config1.dag.yaml" in result.output
+            assert "config2.dag.yaml" in result.output
+            # Should not mention duplicates
+            assert "Duplicate DAG ID" not in result.output
+        finally:
+            os.chdir(original_dir)
+
+    def test_lint_single_file_no_duplicate_check(self, tmp_path):
+        """Test linting single file doesn't check for duplicates."""
+        # Create blueprint
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+
+        blueprint_code = """
+from blueprint import Blueprint, BaseModel
+from airflow import DAG
+from datetime import datetime
+
+class SingleTestConfig(BaseModel):
+    job_id: str
+
+class SingleTestBlueprint(Blueprint[SingleTestConfig]):
+    def render(self, config: SingleTestConfig) -> DAG:
+        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+"""
+        (template_dir / "single_test.py").write_text(blueprint_code)
+
+        # Create one config file
+        config_file = tmp_path / "single.dag.yaml"
+        config_file.write_text("""
+blueprint: single_test_blueprint
+job_id: single-dag-id
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["lint", str(config_file), "--template-dir", str(template_dir)])
+        assert result.exit_code == 0  # Should pass
+        assert "✅" in result.output
+        assert "Valid" in result.output

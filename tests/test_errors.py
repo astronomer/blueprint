@@ -6,6 +6,7 @@ from blueprint.errors import (
     BlueprintNotFoundError,
     ConfigurationError,
     DuplicateBlueprintError,
+    DuplicateDAGIdError,
     YAMLParseError,
     suggest_valid_values,
 )
@@ -151,6 +152,36 @@ class TestDuplicateBlueprintError:
         assert ".astro/templates/etl.py" in message
         assert ".astro/templates/pipelines/etl.py" in message
         assert "Rename one of the blueprint classes" in message
+
+
+class TestDuplicateDAGIdError:
+    """Test duplicate DAG ID error."""
+
+    def test_duplicate_dag_id_error(self, tmp_path):
+        """Test error showing duplicate DAG IDs."""
+        # Create test config files
+        config1 = tmp_path / "customer_etl.dag.yaml"
+        config2 = tmp_path / "sales_etl.dag.yaml"
+
+        error = DuplicateDAGIdError("my-dag-id", [config1, config2])
+        message = str(error)
+
+        assert "Duplicate DAG ID 'my-dag-id'" in message
+        assert "customer_etl.dag.yaml" in message
+        assert "sales_etl.dag.yaml" in message
+        assert "Change the 'job_id' field" in message
+        assert "Use unique DAG IDs" in message
+        assert "naming convention" in message
+
+    def test_duplicate_dag_id_error_single_file_fallback(self, tmp_path):
+        """Test error with single file (edge case)."""
+        config1 = tmp_path / "test.dag.yaml"
+        
+        error = DuplicateDAGIdError("test-id", [config1])
+        message = str(error)
+        
+        assert "Duplicate DAG ID 'test-id'" in message
+        assert "test.dag.yaml" in message
 
 
 class TestSuggestionHelpers:

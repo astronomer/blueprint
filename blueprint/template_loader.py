@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from blueprint.config import get_output_dir
-from blueprint.errors import BlueprintError
+from blueprint.errors import BlueprintError, DuplicateDAGIdError
 from blueprint.loaders import from_yaml
 from blueprint.utils import get_template_path as utils_get_template_path
 
@@ -90,6 +90,7 @@ def discover_yaml_dags(
 
     dags = {}
     failed_configs = []
+    dag_id_to_configs = {}  # Track DAG IDs to config files for duplicate detection
 
     logger.info("Discovering DAG configurations in %s (pattern: %s)", configs_dir_path, pattern)
 
@@ -110,6 +111,16 @@ def discover_yaml_dags(
         try:
             # Load the DAG from YAML (now uses registry automatically)
             dag = from_yaml(str(yaml_file), template_dir=template_dir)
+
+            # Check for duplicate DAG IDs
+            dag_id = dag.dag_id
+            if dag_id in dag_id_to_configs:
+                # Duplicate found - collect all files with this DAG ID
+                conflicting_configs = dag_id_to_configs[dag_id] + [yaml_file]
+                raise DuplicateDAGIdError(dag_id, conflicting_configs)
+            
+            # Track this DAG ID
+            dag_id_to_configs[dag_id] = [yaml_file]
 
             # Use the filename (without extension) as the key
             dag_name = yaml_file.stem.replace(".dag", "")

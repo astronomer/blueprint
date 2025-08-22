@@ -219,6 +219,25 @@ class DuplicateBlueprintError(BlueprintError):
         super().__init__(message)
 
 
+class DuplicateDAGIdError(BlueprintError):
+    """Error when duplicate DAG IDs are found across configurations."""
+
+    def __init__(self, dag_id: str, config_files: List[Path]):
+        self.dag_id = dag_id
+        self.config_files = config_files
+
+        message = f"Duplicate DAG ID '{dag_id}' found in multiple configuration files:"
+        for config_file in config_files:
+            message += f"\n  • {config_file.name}"
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Change the 'job_id' field in one of the configuration files"
+        message += "\n  • Use unique DAG IDs for each configuration"
+        message += "\n  • Consider using a naming convention like '<team>-<service>-<purpose>'"
+
+        super().__init__(message)
+
+
 def suggest_valid_values(invalid_value: str, valid_values: List[str], field_name: str) -> List[str]:
     """Generate suggestions for invalid values.
 

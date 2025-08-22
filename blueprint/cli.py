@@ -19,6 +19,7 @@ from blueprint import (
     load_blueprint,
 )
 from blueprint.config import get_output_dir, get_template_path
+from blueprint.errors import DuplicateDAGIdError
 from blueprint.utils import get_airflow_dags_folder
 
 console = Console()
@@ -61,12 +62,26 @@ def lint(path: Optional[str], template_dir: Optional[str]):
         return
 
     errors_found = False
+    dag_ids_to_files = {}  # Track DAG IDs to detect duplicates
+    valid_configs = []  # Track successfully validated configs
 
+    # First pass: validate individual configurations
     for config_path in configs_to_check:
         try:
             # Validate configuration without rendering DAG (no Airflow import needed)
-            _ = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
+            config = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
             console.print(f"✅ {config_path} - Valid")
+            
+            # Extract job_id (which becomes DAG ID) for duplicate checking
+            job_id = getattr(config, 'job_id', None)
+            if job_id:
+                if job_id in dag_ids_to_files:
+                    dag_ids_to_files[job_id].append(config_path)
+                else:
+                    dag_ids_to_files[job_id] = [config_path]
+            
+            valid_configs.append((config_path, config))
+            
         except Exception as e:
             errors_found = True
             console.print(f"❌ {config_path}")
@@ -75,6 +90,16 @@ def lint(path: Optional[str], template_dir: Optional[str]):
                 console.print(e._format_message())  # type: ignore[misc]
             else:
                 console.print(f"  [red]Error:[/red] {e}")
+
+    # Second pass: check for duplicate DAG IDs (only if multiple files and no validation errors)
+    if len(valid_configs) > 1 and not errors_found:
+        for dag_id, config_files in dag_ids_to_files.items():
+            if len(config_files) > 1:
+                errors_found = True
+                console.print(f"\n❌ Duplicate DAG ID detected:")
+                # Create and display the duplicate DAG ID error
+                error = DuplicateDAGIdError(dag_id, config_files)
+                console.print(str(error))
 
     if errors_found:
         sys.exit(1)

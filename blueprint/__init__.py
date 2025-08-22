@@ -8,6 +8,7 @@ from .errors import (
     BlueprintNotFoundError,
     ConfigurationError,
     DuplicateBlueprintError,
+    DuplicateDAGIdError,
     YAMLParseError,
 )
 from .errors import (
@@ -51,6 +52,7 @@ __all__ = [
     "ConfigurationError",
     "Dict",
     "DuplicateBlueprintError",
+    "DuplicateDAGIdError",
     "Field",
     "List",
     "Optional",
