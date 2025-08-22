@@ -1,0 +1,79 @@
+name: Claude Issue Review
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  issue-review:
+    # Only review new issues that don't already have labels and aren't from maintainers
+    if: |
+      github.event.issue.labels.length == 0 &&
+      github.event.issue.author_association != 'OWNER' &&
+      github.event.issue.author_association != 'MEMBER' &&
+      !contains(github.event.issue.title, '[skip-review]')
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Review New Issue
+        id: claude-issue-review
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Optional: Use Claude Opus for more thorough analysis
+          # model: "claude-opus-4-1-20250805"
+
+          direct_prompt: |
+            Please review this new issue and provide helpful feedback:
+
+            1. **Categorization**: Suggest appropriate labels based on content:
+               - `bug` for bug reports
+               - `feature` for feature requests
+               - `documentation` for docs improvements
+               - `question` for usage questions
+               - `enhancement` for improvements to existing features
+
+            2. **Quality Check**: Verify the issue includes:
+               - For bugs: Clear description, reproduction steps, expected vs actual behavior, environment details
+               - For features: Use case, proposed solution, alternatives considered
+               - For questions: What was tried, what documentation was consulted
+
+            3. **Duplicate Detection**: Check if this might duplicate existing issues (mention if similar issues exist)
+
+            4. **Initial Response**:
+               - Welcome first-time contributors warmly
+               - Ask clarifying questions if critical information is missing
+               - Suggest relevant documentation or examples if applicable
+               - For questions, provide helpful guidance or suggest converting to a Discussion if more appropriate
+
+            5. **Technical Context**: If relevant, identify:
+               - Which blueprint components or features are affected
+               - Whether this relates to DAG templates, CLI, or configuration
+
+            Do NOT:
+            - Close or transfer the issue
+            - Make promises about implementation timeline
+            - Assign the issue to anyone
+            - Discuss security vulnerabilities in detail (flag for private discussion instead)
+
+            Be constructive, helpful, and welcoming in your response.
+
+          # Allow limited tools for checking project context
+          allowed_tools: |
+            Bash(uv run blueprint --help),
+            Bash(cd examples && uv run blueprint list),
+            Bash(ls examples/.astro/templates/)
+
+          # Use sticky comment so Claude updates the same comment if issue is edited
+          use_sticky_comment: true
