@@ -41,28 +41,27 @@ def cli():
 def _get_configs_to_check(path: Optional[str]) -> List[Path]:
     """Get list of configuration files to check."""
     configs_to_check = []
-    
+
     if path:
         configs_to_check.append(Path(path))
     else:
         # Find all .dag.yaml files
         for yaml_file in Path().rglob("*.dag.yaml"):
             configs_to_check.append(yaml_file)
-    
+
     return configs_to_check
 
 
-def _validate_config(config_path: Path, template_dir: str) -> tuple[bool, Optional[str], Optional[object]]:
+def _validate_config(
+    config_path: Path, template_dir: str
+) -> tuple[bool, Optional[str], Optional[object]]:
     """Validate a single configuration file.
-    
+
     Returns:
         tuple of (success, job_id, config)
     """
     try:
         config = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
-        console.print(f"✅ {config_path} - Valid")
-        job_id = getattr(config, "job_id", None)
-        return True, job_id, config
     except Exception as e:
         console.print(f"❌ {config_path}")
         if hasattr(e, "_format_message") and callable(e._format_message):
@@ -70,11 +69,15 @@ def _validate_config(config_path: Path, template_dir: str) -> tuple[bool, Option
         else:
             console.print(f"  [red]Error:[/red] {e}")
         return False, None, None
+    else:
+        console.print(f"✅ {config_path} - Valid")
+        job_id = getattr(config, "job_id", None)
+        return True, job_id, config
 
 
 def _check_duplicate_dag_ids(dag_ids_to_files: Dict[str, List[Path]]) -> bool:
     """Check for duplicate DAG IDs and report errors.
-    
+
     Returns:
         True if duplicates found, False otherwise
     """
@@ -111,7 +114,7 @@ def lint(path: Optional[str], template_dir: Optional[str]):
     # First pass: validate individual configurations
     for config_path in configs_to_check:
         success, job_id, config = _validate_config(config_path, template_dir)
-        
+
         if success and config:
             if job_id:
                 if job_id in dag_ids_to_files:
@@ -123,9 +126,8 @@ def lint(path: Optional[str], template_dir: Optional[str]):
             errors_found = True
 
     # Second pass: check for duplicate DAG IDs (only if multiple files and no validation errors)
-    if len(valid_configs) > 1 and not errors_found:
-        if _check_duplicate_dag_ids(dag_ids_to_files):
-            errors_found = True
+    if len(valid_configs) > 1 and not errors_found and _check_duplicate_dag_ids(dag_ids_to_files):
+        errors_found = True
 
     if errors_found:
         sys.exit(1)

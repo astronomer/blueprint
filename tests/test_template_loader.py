@@ -1,7 +1,6 @@
 """Tests for the template loader with duplicate DAG ID detection."""
 
 import pytest
-from pathlib import Path
 
 from blueprint import DuplicateDAGIdError
 from blueprint.template_loader import discover_yaml_dags
@@ -37,14 +36,14 @@ class TestBlueprint(Blueprint[TestConfig]):
         # Create configs directory with different DAG IDs
         configs_dir = tmp_path / "configs"
         configs_dir.mkdir()
-        
+
         config1 = """
 blueprint: test_blueprint
 job_id: customer-etl
 schedule: "@daily"
 """
         (configs_dir / "customer.dag.yaml").write_text(config1)
-        
+
         config2 = """
 blueprint: test_blueprint
 job_id: sales-etl
@@ -53,10 +52,7 @@ schedule: "@hourly"
         (configs_dir / "sales.dag.yaml").write_text(config2)
 
         # Discover DAGs - should work without errors
-        dags = discover_yaml_dags(
-            configs_dir=str(configs_dir),
-            template_dir=str(template_dir)
-        )
+        dags = discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
         assert len(dags) == 2
         assert "customer" in dags
@@ -91,14 +87,14 @@ class TestBlueprint(Blueprint[TestConfig]):
         # Create configs directory with DUPLICATE DAG IDs
         configs_dir = tmp_path / "configs"
         configs_dir.mkdir()
-        
+
         config1 = """
 blueprint: test_blueprint
 job_id: duplicate-dag-id
 schedule: "@daily"
 """
         (configs_dir / "customer.dag.yaml").write_text(config1)
-        
+
         config2 = """
 blueprint: test_blueprint
 job_id: duplicate-dag-id
@@ -108,10 +104,7 @@ schedule: "@hourly"
 
         # Discover DAGs - should raise DuplicateDAGIdError
         with pytest.raises(DuplicateDAGIdError) as exc_info:
-            discover_yaml_dags(
-                configs_dir=str(configs_dir),
-                template_dir=str(template_dir)
-            )
+            discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
         error = exc_info.value
         assert error.dag_id == "duplicate-dag-id"
@@ -146,21 +139,21 @@ class TestBlueprint(Blueprint[TestConfig]):
         # Create configs directory with one duplicate and one unique
         configs_dir = tmp_path / "configs"
         configs_dir.mkdir()
-        
+
         config1 = """
 blueprint: test_blueprint
 job_id: unique-dag
 schedule: "@daily"
 """
         (configs_dir / "unique.dag.yaml").write_text(config1)
-        
+
         config2 = """
 blueprint: test_blueprint
 job_id: duplicate-dag
 schedule: "@hourly"
 """
         (configs_dir / "first_duplicate.dag.yaml").write_text(config2)
-        
+
         config3 = """
 blueprint: test_blueprint
 job_id: duplicate-dag
@@ -170,10 +163,7 @@ schedule: "@weekly"
 
         # Discover DAGs - should raise DuplicateDAGIdError
         with pytest.raises(DuplicateDAGIdError) as exc_info:
-            discover_yaml_dags(
-                configs_dir=str(configs_dir),
-                template_dir=str(template_dir)
-            )
+            discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
         error = exc_info.value
         assert error.dag_id == "duplicate-dag"
@@ -188,10 +178,7 @@ schedule: "@weekly"
         template_dir.mkdir()
 
         # Should return empty dict, no error
-        dags = discover_yaml_dags(
-            configs_dir=str(configs_dir),
-            template_dir=str(template_dir)
-        )
+        dags = discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
         assert len(dags) == 0
 
@@ -202,9 +189,6 @@ schedule: "@weekly"
         template_dir.mkdir()
 
         # Should return empty dict, no error
-        dags = discover_yaml_dags(
-            configs_dir=str(configs_dir),
-            template_dir=str(template_dir)
-        )
+        dags = discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
         assert len(dags) == 0

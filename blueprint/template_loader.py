@@ -17,6 +17,9 @@ from blueprint.utils import get_template_path as utils_get_template_path
 # Default template path relative to AIRFLOW_HOME
 DEFAULT_TEMPLATE_PATH = ".astro/templates"
 
+# Create logger for this module
+logger = logging.getLogger(__name__)
+
 
 def _raise_duplicate_error(dag_id: str, conflicting_configs: list) -> None:
     """Raise a DuplicateDAGIdError for the given DAG ID and configs."""

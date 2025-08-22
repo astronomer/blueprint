@@ -116,6 +116,9 @@ ignore = [
     "PLC0415", # import outside top level (needed for optional dependencies)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004"]  # Magic value comparisons are fine in tests
+
 [tool.ruff.lint.isort]
 known-first-party = ["blueprint"]
 

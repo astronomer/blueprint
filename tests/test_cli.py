@@ -279,6 +279,7 @@ job_id: same-dag-id
         # Change to tmp_path directory so lint command finds both files
         import os
         from pathlib import Path
+
         original_dir = Path.cwd()
         try:
             os.chdir(str(tmp_path))
@@ -329,6 +330,7 @@ job_id: second-dag-id
         # Change to tmp_path directory so lint command finds both files
         import os
         from pathlib import Path
+
         original_dir = Path.cwd()
         try:
             os.chdir(str(tmp_path))
