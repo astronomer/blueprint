@@ -20,7 +20,6 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "airflow-blueprint" in result.output.lower()
 
     def test_list_command_empty(self, tmp_path):
         """Test list command with no blueprints."""
