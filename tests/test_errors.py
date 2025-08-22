@@ -176,10 +176,10 @@ class TestDuplicateDAGIdError:
     def test_duplicate_dag_id_error_single_file_fallback(self, tmp_path):
         """Test error with single file (edge case)."""
         config1 = tmp_path / "test.dag.yaml"
-        
+
         error = DuplicateDAGIdError("test-id", [config1])
         message = str(error)
-        
+
         assert "Duplicate DAG ID 'test-id'" in message
         assert "test.dag.yaml" in message
 

@@ -3,7 +3,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import click
 import yaml
@@ -38,6 +38,56 @@ def cli():
     """
 
 
+def _get_configs_to_check(path: Optional[str]) -> List[Path]:
+    """Get list of configuration files to check."""
+    configs_to_check = []
+    
+    if path:
+        configs_to_check.append(Path(path))
+    else:
+        # Find all .dag.yaml files
+        for yaml_file in Path().rglob("*.dag.yaml"):
+            configs_to_check.append(yaml_file)
+    
+    return configs_to_check
+
+
+def _validate_config(config_path: Path, template_dir: str) -> tuple[bool, Optional[str], Optional[object]]:
+    """Validate a single configuration file.
+    
+    Returns:
+        tuple of (success, job_id, config)
+    """
+    try:
+        config = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
+        console.print(f"✅ {config_path} - Valid")
+        job_id = getattr(config, "job_id", None)
+        return True, job_id, config
+    except Exception as e:
+        console.print(f"❌ {config_path}")
+        if hasattr(e, "_format_message") and callable(e._format_message):
+            console.print(e._format_message())  # type: ignore[misc]
+        else:
+            console.print(f"  [red]Error:[/red] {e}")
+        return False, None, None
+
+
+def _check_duplicate_dag_ids(dag_ids_to_files: Dict[str, List[Path]]) -> bool:
+    """Check for duplicate DAG IDs and report errors.
+    
+    Returns:
+        True if duplicates found, False otherwise
+    """
+    errors_found = False
+    for dag_id, config_files in dag_ids_to_files.items():
+        if len(config_files) > 1:
+            errors_found = True
+            console.print("\n❌ Duplicate DAG ID detected:")
+            error = DuplicateDAGIdError(dag_id, config_files)
+            console.print(str(error))
+    return errors_found
+
+
 @cli.command()
 @click.argument("path", required=False, type=click.Path(exists=True))
 @click.option("--template-dir", default=None, help="Template directory path")
@@ -48,14 +98,7 @@ def lint(path: Optional[str], template_dir: Optional[str]):
     Otherwise, validate all .dag.yaml files in the current directory.
     """
     template_dir = get_template_path(template_dir)
-    configs_to_check = []
-
-    if path:
-        configs_to_check.append(Path(path))
-    else:
-        # Find all .dag.yaml files
-        for yaml_file in Path().rglob("*.dag.yaml"):
-            configs_to_check.append(yaml_file)
+    configs_to_check = _get_configs_to_check(path)
 
     if not configs_to_check:
         console.print("[yellow]No configuration files found.[/yellow]")
@@ -67,39 +110,22 @@ def lint(path: Optional[str], template_dir: Optional[str]):
 
     # First pass: validate individual configurations
     for config_path in configs_to_check:
-        try:
-            # Validate configuration without rendering DAG (no Airflow import needed)
-            config = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
-            console.print(f"✅ {config_path} - Valid")
-            
-            # Extract job_id (which becomes DAG ID) for duplicate checking
-            job_id = getattr(config, 'job_id', None)
+        success, job_id, config = _validate_config(config_path, template_dir)
+        
+        if success and config:
             if job_id:
                 if job_id in dag_ids_to_files:
                     dag_ids_to_files[job_id].append(config_path)
                 else:
                     dag_ids_to_files[job_id] = [config_path]
-            
             valid_configs.append((config_path, config))
-            
-        except Exception as e:
+        else:
             errors_found = True
-            console.print(f"❌ {config_path}")
-            # The new errors format themselves nicely
-            if hasattr(e, "_format_message") and callable(e._format_message):
-                console.print(e._format_message())  # type: ignore[misc]
-            else:
-                console.print(f"  [red]Error:[/red] {e}")
 
     # Second pass: check for duplicate DAG IDs (only if multiple files and no validation errors)
     if len(valid_configs) > 1 and not errors_found:
-        for dag_id, config_files in dag_ids_to_files.items():
-            if len(config_files) > 1:
-                errors_found = True
-                console.print(f"\n❌ Duplicate DAG ID detected:")
-                # Create and display the duplicate DAG ID error
-                error = DuplicateDAGIdError(dag_id, config_files)
-                console.print(str(error))
+        if _check_duplicate_dag_ids(dag_ids_to_files):
+            errors_found = True
 
     if errors_found:
         sys.exit(1)

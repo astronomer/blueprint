@@ -278,10 +278,11 @@ job_id: same-dag-id
 
         # Change to tmp_path directory so lint command finds both files
         import os
-        original_dir = os.getcwd()
+        from pathlib import Path
+        original_dir = Path.cwd()
         try:
             os.chdir(str(tmp_path))
-            
+
             runner = CliRunner()
             result = runner.invoke(cli, ["lint", "--template-dir", str(template_dir)])
             assert result.exit_code == 1  # Should fail due to duplicate
@@ -290,7 +291,7 @@ job_id: same-dag-id
             assert "config1.dag.yaml" in result.output
             assert "config2.dag.yaml" in result.output
         finally:
-            os.chdir(original_dir)
+            os.chdir(str(original_dir))
 
     def test_lint_no_duplicate_dag_ids(self, tmp_path):
         """Test linting passes when DAG IDs are unique."""
@@ -327,10 +328,11 @@ job_id: second-dag-id
 
         # Change to tmp_path directory so lint command finds both files
         import os
-        original_dir = os.getcwd()
+        from pathlib import Path
+        original_dir = Path.cwd()
         try:
             os.chdir(str(tmp_path))
-            
+
             runner = CliRunner()
             result = runner.invoke(cli, ["lint", "--template-dir", str(template_dir)])
             assert result.exit_code == 0  # Should pass
@@ -340,7 +342,7 @@ job_id: second-dag-id
             # Should not mention duplicates
             assert "Duplicate DAG ID" not in result.output
         finally:
-            os.chdir(original_dir)
+            os.chdir(str(original_dir))
 
     def test_lint_single_file_no_duplicate_check(self, tmp_path):
         """Test linting single file doesn't check for duplicates."""
