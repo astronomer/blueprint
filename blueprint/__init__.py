@@ -1,6 +1,6 @@
 """Blueprint - Reusable, validated Airflow DAG templates."""
 
-__version__ = "0.0.1a2"
+__version__ = "0.0.1a3"
 
 from .core import Blueprint
 from .errors import (
