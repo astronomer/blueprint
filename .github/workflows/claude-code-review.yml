@@ -26,9 +26,16 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
 
     steps:
+      - name: Remove safe-to-review label (one-time approval)
+        if: github.event.action == 'labeled' && github.event.label.name == 'safe-to-review'
+        run: |
+          gh api --method DELETE /repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/safe-to-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
