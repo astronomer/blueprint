@@ -1,8 +1,8 @@
 name: Claude Code Review
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, labeled]
+  pull_request:
+    types: [opened, synchronize]
     # Optional: Only run on specific file changes
     # paths:
     #   - "src/**/*.ts"
@@ -12,34 +12,22 @@ on:
 
 jobs:
   claude-review:
-    # Safety: Only run for trusted contributors or when specifically requested
+    # Safety: Only run for trusted contributors (forks have read-only tokens)
     if: |
-      (github.event.action != 'labeled' && (
-        github.event.pull_request.author_association == 'OWNER' ||
-        github.event.pull_request.author_association == 'MEMBER' ||
-        github.event.pull_request.author_association == 'COLLABORATOR' ||
-        contains(github.event.pull_request.labels.*.name, 'safe-to-review')
-      )) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'safe-to-review')
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR'
 
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: read
+      issues: read
 
     steps:
-      - name: Remove safe-to-review label (one-time approval)
-        if: github.event.action == 'labeled' && github.event.label.name == 'safe-to-review'
-        run: |
-          gh api --method DELETE /repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/safe-to-review
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       - name: Run Claude Code Review
@@ -47,7 +35,6 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4.1)
           # model: "claude-opus-4-1-20250805"
