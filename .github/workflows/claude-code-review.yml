@@ -1,7 +1,7 @@
 name: Claude Code Review
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
     # paths:
@@ -12,11 +12,12 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Safety: Only run for trusted contributors or when specifically requested
+    if: |
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR' ||
+      contains(github.event.pull_request.labels.*.name, 'safe-to-review')
 
     runs-on: ubuntu-latest
     permissions:
@@ -28,6 +29,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       - name: Run Claude Code Review
