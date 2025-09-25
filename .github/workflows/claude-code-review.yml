@@ -2,7 +2,7 @@ name: Claude Code Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize]
+    types: [opened, synchronize, labeled]
     # Optional: Only run on specific file changes
     # paths:
     #   - "src/**/*.ts"
@@ -14,18 +14,28 @@ jobs:
   claude-review:
     # Safety: Only run for trusted contributors or when specifically requested
     if: |
-      github.event.pull_request.author_association == 'OWNER' ||
-      github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR' ||
-      contains(github.event.pull_request.labels.*.name, 'safe-to-review')
+      (github.event.action != 'labeled' && (
+        github.event.pull_request.author_association == 'OWNER' ||
+        github.event.pull_request.author_association == 'MEMBER' ||
+        github.event.pull_request.author_association == 'COLLABORATOR' ||
+        contains(github.event.pull_request.labels.*.name, 'safe-to-review')
+      )) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'safe-to-review')
 
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
 
     steps:
+      - name: Remove safe-to-review label (one-time approval)
+        if: github.event.action == 'labeled' && github.event.label.name == 'safe-to-review'
+        run: |
+          gh api --method DELETE /repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/safe-to-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
