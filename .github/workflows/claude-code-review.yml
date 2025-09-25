@@ -1,7 +1,7 @@
 name: Claude Code Review
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
     # paths:
@@ -12,12 +12,11 @@ on:
 
 jobs:
   claude-review:
-    # Safety: Only run for trusted contributors or when specifically requested
+    # Safety: Only run for trusted contributors (forks have read-only tokens)
     if: |
       github.event.pull_request.author_association == 'OWNER' ||
       github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR' ||
-      contains(github.event.pull_request.labels.*.name, 'safe-to-review')
+      github.event.pull_request.author_association == 'COLLABORATOR'
 
     runs-on: ubuntu-latest
     permissions:
@@ -29,7 +28,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       - name: Run Claude Code Review
