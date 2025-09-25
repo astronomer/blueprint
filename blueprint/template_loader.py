@@ -104,10 +104,12 @@ def discover_yaml_dags(
         logger.warning("Configuration directory does not exist: %s", configs_dir_path)
         return dags
 
-    config_files = list(configs_dir_path.glob(pattern))
+    config_files = list(configs_dir_path.rglob(pattern))
     if not config_files:
         logger.warning(
-            "No configuration files found matching pattern '%s' in %s", pattern, configs_dir_path
+            "No configuration files found matching pattern '%s' in %s",
+            pattern,
+            configs_dir_path,
         )
         return dags
 
@@ -150,7 +152,9 @@ def discover_yaml_dags(
     # Summary logging
     if failed_configs:
         logger.warning(
-            "Failed to load %d of %d DAG configurations", len(failed_configs), len(config_files)
+            "Failed to load %d of %d DAG configurations",
+            len(failed_configs),
+            len(config_files),
         )
         logger.info("Failed configurations:")
         for yaml_file, error in failed_configs:

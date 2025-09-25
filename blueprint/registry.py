@@ -74,13 +74,19 @@ class BlueprintRegistry:
 
     def _discover_in_directory(self, directory: Path) -> None:
         """Discover blueprints in a specific directory."""
-        for py_file in directory.glob("*.py"):
+        for py_file in directory.rglob("*.py"):
             if py_file.name.startswith("_"):
                 continue
 
             try:
+                # Create a unique module name from the relative path
+                relative_path = py_file.relative_to(directory)
+                module_path_parts = list(relative_path.parts)
+                module_path_parts[-1] = relative_path.stem
+                flat_module_path = "_".join(module_path_parts)
+
                 # Load the module
-                module_name = f"_blueprint_templates_{directory.name}_{py_file.stem}"
+                module_name = f"_blueprint_templates_{directory.name}_{flat_module_path}"
                 spec = importlib.util.spec_from_file_location(module_name, py_file)
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
@@ -171,7 +177,7 @@ class BlueprintRegistry:
             if not template_dir.exists():
                 continue
 
-            for py_file in template_dir.glob("*.py"):
+            for py_file in template_dir.rglob("*.py"):
                 if py_file.name.startswith("_"):
                     continue
 
