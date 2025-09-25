@@ -51,14 +51,24 @@ schedule: "@hourly"
 """
         (configs_dir / "sales.dag.yaml").write_text(config2)
 
+        config3 = """
+blueprint: test_blueprint
+job_id: nested-etl
+schedule: "@hourly"
+"""
+        nested_dir = configs_dir / "nested"
+        nested_dir.mkdir()
+        (nested_dir / "nested.dag.yaml").write_text(config3)
         # Discover DAGs - should work without errors
         dags = discover_yaml_dags(configs_dir=str(configs_dir), template_dir=str(template_dir))
 
-        assert len(dags) == 2
+        assert len(dags) == 3
         assert "customer" in dags
         assert "sales" in dags
+        assert "nested" in dags
         assert dags["customer"].dag_id == "customer-etl"
         assert dags["sales"].dag_id == "sales-etl"
+        assert dags["nested"].dag_id == "nested-etl"
 
     def test_discover_yaml_dags_with_duplicates(self, tmp_path):
         """Test DAG discovery that detects duplicate DAG IDs."""

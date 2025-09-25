@@ -28,7 +28,8 @@ class TestBlueprintRegistry:
 
         # Create a simple blueprint
         simple_bp = template_dir / "simple.py"
-        simple_bp.write_text("""
+        simple_bp.write_text(
+            """
 from blueprint import Blueprint, BaseModel
 
 class SimpleConfig(BaseModel):
@@ -40,11 +41,13 @@ class SimpleBlueprint(Blueprint[SimpleConfig]):
         from airflow import DAG
         from datetime import datetime
         return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-""")
+"""
+        )
 
         # Create another blueprint
         etl_bp = template_dir / "etl.py"
-        etl_bp.write_text("""
+        etl_bp.write_text(
+            """
 from blueprint import Blueprint, BaseModel
 
 class ETLConfig(BaseModel):
@@ -64,7 +67,8 @@ class DailyETL(Blueprint[ETLConfig]):
         from airflow import DAG
         from datetime import datetime
         return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-""")
+"""
+        )
 
         return template_dir
 
@@ -139,7 +143,8 @@ class DailyETL(Blueprint[ETLConfig]):
 
         # Same blueprint name in both
         for d in [dir1, dir2]:
-            (d / "test.py").write_text("""
+            (d / "test.py").write_text(
+                """
 from blueprint import Blueprint, BaseModel
 
 class Config(BaseModel):
@@ -150,7 +155,8 @@ class TestBlueprint(Blueprint[Config]):
         from airflow import DAG
         from datetime import datetime
         return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-""")
+"""
+            )
 
         # Override template dirs
         monkeypatch.setattr(registry, "get_template_dirs", lambda: [dir1, dir2])
@@ -210,7 +216,8 @@ class TestBlueprint(Blueprint[Config]):
 
         # Add a new blueprint
         new_bp = temp_blueprints / "new.py"
-        new_bp.write_text("""
+        new_bp.write_text(
+            """
 from blueprint import Blueprint, BaseModel
 
 class NewConfig(BaseModel):
@@ -221,7 +228,8 @@ class NewBlueprint(Blueprint[NewConfig]):
         from airflow import DAG
         from datetime import datetime
         return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-""")
+"""
+        )
 
         # Without force, should use cache
         registry.discover_blueprints()
@@ -252,3 +260,27 @@ class NewBlueprint(Blueprint[NewConfig]):
         # Rediscover
         registry.discover_blueprints()
         assert len(registry.list_blueprints()) > 0
+
+    def test_nested_templates(self, registry, temp_blueprints, monkeypatch):
+        nested = temp_blueprints / "nested"
+        nested.mkdir(parents=True)
+        simple_bp = nested / "nested.py"
+        simple_bp.write_text(
+            """
+from blueprint import Blueprint, BaseModel
+
+class SimpleConfig(BaseModel):
+    job_id: str
+
+class NestedBlueprint(Blueprint[SimpleConfig]):
+    '''A simple test blueprint.'''
+    def render(self, config):
+        from airflow import DAG
+        from datetime import datetime
+        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+"""
+        )
+        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
+        registry.discover_blueprints(force=True)
+        blueprints = registry.list_blueprints()
+        assert "nested_blueprint" in [bp["name"] for bp in blueprints]
