@@ -39,8 +39,8 @@ class DailyETL(Blueprint[DailyETLConfig]):
 
     def render(self, config: DailyETLConfig):
         from airflow import DAG
+        from airflow.decorators import task
         from airflow.operators.bash import BashOperator
-        from airflow.operators.python import PythonOperator
 
         default_args = {
             "owner": "data-team",
@@ -63,16 +63,16 @@ class DailyETL(Blueprint[DailyETLConfig]):
                 bash_command=f'echo "Checking if {config.source_table} has data..."',
             )
 
-            def extract_transform(**_):
+            @task
+            def extract_transform() -> dict[str, int]:
+                """Extract data from source table and apply transformations."""
                 print(f"Extracting data from {config.source_table}")
                 print("Applying transformations...")
                 print(f"Preparing to load into {config.target_table}")
                 return {"records_processed": 1000}
 
-            etl_task = PythonOperator(
-                task_id="extract_transform",
-                python_callable=extract_transform,
-            )
+            etl_result = extract_transform()
+            
             load_data = BashOperator(
                 task_id="load_data",
                 bash_command=f'echo "Loading data into {config.target_table}..."',
@@ -81,5 +81,5 @@ class DailyETL(Blueprint[DailyETLConfig]):
                 task_id="data_quality_check",
                 bash_command=f'echo "Running quality checks on {config.target_table}..."',
             )
-            check_source >> etl_task >> load_data >> quality_check
+            check_source >> etl_result >> load_data >> quality_check
         return dag
