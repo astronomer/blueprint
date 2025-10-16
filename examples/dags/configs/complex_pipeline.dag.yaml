@@ -1,0 +1,12 @@
+blueprint: complex_dependencies
+
+job_id: complex-dependency-pipeline
+data_sources:
+  - orders
+  - customers
+  - products
+  - payments
+enable_data_quality: true
+enable_notifications: true
+parallel_extract: true
+schedule: "@daily"

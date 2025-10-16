@@ -1,0 +1,12 @@
+blueprint: taskflow_api
+
+job_id: taskflow-api-demo
+data_source: customer_database
+processing_steps:
+  - validate
+  - clean
+  - transform
+  - enrich
+output_format: parquet
+parallel_processing: true
+schedule: "@daily"
