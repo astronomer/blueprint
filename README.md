@@ -1,7 +1,5 @@
 # Blueprint
 
-**⚠️ NOTE: This is currently an alpha project and may change significantly.**
-
 Build reusable, validated Airflow DAG templates that anyone on your team can discover and use.
 
 ## What is Blueprint?
