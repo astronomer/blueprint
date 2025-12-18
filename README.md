@@ -392,10 +392,10 @@ blueprint list
 # Show blueprint parameters
 blueprint describe daily_etl
 
-# Generate JSON Schema for IDE validation
+# Generate JSON Schema
 blueprint schema daily_etl
 
-# Save schema to file for VS Code YAML validation
+# Save JSON schema to file
 blueprint schema daily_etl --output .astro/blueprint/schemas/daily_etl.schema.json
 
 # Interactive scaffolding (primary interface)
