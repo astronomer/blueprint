@@ -377,66 +377,6 @@ Blueprint looks for templates in `.astro/templates/` by default. Override with:
 export BLUEPRINT_TEMPLATES_DIR=/path/to/templates
 ```
 
-## IDE Integration with JSON Schema
-
-Blueprint can generate JSON Schema files for your blueprints, enabling autocomplete, inline documentation, and validation directly in your IDE when editing YAML configuration files.
-
-### Generating Schema Files
-
-Use the `blueprint schema` command to generate a JSON Schema for any blueprint:
-
-```bash
-# Print schema to stdout
-blueprint schema daily_etl
-
-# Save to a file for IDE integration
-blueprint schema daily_etl -o schemas/daily_etl.schema.json
-```
-
-### VS Code Setup
-
-To enable YAML validation and autocomplete in VS Code:
-
-1. **Generate schema files** for your blueprints:
-   ```bash
-   mkdir -p .vscode/schemas
-   blueprint schema daily_etl -o .vscode/schemas/daily_etl.schema.json
-   ```
-
-2. **Configure VS Code** to use the schema. Add to `.vscode/settings.json`:
-   ```json
-   {
-     "yaml.schemas": {
-       ".vscode/schemas/daily_etl.schema.json": "dags/configs/*etl*.dag.yaml"
-     }
-   }
-   ```
-
-3. **Edit YAML files** and get:
-   - **Autocomplete** for blueprint parameters
-   - **Inline documentation** from field descriptions
-   - **Real-time validation** with error highlighting
-   - **Type checking** for field values
-
-### Schema Benefits
-
-- **Faster development** - No need to constantly check `blueprint describe`
-- **Fewer errors** - Catch typos and invalid values before running `blueprint lint`
-- **Better onboarding** - New team members get inline guidance
-- **Self-documenting** - Field descriptions appear as you type
-
-### Example Workflow
-
-```yaml
-# Start typing and get autocomplete
-blueprint: daily_etl
-job_id: |  # Hover to see: "Unique identifier for this job"
-source_table: |  # Autocomplete suggests field name
-target_table: |
-schedule: "@daily"  # Validation warns if invalid preset
-retries: 10  # Red underline if value exceeds maximum (5)
-```
-
 ## CLI Commands
 
 ```bash
@@ -456,7 +396,7 @@ blueprint describe daily_etl
 blueprint schema daily_etl
 
 # Save schema to file for VS Code YAML validation
-blueprint schema daily_etl -o .vscode/daily_etl.schema.json
+blueprint schema daily_etl --output .astro/blueprint/schemas/daily_etl.schema.json
 
 # Interactive scaffolding (primary interface)
 blueprint new
