@@ -1,7 +1,7 @@
 """Blueprint template loader utility.
 
 This module handles the configuration and loading of Blueprint templates
-from a configurable path, defaulting to $AIRFLOW_HOME/.astro/templates.
+from a configurable path, defaulting to $AIRFLOW_HOME/blueprint/templates.
 """
 
 import logging
@@ -15,7 +15,7 @@ from blueprint.loaders import from_yaml
 from blueprint.utils import get_template_path as utils_get_template_path
 
 # Default template path relative to AIRFLOW_HOME
-DEFAULT_TEMPLATE_PATH = ".astro/templates"
+DEFAULT_TEMPLATE_PATH = "blueprint/templates"
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ def discover_yaml_dags(
 
     Args:
         configs_dir: Directory containing YAML config files (defaults to dags/configs/)
-        template_dir: Directory containing template files (defaults to .astro/templates)
+        template_dir: Directory containing template files (defaults to blueprint/templates)
         pattern: File pattern to match (defaults to "*.dag.yaml")
 
     Returns:

@@ -44,7 +44,7 @@ class TestBlueprint(Blueprint[TestConfig]):
 """
 
         # Create template directory and file
-        template_dir = tmp_path / ".astro" / "templates"
+        template_dir = tmp_path / "blueprint" / "templates"
         template_dir.mkdir(parents=True)
         (template_dir / "test_blueprints.py").write_text(blueprint_code)
 

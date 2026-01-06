@@ -58,7 +58,7 @@ jobs:
             Bash(uv run ruff format:*),
             Bash(uv run ty check:*),
             Bash(uv build),
-            Bash(BLUEPRINT_TEMPLATE_PATH=examples/.astro/templates blueprint:*),
+            Bash(BLUEPRINT_TEMPLATE_PATH=examples/blueprint/templates blueprint:*),
             Bash(cd examples && uv run blueprint:*)
 
           # Optional: Custom environment variables for Claude

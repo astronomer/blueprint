@@ -23,7 +23,7 @@ class TestBlueprintRegistry:
     def temp_blueprints(self, tmp_path):
         """Create temporary blueprint files for testing."""
         # Create templates directory
-        template_dir = tmp_path / ".astro" / "templates"
+        template_dir = tmp_path / "blueprint" / "templates"
         template_dir.mkdir(parents=True)
 
         # Create a simple blueprint
@@ -77,7 +77,7 @@ class DailyETL(Blueprint[ETLConfig]):
         dirs = registry.get_template_dirs()
 
         # Should include default paths
-        assert any(".astro/templates" in str(d) for d in dirs)
+        assert any("blueprint/templates" in str(d) for d in dirs)
 
     def test_get_template_dirs_with_env_var(self, registry, tmp_path):
         """Test template directory from environment variable."""

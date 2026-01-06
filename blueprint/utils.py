@@ -42,7 +42,7 @@ def get_template_path(cli_value: Optional[str] = None) -> str:
 
     # Default
     airflow_home = os.getenv("AIRFLOW_HOME", str(Path("~/airflow").expanduser()))
-    return str(Path(airflow_home) / ".astro/templates")
+    return str(Path(airflow_home) / "blueprint/templates")
 
 
 def get_output_dir(cli_value: Optional[str] = None) -> str:

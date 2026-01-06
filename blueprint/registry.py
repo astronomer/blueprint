@@ -35,14 +35,14 @@ class BlueprintRegistry:
                 if stripped_path:
                     dirs.append(Path(stripped_path))
 
-        # Second priority: AIRFLOW_HOME/.astro/templates
+        # Second priority: AIRFLOW_HOME/blueprint/templates
         airflow_home = os.getenv("AIRFLOW_HOME", "/usr/local/airflow")
-        default_path = Path(airflow_home) / ".astro" / "templates"
+        default_path = Path(airflow_home) / "blueprint" / "templates"
         if default_path not in dirs:
             dirs.append(default_path)
 
-        # Third priority: .astro/templates in current directory
-        local_path = Path(".astro/templates")
+        # Third priority: blueprint/templates in current directory
+        local_path = Path("blueprint/templates")
         if local_path not in dirs and local_path.exists():
             dirs.append(local_path)
 

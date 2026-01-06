@@ -26,7 +26,7 @@ In most data teams, the same kind of DAG is built over and over with small varia
 
 ### 1. Create a Blueprint template
 
-Save this in `.astro/templates/etl_blueprints.py`:
+Save this in `blueprint/templates/etl_blueprints.py`:
 
 ```python
 from blueprint import Blueprint, BaseModel, Field
@@ -371,7 +371,7 @@ pip install airflow-blueprint
 
 ## Configuration
 
-Blueprint looks for templates in `.astro/templates/` by default. Override with:
+Blueprint looks for templates in `blueprint/templates/` by default. Override with:
 
 ```bash
 export BLUEPRINT_TEMPLATES_DIR=/path/to/templates

@@ -33,7 +33,7 @@ x-airflow-common: &airflow-common
     - ./plugins:/usr/local/airflow/plugins
     - ./include:/usr/local/airflow/include
     - ./tests:/usr/local/airflow/tests
-    - ./.astro/templates:/usr/local/airflow/.astro/templates
+    - ./blueprint/templates:/usr/local/airflow/blueprint/templates
     - airflow_logs:/usr/local/airflow/logs
 
 networks:

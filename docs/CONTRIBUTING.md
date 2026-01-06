@@ -199,7 +199,7 @@ uv run blueprint describe daily_etl
 uv run blueprint lint
 
 # Test DAG generation
-python dags/yaml_loader.py
+python dags/blueprint_loader.py
 ```
 
 ### Testing with Real Airflow
@@ -356,7 +356,7 @@ tests/
 
 examples/
 ├── dags/               # Example DAG configurations
-├── .astro/templates/   # Example blueprint templates
+├── blueprint/templates/   # Example blueprint templates
 ├── docker-compose.yaml # Airflow services definition
 └── Dockerfile          # Custom Airflow image
 ```

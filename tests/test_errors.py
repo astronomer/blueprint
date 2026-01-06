@@ -142,15 +142,15 @@ class TestDuplicateBlueprintError:
         error = DuplicateBlueprintError(
             "my_blueprint",
             locations=[
-                ".astro/templates/etl.py",
-                ".astro/templates/pipelines/etl.py",
+                "blueprint/templates/etl.py",
+                "blueprint/templates/pipelines/etl.py",
             ],
         )
         message = str(error)
 
         assert "Duplicate blueprint name 'my_blueprint'" in message
-        assert ".astro/templates/etl.py" in message
-        assert ".astro/templates/pipelines/etl.py" in message
+        assert "blueprint/templates/etl.py" in message
+        assert "blueprint/templates/pipelines/etl.py" in message
         assert "Rename one of the blueprint classes" in message
 
 

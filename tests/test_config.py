@@ -131,7 +131,7 @@ class TestTemplatePath:
         """Test default value when no config is provided."""
         with chdir(tmp_path), mock.patch.dict(os.environ, {}, clear=True):
             path = get_template_path()
-            expected = str(Path("~/airflow").expanduser() / ".astro/templates")
+            expected = str(Path("~/airflow").expanduser() / "blueprint/templates")
             assert path == expected
 
     def test_custom_airflow_home(self, tmp_path, chdir):
@@ -140,7 +140,7 @@ class TestTemplatePath:
             os.environ, {"AIRFLOW_HOME": "/custom/airflow"}, clear=True
         ):
             path = get_template_path()
-            assert path == "/custom/airflow/.astro/templates"
+            assert path == "/custom/airflow/blueprint/templates"
 
 
 class TestOutputDir:
@@ -234,7 +234,7 @@ output_dir = "/config/output"
             # Should fall back to defaults
             with mock.patch.dict(os.environ, {}, clear=True):
                 template_path = get_template_path()
-                expected = str(Path("~/airflow").expanduser() / ".astro/templates")
+                expected = str(Path("~/airflow").expanduser() / "blueprint/templates")
                 assert template_path == expected
 
     def test_partial_config(self, tmp_path, chdir):

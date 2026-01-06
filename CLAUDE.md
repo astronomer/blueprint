@@ -7,7 +7,7 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
 - CLI tool accessible via `blueprint` command
 - Supports Python 3.8+ and Apache Airflow 2.5.0+
 - Uses Pydantic for configuration validation
-- Templates stored in `examples/.astro/templates/`
+- Templates stored in `examples/blueprint/templates/`
 
 ## Development Setup
 - **Package Manager**: Use `uv` for all Python operations (NOT pip, poetry, or conda)
@@ -27,7 +27,7 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
 - **Create from template**: `uv run blueprint new <template_name> <dag_id>`
 - **Describe template**: `uv run blueprint describe <template_name>`
 - **Lint DAG**: `uv run blueprint lint <dag_file>`
-- **With custom template path**: `BLUEPRINT_TEMPLATE_PATH=examples/.astro/templates uv run blueprint list`
+- **With custom template path**: `BLUEPRINT_TEMPLATE_PATH=examples/blueprint/templates uv run blueprint list`
 
 ## Testing
 - Run all tests: `uv run pytest tests/`
@@ -52,7 +52,7 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
   - `dag_loader.py`: Dynamic DAG loading for Airflow
 - `tests/`: Test files
 - `examples/`: Example blueprints and templates
-  - `.astro/templates/`: Blueprint template definitions
+  - `blueprint/templates/`: Blueprint template definitions
 - `.github/workflows/`: CI/CD pipelines
 
 ## Git Workflow

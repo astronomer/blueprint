@@ -73,7 +73,7 @@ jobs:
           allowed_tools: |
             Bash(uv run blueprint --help),
             Bash(cd examples && uv run blueprint list),
-            Bash(ls examples/.astro/templates/)
+            Bash(ls examples/blueprint/templates/)
 
           # Use sticky comment so Claude updates the same comment if issue is edited
           use_sticky_comment: true
