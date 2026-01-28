@@ -19,6 +19,7 @@ from .loaders import (
     from_yaml,
     get_blueprint_info,
     load_blueprint,
+    render_yaml_template,
 )
 from .models import (
     Any,
@@ -40,6 +41,9 @@ from .template_loader import (
     load_template,
     setup_template_path,
 )
+
+# Ensure dags directory is in sys.path early so co-located imports work
+setup_template_path()
 
 __all__ = [
     "Any",
@@ -69,5 +73,6 @@ __all__ = [
     "load_template",
     "model_validator",
     "registry",
+    "render_yaml_template",
     "setup_template_path",
 ]

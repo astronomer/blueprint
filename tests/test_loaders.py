@@ -8,6 +8,7 @@ from blueprint import (
     from_yaml,
     get_blueprint_info,
     load_blueprint,
+    render_yaml_template,
 )
 from blueprint.errors import BlueprintNotFoundError, ConfigurationError
 
@@ -233,3 +234,193 @@ param1: value
 
         with pytest.raises(ConfigurationError, match="Configuration file is empty"):
             from_yaml(str(config_file))
+
+    def test_from_yaml_with_template_rendering(self, tmp_path, monkeypatch):
+        """Test from_yaml with Jinja2 template rendering enabled."""
+        monkeypatch.setenv("TEST_ENV", "production")
+
+        # Create a test blueprint
+        blueprint_code = """
+from blueprint import Blueprint, BaseModel
+from airflow import DAG
+from datetime import datetime
+
+class TemplatedConfig(BaseModel):
+    job_id: str
+
+class TemplatedBlueprint(Blueprint[TemplatedConfig]):
+    def render(self, config: TemplatedConfig) -> DAG:
+        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+"""
+
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+        (template_dir / "templated.py").write_text(blueprint_code)
+
+        # Create YAML with Jinja2 template
+        yaml_content = '''
+blueprint: templated_blueprint
+job_id: "{{ env.TEST_ENV }}-job"
+'''
+        config_file = tmp_path / "templated.yaml"
+        config_file.write_text(yaml_content)
+
+        # Load with template rendering (default)
+        dag = from_yaml(str(config_file), template_dir=str(template_dir))
+
+        assert dag.dag_id == "production-job"
+
+    def test_from_yaml_without_template_rendering(self, tmp_path, monkeypatch):
+        """Test from_yaml with template rendering disabled uses literal values."""
+        monkeypatch.setenv("TEST_ENV", "production")
+
+        # Create a test blueprint that stores the env_value for verification
+        blueprint_code = """
+from blueprint import Blueprint, BaseModel
+from airflow import DAG
+from datetime import datetime
+
+class LiteralConfig(BaseModel):
+    job_id: str
+    env_value: str = ""
+
+class LiteralBlueprint(Blueprint[LiteralConfig]):
+    def render(self, config: LiteralConfig) -> DAG:
+        dag = DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+        # Store env_value as a tag so we can verify it
+        dag.tags = [config.env_value] if config.env_value else []
+        return dag
+"""
+
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+        (template_dir / "literal.py").write_text(blueprint_code)
+
+        # Create YAML - job_id is static, env_value uses template
+        yaml_content = '''
+blueprint: literal_blueprint
+job_id: static-job-id
+env_value: "{{ env.TEST_ENV }}"
+'''
+        config_file = tmp_path / "literal.yaml"
+        config_file.write_text(yaml_content)
+
+        # Load without template rendering
+        dag = from_yaml(
+            str(config_file),
+            template_dir=str(template_dir),
+            render_template=False,
+        )
+
+        # The job_id should be the static value
+        assert dag.dag_id == "static-job-id"
+        # The env_value should NOT be rendered (literal template string)
+        assert "{{ env.TEST_ENV }}" in dag.tags
+
+
+class TestRenderYamlTemplate:
+    """Tests for render_yaml_template function."""
+
+    def test_basic_rendering(self, tmp_path):
+        """Test basic YAML rendering without templates."""
+        yaml_content = """
+blueprint: test
+job_id: simple-job
+schedule: "@daily"
+"""
+        config_file = tmp_path / "simple.yaml"
+        config_file.write_text(yaml_content)
+
+        config, rendered = render_yaml_template(config_file)
+
+        assert config["blueprint"] == "test"
+        assert config["job_id"] == "simple-job"
+        assert config["schedule"] == "@daily"
+
+    def test_env_variable_template(self, tmp_path, monkeypatch):
+        """Test rendering with environment variable."""
+        monkeypatch.setenv("MY_ENV", "production")
+
+        yaml_content = '''
+blueprint: test
+job_id: "{{ env.MY_ENV }}-job"
+'''
+        config_file = tmp_path / "env.yaml"
+        config_file.write_text(yaml_content)
+
+        config, rendered = render_yaml_template(config_file)
+
+        assert config["job_id"] == "production-job"
+        assert "production-job" in rendered
+
+    def test_default_filter(self, tmp_path):
+        """Test the default filter for fallback values."""
+        yaml_content = '''
+blueprint: test
+schedule: "{{ var.value.missing_key | default('@daily') }}"
+'''
+        config_file = tmp_path / "default.yaml"
+        config_file.write_text(yaml_content)
+
+        config, rendered = render_yaml_template(config_file)
+
+        assert config["schedule"] == "@daily"
+
+    def test_custom_context(self, tmp_path):
+        """Test rendering with custom context."""
+        yaml_content = '''
+blueprint: test
+job_id: "{{ custom_var }}-job"
+'''
+        config_file = tmp_path / "custom.yaml"
+        config_file.write_text(yaml_content)
+
+        config, rendered = render_yaml_template(
+            config_file,
+            context={"custom_var": "my_value"},
+        )
+
+        assert config["job_id"] == "my_value-job"
+
+    def test_disable_airflow_context(self, tmp_path, monkeypatch):
+        """Test rendering with Airflow context disabled."""
+        monkeypatch.setenv("MY_ENV", "production")
+
+        yaml_content = '''
+blueprint: test
+job_id: "{{ env.MY_ENV }}-job"
+'''
+        config_file = tmp_path / "no_airflow.yaml"
+        config_file.write_text(yaml_content)
+
+        # With Airflow context disabled, env should not be available
+        # This should raise an error since env is undefined
+        with pytest.raises(ConfigurationError, match="Template rendering failed"):
+            render_yaml_template(config_file, use_airflow_context=False)
+
+    def test_invalid_template_syntax(self, tmp_path):
+        """Test error handling for invalid Jinja2 syntax."""
+        yaml_content = '''
+blueprint: test
+job_id: "{{ invalid syntax here"
+'''
+        config_file = tmp_path / "invalid.yaml"
+        config_file.write_text(yaml_content)
+
+        with pytest.raises(ConfigurationError, match="Template rendering failed"):
+            render_yaml_template(config_file)
+
+    def test_empty_file(self, tmp_path):
+        """Test error handling for empty file."""
+        config_file = tmp_path / "empty.yaml"
+        config_file.write_text("")
+
+        with pytest.raises(ConfigurationError, match="empty"):
+            render_yaml_template(config_file)
+
+    def test_nonexistent_file(self, tmp_path):
+        """Test error handling for nonexistent file."""
+        config_file = tmp_path / "nonexistent.yaml"
+
+        with pytest.raises(ConfigurationError, match="Failed to read"):
+            render_yaml_template(config_file)

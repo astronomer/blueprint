@@ -82,7 +82,7 @@ class TestBlueprintNotFoundError:
 
         assert "Blueprint 'my_blueprint' not found" in message
         assert "No blueprints found" in message
-        assert "templates directory exists" in message
+        assert "dags/ directory" in message
 
     def test_with_available_blueprints(self):
         """Test error with available blueprints."""

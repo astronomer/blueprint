@@ -4,35 +4,37 @@ Build reusable, validated Airflow DAG templates that anyone on your team can dis
 
 ## What is Blueprint?
 
-Blueprint helps data platform teams define reusable, parameterized DAG templates for Apache Airflow. These templates can be safely configured by other team members, like data analysts or less-experienced engineers, using simple YAML files.
+Blueprint helps data platform teams define reusable, parameterized DAG templates for Apache Airflow. These templates can be safely configured by other team members, like data analysts or less-experienced engineers, using simple YAML files with optional Jinja2 templating.
 
 With Blueprint, you can:
 
-- ✅ Enforce **type-safe parameters** with validation
-- 🚫 Get **clear error messages** when configs are invalid
-- 🛠️ Use a **CLI** to validate configs before deployment
-- 🔍 Automatically **discover available templates** and **generate new DAGs** from them
+- **Define reusable patterns** – Write a DAG pattern once, use it many times
+- **Enforce type-safe parameters** – Pydantic validation catches errors before deployment
+- **Get clear error messages** – Know exactly what's wrong and how to fix it
+- **Use Jinja2 templating** – Dynamic YAML configs with env vars, Airflow Variables, and Connections
+- **See full code in Airflow UI** – Blueprint code is visible in the Code tab
+- **Auto-discover configs** – `build_all()` finds all YAML files that use your Blueprint
 
-## Why Blueprint?
+## Installation
 
-In most data teams, the same kind of DAG is built over and over with small variations. This usually means lots of copy-pasting and hard-to-maintain code. Blueprint solves this by letting you:
+```bash
+pip install airflow-blueprint
+```
 
-- **Create once, use everywhere** – Write a DAG pattern once as a template
-- **Reduce errors** – Validate configurations before deployment
-- **Build guardrails** – Enforce your standards and best practices
-- **Help non-engineers** – Let others safely define DAGs without touching Python
+**Requirements:** Python 3.8+ and Apache Airflow 2.5.0+
 
-## Example Workflow
+## Quick Start
 
 ### 1. Create a Blueprint template
 
-Save this in `.astro/templates/etl_blueprints.py`:
+Save this in `dags/daily_etl.py`:
 
 ```python
+from datetime import datetime, timezone
 from blueprint import Blueprint, BaseModel, Field
-from airflow import DAG
 
 class DailyETLConfig(BaseModel):
+    """Configuration for daily ETL jobs."""
     job_id: str = Field(description="Unique identifier for this job")
     source_table: str = Field(description="Table to read data from")
     target_table: str = Field(description="Table to write processed data to")
@@ -40,23 +42,20 @@ class DailyETLConfig(BaseModel):
     retries: int = Field(default=2, description="Number of retry attempts on task failure")
 
 class DailyETL(Blueprint[DailyETLConfig]):
-    """Daily ETL job that moves data between tables with configurable scheduling."""
+    """Daily ETL job that moves data between tables."""
 
-    # Name is auto-generated as "daily_etl" from class name
-    # Or specify explicitly:
-    # name = "daily_etl_job"
-
-    def render(self, config: DailyETLConfig) -> DAG:
+    def render(self, config: DailyETLConfig):
+        from airflow import DAG
         from airflow.operators.python import PythonOperator
-        from datetime import datetime
 
-        with DAG(
+        dag = DAG(
             dag_id=config.job_id,
             schedule=config.schedule,
-            start_date=datetime(2024, 1, 1),
+            start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             catchup=False,
             default_args={"retries": config.retries}
-        ) as dag:
+        )
+        with dag:
             PythonOperator(
                 task_id="extract_transform_load",
                 python_callable=lambda: print(
@@ -64,14 +63,17 @@ class DailyETL(Blueprint[DailyETLConfig]):
                 )
             )
         return dag
+
+# Auto-discover and build DAGs from *.dag.yaml files
+DailyETL.build_all()
 ```
 
 ### 2. Create a YAML config
 
-Save this as `dags/configs/customer_etl.dag.yaml`:
+Save this as `dags/customer_etl.dag.yaml`:
 
 ```yaml
-blueprint: daily_etl  # Auto-generated from class name DailyETL
+blueprint: daily_etl
 job_id: customer-daily-sync
 source_table: raw.customers
 target_table: analytics.dim_customers
@@ -79,24 +81,83 @@ schedule: "@hourly"
 retries: 4
 ```
 
-### 3. Validate your config
+### 3. Validate your config (optional)
 
 ```bash
-$ blueprint lint
-  customer_etl.dag.yaml - Valid
+$ blueprint lint dags/customer_etl.dag.yaml
+✅ customer_etl.dag.yaml - Valid
 ```
 
-🎉 **Done!** Blueprint builds your DAG with ID `customer_etl`.
+**Done!** Airflow will now load a DAG with ID `customer-daily-sync`.
+
+### 4. View in Airflow UI
+
+- **Code tab**: See the full Blueprint Python code
+- **Rendered Templates tab** (select a task instance): See the resolved YAML configuration
+
+## Project Structure
+
+Place Blueprint templates and YAML configs together in your `dags/` folder:
+
+```
+dags/
+├── daily_etl.py              # Blueprint template
+├── customer_etl.dag.yaml     # Config for customer ETL
+├── orders_etl.dag.yaml       # Config for orders ETL
+├── multi_source_etl.py       # Another Blueprint template
+└── sales_analytics.dag.yaml  # Config for sales analytics
+```
+
+This structure provides:
+
+1. **UI Code Visibility** – Airflow shows full code in the Code tab
+2. **Self-Documenting** – The Pydantic config is visible with the DAG logic
+3. **Auto-Discovery** – `build_all()` finds all `.dag.yaml` files that reference the Blueprint
+4. **Rendered Config View** – Select a task instance and view "Rendered Templates" to see resolved YAML values
+
+## Jinja2 Templating in YAML
+
+YAML configs support Jinja2 templating for dynamic values at DAG parse time:
+
+```yaml
+# dags/templated_etl.dag.yaml
+blueprint: daily_etl
+
+# Environment variables
+job_id: "{{ env.get('ENV', 'dev') }}-orders-etl"
+
+# Airflow Variables
+source_table: "{{ var.value.source_schema }}.orders"
+target_table: "{{ var.value.target_schema }}.orders_clean"
+
+# With default values
+schedule: "{{ var.value.etl_schedule | default('@daily') }}"
+retries: "{{ env.get('ETL_RETRIES', '2') | int }}"
+```
+
+### Available Template Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `env.VAR_NAME` | Environment variable (raises error if missing) | `{{ env.DATABASE_HOST }}` |
+| `env.get('VAR', 'default')` | Environment variable with default | `{{ env.get('ENV', 'dev') }}` |
+| `var.value.key` | Airflow Variable value | `{{ var.value.schema_name }}` |
+| `conn.conn_id.host` | Airflow Connection attribute | `{{ conn.postgres_default.host }}` |
 
 ## Python API
 
-Blueprint templates can also be consumed directly in Python, providing full type safety and IDE support:
+In addition to YAML configs, you can create DAGs programmatically using `build()`. This is done directly in the Blueprint template file alongside `build_all()`:
 
 ```python
-from etl_blueprints import DailyETL
+# In dags/daily_etl.py
 
-# Create DAG with keyword arguments
-dag = DailyETL.build(
+# ... Blueprint class definition ...
+
+# Auto-discover and build DAGs from YAML files
+DailyETL.build_all()
+
+# Also create DAGs programmatically
+DailyETL.build(
     job_id="customer-daily-sync",
     source_table="raw.customers",
     target_table="analytics.dim_customers",
@@ -105,169 +166,73 @@ dag = DailyETL.build(
 )
 ```
 
-### Benefits of Python API
-
-- **Full IDE support** - Autocomplete, type checking, and inline documentation
-- **Runtime validation** - Catch configuration errors before deployment
-- **Dynamic DAG generation** - Create multiple DAGs programmatically
-- **Testing support** - Easy unit testing of your DAG configurations
-
 ### Dynamic DAG Generation
 
-The Python API shines when you need to create DAGs dynamically based on external configuration:
+The Python API shines when you need to create DAGs dynamically based on configuration. `build()` automatically registers DAGs in globals using the `dag_id`, so Airflow discovers them:
 
 ```python
-from etl_blueprints import DailyETL
-import json
+# In dags/daily_etl.py
 
-# Load table configurations from external source
-with open('etl_config.json') as f:
-    table_configs = json.load(f)
+# ... Blueprint class definition ...
 
-# Generate a DAG for each table with custom logic
-for config in table_configs:
-    schedule = "@hourly" if config["priority"] == "high" else "@daily"
-    retries = 5 if config["is_critical"] else 2
+# Auto-discover YAML configs
+DailyETL.build_all()
 
-    dag = DailyETL.build(
-        job_id=f"{config['name']}-etl",
-        source_table=config["source"],
-        target_table=config["target"],
-        schedule=schedule,
-        retries=retries
+# Dynamic DAG generation from a list of configurations
+TABLES_TO_SYNC = [
+    {"source": "raw.users", "target": "staging.users", "schedule": "@daily"},
+    {"source": "raw.products", "target": "staging.products", "schedule": "@hourly"},
+]
+
+for table_config in TABLES_TO_SYNC:
+    table_name = table_config["source"].split(".")[1]
+    DailyETL.build(
+        job_id=f"{table_name}-sync",
+        source_table=table_config["source"],
+        target_table=table_config["target"],
+        schedule=table_config["schedule"],
     )
 ```
 
-### Creating Conditional DAGs
+### `build_all()` Options
+
+The `build_all()` method discovers YAML configs and builds DAGs:
 
 ```python
-from etl_blueprints import DailyETL
-import os
+# Basic usage - discovers *.dag.yaml files in dags/ directory
+DailyETL.build_all()
 
-# Only create production DAGs in production environment
-if os.getenv("AIRFLOW_ENV") == "production":
-    critical_tables = ["users", "transactions", "orders"]
-
-    for table in critical_tables:
-        dag = DailyETL.build(
-            job_id=f"prod-{table}-sync",
-            source_table=f"raw.{table}",
-            target_table=f"warehouse.{table}",
-            schedule="@hourly",
-            retries=5
-        )
+# With custom options
+DailyETL.build_all(
+    search_path="configs/",              # Custom search directory
+    pattern="*.dag.yaml",                # File pattern (default)
+    render_templates=True,               # Enable Jinja2 (default)
+    template_context={"custom": "value"} # Extra template variables
+)
 ```
 
-### Python Example
+### Loading from YAML with Overrides
+
+Use `build_from_yaml()` to load a YAML config with runtime overrides:
 
 ```python
-from blueprint import Blueprint, BaseModel, Field, field_validator
-from airflow import DAG
-from datetime import datetime
+# In dags/daily_etl.py
 
-class DailyETLConfig(BaseModel):
-    job_id: str = Field(pattern=r'^[a-zA-Z0-9_-]+$', description="Unique job identifier")
-    source_table: str = Field(description="Source table name")
-    target_table: str = Field(description="Target table name")
-    schedule: str = Field(default="@daily", description="Cron or preset schedule")
-    retries: int = Field(default=2, ge=0, le=5, description="Number of retries")
+# ... Blueprint class definition ...
 
-    @field_validator('schedule')
-    def validate_schedule(cls, v):
-        valid_presets = ['@once', '@hourly', '@daily', '@weekly', '@monthly', '@yearly']
-        if not (v in valid_presets or v.startswith('0 ') or v.count(' ') == 4):
-            raise ValueError(f'Invalid schedule: {v}')
-        return v
+DailyETL.build_all()
 
-class DailyETL(Blueprint[DailyETLConfig]):
-    """Daily ETL job that moves data between tables."""
-
-    def render(self, config: DailyETLConfig) -> DAG:
-        with DAG(
-            dag_id=config.job_id,
-            schedule=config.schedule,
-            start_date=datetime(2024, 1, 1),
-            catchup=False,
-            default_args={"retries": config.retries}
-        ) as dag:
-            # Define your tasks here
-            pass
-        return dag
-```
-
-### Loading from YAML in Python
-
-You can also load YAML configs in Python code:
-
-```python
-from blueprint import from_yaml
-
-# Load existing YAML config
-dag = from_yaml("configs/customer_etl.dag.yaml")
-
-# Or with runtime overrides
-dag = from_yaml("configs/customer_etl.dag.yaml", overrides={
+# Load YAML with runtime overrides (e.g., for environment-specific adjustments)
+DailyETL.build_from_yaml("customer_etl.dag.yaml", overrides={
+    "job_id": "customer-etl-staging",  # Different ID to avoid conflict
     "retries": 5,
     "schedule": "@hourly"
 })
 ```
 
-### Testing Blueprints
-
-```python
-import pytest
-from etl_blueprints import DailyETL
-
-def test_daily_etl_config():
-    # Test valid configuration
-    dag = DailyETL.build(
-        job_id="test-etl",
-        source_table="test.source",
-        target_table="test.target"
-    )
-    assert dag.dag_id == "test-etl"
-    assert dag.schedule_interval == "@daily"
-
-    # Test validation errors
-    with pytest.raises(ValueError, match="Invalid schedule"):
-        DailyETL.build(
-            job_id="test-etl",
-            source_table="test.source",
-            target_table="test.target",
-            schedule="invalid"
-        )
-```
-
 ## Type Safety and Validation
 
-Blueprint uses Pydantic under the hood for robust validation with helpful error messages. This gives you:
-
-- **Type coercion** - Automatically converts compatible types (e.g., string "5" to integer 5)
-- **Field validation** - Set constraints like min/max values, regex patterns, etc.
-- **Custom validators** - Add your own validation logic for complex rules
-- **Clear error messages** - Know exactly what went wrong and how to fix it
-
-When validation fails, you get clear feedback:
-
-```bash
-$ blueprint lint
-✗ customer_etl.dag.yaml
-  ValidationError: 3 validation errors for DailyETLConfig
-
-  job_id
-    String does not match pattern '^[a-zA-Z0-9_-]+$' (type=value_error.str.regex)
-    Given: "customer sync!" (contains spaces)
-
-  retries
-    ensure this value is less than or equal to 5 (type=value_error.number.not_le)
-    Given: 10
-
-  schedule
-    Invalid schedule format (type=value_error)
-    Given: "every hour" (use "@hourly" or valid cron expression)
-```
-
-### Field Validation Examples
+Blueprint uses Pydantic for validation with helpful error messages:
 
 ```python
 from blueprint import BaseModel, Field, field_validator
@@ -276,195 +241,213 @@ class ETLConfig(BaseModel):
     # Basic constraints
     job_id: str = Field(pattern=r'^[a-zA-Z0-9_-]+$')
     retries: int = Field(ge=0, le=5)
-    timeout_minutes: int = Field(gt=0, le=1440)  # 1-1440 minutes
+    timeout_minutes: int = Field(gt=0, le=1440)
 
     # Custom validation
     @field_validator('schedule')
+    @classmethod
     def validate_schedule(cls, v):
-        valid_presets = ['@once', '@hourly', '@daily', '@weekly', '@monthly']
-        if v not in valid_presets and not cls._is_valid_cron(v):
-            raise ValueError(f'Must be a preset ({", ".join(valid_presets)}) or valid cron')
+        valid_presets = ['@once', '@hourly', '@daily', '@weekly', '@monthly', '@yearly']
+        is_cron = v.count(' ') >= 4  # Simple cron check
+        if v not in valid_presets and not is_cron:
+            raise ValueError(f'Must be a preset or valid cron expression, got: {v}')
         return v
 ```
 
-## More Examples
+When validation fails, you get clear feedback:
 
-### Complex Parameters
+```bash
+$ blueprint lint dags/customer_etl.dag.yaml
+❌ customer_etl.dag.yaml
+  ValidationError: 2 validation errors for DailyETLConfig
 
-Blueprints support nested objects and lists:
+  job_id
+    String should match pattern '^[a-zA-Z0-9_-]+$'
+    Given: "customer sync!" (contains invalid characters)
+
+  retries
+    Input should be less than or equal to 5
+    Given: 10
+```
+
+## Complex Configurations
+
+### Nested Objects and Lists
 
 ```python
-from blueprint import BaseModel, Field
+from blueprint import BaseModel, Blueprint, Field
 from typing import Optional, List
 
 class SourceConfig(BaseModel):
     database: str = Field(description="Database connection name")
-    table: str = Field(description="Table to extract data from")
+    table: str = Field(description="Table to extract from")
 
 class NotificationConfig(BaseModel):
-    email: Optional[str] = Field(default=None, description="Email for notifications")
-    slack: Optional[str] = Field(default=None, description="Slack channel (#data-alerts)")
+    email: Optional[str] = Field(default=None)
+    slack_channel: Optional[str] = Field(default=None)
 
 class MultiSourceConfig(BaseModel):
-    sources: List[SourceConfig] = Field(description="List of data sources")
+    job_id: str
+    sources: List[SourceConfig] = Field(description="Data sources to process")
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
 
 class MultiSourceETL(Blueprint[MultiSourceConfig]):
-    """ETL pipeline that processes multiple data sources in parallel."""
-
-    def render(self, config: MultiSourceConfig) -> DAG:
-        # Access nested data with type safety
+    def render(self, config: MultiSourceConfig):
+        from airflow import DAG
+        # Access nested data with full type safety
         for source in config.sources:
             print(f"Processing {source.table} from {source.database}")
+        # ... create and return DAG
+
+MultiSourceETL.build_all()
 ```
 
 ```yaml
+# dags/sales_analytics.dag.yaml
 blueprint: multi_source_etl
+job_id: sales-pipeline
+
 sources:
   - database: postgres
     table: users
   - database: mysql
     table: orders
+
 notifications:
   email: data-team@company.com
-  slack: "#data-alerts"
+  slack_channel: "#data-alerts"
 ```
 
-### Blueprint Inheritance
+### Config Inheritance
 
-Use standard Python inheritance to share common parameters:
+Share common parameters across configs:
 
 ```python
 class BaseETLConfig(BaseModel):
-    owner: str = Field(default="data-team", description="Team responsible for DAG")
-    retries: int = Field(default=2, ge=0, le=5, description="Number of retries")
-    email_on_failure: str = Field(default="alerts@company.com", description="Alert email")
+    owner: str = Field(default="data-team")
+    retries: int = Field(default=2, ge=0, le=5)
+    email_on_failure: str = Field(default="alerts@company.com")
 
 class S3ImportConfig(BaseETLConfig):
+    """Inherits owner, retries, email_on_failure from BaseETLConfig."""
+    job_id: str
     bucket: str = Field(description="S3 bucket name")
     prefix: str = Field(description="S3 key prefix")
-
-class BaseETL(Blueprint[BaseETLConfig]):
-    """Base blueprint with common ETL parameters."""
-
-    def get_default_args(self, config: BaseETLConfig):
-        return {
-            "owner": config.owner,
-            "retries": config.retries,
-            "email_on_failure": [config.email_on_failure]
-        }
-
-class S3Import(Blueprint[S3ImportConfig]):
-    """Import data from S3."""
-
-    def render(self, config: S3ImportConfig) -> DAG:
-        # Has access to all BaseETLConfig fields plus S3-specific ones
-        default_args = self.get_default_args(config)
-        # ... create DAG with S3 operators
-```
-
-## Installation
-
-```bash
-pip install airflow-blueprint
-```
-
-## Configuration
-
-Blueprint looks for templates in `.astro/templates/` by default. Override with:
-
-```bash
-export BLUEPRINT_TEMPLATES_DIR=/path/to/templates
 ```
 
 ## CLI Commands
 
 ```bash
-# Validate all configs
-blueprint lint
-
-# Validate specific config
-blueprint lint dags/configs/my_job.dag.yaml
-
 # List available blueprints
 blueprint list
 
-# Show blueprint parameters
+# Show blueprint parameters and documentation
 blueprint describe daily_etl
 
-# Interactive scaffolding (primary interface)
+# Validate configuration files
+blueprint lint                              # All *.dag.yaml files
+blueprint lint dags/customer_etl.dag.yaml   # Specific file
+
+# Create new YAML config interactively
 blueprint new
-# Prompts for: DAG name, blueprint selection, parameters
 
-# Direct scaffolding with specific blueprint
-blueprint new daily_etl my_new_etl
+# Initialize Blueprint in a new project
+blueprint init
 
-# Scaffold to specific path
-blueprint new dags/configs/prod/my_new_etl.dag.yaml daily_etl
-
-# Quick mode with parameter overrides
-blueprint new daily_etl my_new_etl --set job_id=customer-sync --set retries=3
+# Generate JSON schema for IDE autocompletion
+blueprint schema daily_etl --output schema.json
 ```
 
-## Error Messages
+## Testing Blueprints
 
-Blueprint provides clear, actionable error messages:
+```python
+import pytest
+from dags.daily_etl import DailyETL, DailyETLConfig
+from pydantic import ValidationError
+
+def test_valid_config():
+    """Test that valid configs produce DAGs."""
+    dag = DailyETL.build(
+        job_id="test-etl",
+        source_table="raw.test",
+        target_table="analytics.test"
+    )
+    assert dag.dag_id == "test-etl"
+    assert len(dag.tasks) > 0
+
+def test_invalid_config():
+    """Test that invalid configs raise errors."""
+    with pytest.raises(ValidationError):
+        DailyETL.build(
+            job_id="invalid job!",  # Contains space and !
+            source_table="raw.test",
+            target_table="analytics.test"
+        )
+
+def test_config_defaults():
+    """Test default values are applied."""
+    config = DailyETLConfig(
+        job_id="test",
+        source_table="raw.test",
+        target_table="analytics.test"
+    )
+    assert config.schedule == "@daily"
+    assert config.retries == 2
+```
+
+## Configuration
+
+Blueprint CLI looks for templates in these locations (in order):
+1. `--template-dir` CLI option
+2. `BLUEPRINT_TEMPLATE_PATH` environment variable
+3. `template_path` in `blueprint.toml` config file
+4. `$AIRFLOW_HOME/dags` (default)
+
+Example using environment variable:
 
 ```bash
-$ blueprint lint
-✗ marketing_etl.dag.yaml
-  Line 3: Missing required parameter 'source_table' for blueprint 'daily_etl'
+export BLUEPRINT_TEMPLATE_PATH=/path/to/templates
+```
 
-  Your configuration:
-    2 | blueprint: daily_etl
-    3 | job_id: "marketing-sync"
-    4 | target_table: "analytics.marketing_facts"
+Example `blueprint.toml`:
 
-  Add the missing parameter:
-    3 | job_id: "marketing-sync"
-  + 4 | source_table: "raw.marketing_events"
-    5 | target_table: "analytics.marketing_facts"
+```toml
+template_path = "dags"
+output_dir = "dags"
 ```
 
 ## Best Practices
 
-1. **Keep blueprints focused** - Each blueprint should represent one type of workflow
-2. **Use descriptive parameter names** - `source_table` is clearer than `src`
-3. **Always add parameter descriptions** - Use `Annotated[type, "description"]` for all parameters
-4. **Document your blueprints** - Add docstrings to blueprint classes explaining their purpose
-5. **Provide defaults wisely** - Common values as defaults, critical values as required
-6. **Validate in CI** - Add `blueprint lint` to your CI pipeline
+1. **Keep Blueprints focused** – Each Blueprint should represent one type of workflow
+2. **Use descriptive parameter names** – `source_table` is clearer than `src`
+3. **Add descriptions to all fields** – `Field(description="...")` helps users understand parameters
+4. **Document your Blueprints** – Add docstrings explaining the workflow
+5. **Provide sensible defaults** – Common values as defaults, critical values as required
+6. **Validate in CI** – Add `blueprint lint` to your CI pipeline
+7. **Use Jinja2 for environment-specific values** – Keep sensitive data out of YAML files
 
-## How is this different from DAG Factory?
+## Blueprint vs DAG Factory
 
-[DAG Factory](https://github.com/astronomer/dag-factory) gives full control of Airflow via YAML.
-
-Blueprint hides that complexity behind safe, pre-built templates with validation.
-
-### DAG Factory
+[DAG Factory](https://github.com/astronomer/dag-factory) gives full control of Airflow via YAML:
 
 ```yaml
+# DAG Factory - full Airflow configuration exposed
 my_dag:
   default_args:
     owner: 'data-team'
     retries: 2
-    retry_delay_seconds: 300
-  start_date: 2024-01-01
   schedule_interval: '@daily'
   tasks:
     extract_data:
       operator: airflow.operators.python.PythonOperator
       python_callable_name: extract_from_api
       python_callable_file: /opt/airflow/dags/etl/extract.py
-    transform_data:
-      operator: airflow.operators.python.PythonOperator
-      dependencies: [extract_data]
-      # ... many more Airflow-specific configurations
 ```
 
-### Blueprint
+Blueprint hides Airflow complexity behind validated, domain-specific parameters:
 
 ```yaml
+# Blueprint - simple, validated parameters
 blueprint: daily_etl
 job_id: customer-sync
 source_table: raw.customers
@@ -472,24 +455,13 @@ target_table: analytics.dim_customers
 schedule: "@hourly"
 ```
 
-Or in Python:
+**Use DAG Factory if:** You need full Airflow flexibility and your users understand Airflow
 
-```python
-dag = DailyETL.build(
-    job_id="customer-sync",
-    source_table="raw.customers",
-    target_table="analytics.dim_customers",
-    schedule="@hourly"
-)
-```
-
-**Use DAG Factory if:** You need full Airflow flexibility and your users understand Airflow concepts
-
-**Use Blueprint if:** You want standardized, validated patterns with type safety for teams
+**Use Blueprint if:** You want standardized patterns with validation, type safety, and simplicity
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.md) for details.
 
 ## License
 

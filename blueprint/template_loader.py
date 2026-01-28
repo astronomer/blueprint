@@ -1,7 +1,7 @@
 """Blueprint template loader utility.
 
 This module handles the configuration and loading of Blueprint templates
-from a configurable path, defaulting to $AIRFLOW_HOME/.astro/templates.
+from a configurable path, defaulting to $AIRFLOW_HOME/dags.
 """
 
 import logging
@@ -15,7 +15,7 @@ from blueprint.loaders import from_yaml
 from blueprint.utils import get_template_path as utils_get_template_path
 
 # Default template path relative to AIRFLOW_HOME
-DEFAULT_TEMPLATE_PATH = ".astro/templates"
+DEFAULT_TEMPLATE_PATH = "dags"
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -36,15 +36,21 @@ def get_template_path() -> str:
 
 def setup_template_path() -> None:
     """Add the template path to sys.path if not already present."""
+    from blueprint.utils import get_airflow_dags_folder
+
     template_path = get_template_path()
 
     # Convert to absolute path
     template_path = Path(template_path).resolve()
 
+    # If the configured path doesn't exist, fall back to Airflow's dags folder
+    # This handles cases where env vars are mocked (e.g., Astronomer's test harness)
+    if not template_path.exists():
+        template_path = get_airflow_dags_folder().resolve()
+
     # Only add to sys.path if the directory exists and not already there
     if template_path.exists() and str(template_path) not in sys.path:
         sys.path.insert(0, str(template_path))
-    # If it doesn't exist, that's okay - we'll handle this gracefully elsewhere
 
 
 def load_template(module_name: str, class_name: str) -> Any:

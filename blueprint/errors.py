@@ -128,9 +128,8 @@ class BlueprintNotFoundError(BlueprintError):
             suggestions.extend(
                 [
                     "No blueprints found. Check that:",
-                    "1. Your templates directory exists (.astro/templates/)",
-                    "2. Your blueprint files are in the templates directory",
-                    "3. Your blueprint classes inherit from Blueprint[ConfigType]",
+                    "1. Your Blueprint files are in the dags/ directory",
+                    "2. Your blueprint classes inherit from Blueprint[ConfigType]",
                 ]
             )
 

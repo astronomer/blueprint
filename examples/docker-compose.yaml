@@ -1,18 +1,15 @@
 ---
-version: "3"
-
 x-airflow-common: &airflow-common
   image: blueprint-airflow
   build:
     context: ..
     dockerfile: examples/Dockerfile
-  env_file: .env
   networks:
     - airflow
   environment: &common-env-vars
     AIRFLOW__API__BASE_URL: "http://localhost:8080"
     AIRFLOW__API__PORT: 8080
-    AIRFLOW__API_AUTH__JWT_SECRET: "blueprint"
+    AIRFLOW__API_AUTH__JWT_SECRET: "change-me-jwt-secret-key"
     AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://api-server:8080/execution/"
@@ -22,18 +19,29 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
     AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: True
-    AIRFLOW__WEBSERVER__SECRET_KEY: "blueprint"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "change-me-webserver-secret-key"
     AIRFLOW__WEBSERVER__RBAC: "True"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
     ASTRONOMER_ENVIRONMENT: local
     OPENLINEAGE_DISABLED: "True"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Blueprint Jinja2 templating: Environment variables
+    # Accessed in .dag.yaml files as {{ env.ENV }}
+    ENV: "local"
+    # Blueprint Jinja2 templating: Airflow Variables
+    # Accessed in .dag.yaml files as {{ var.value.<name> }}
+    AIRFLOW_VAR_SOURCE_SCHEMA: "raw"
+    AIRFLOW_VAR_TARGET_SCHEMA: "analytics"
+    AIRFLOW_VAR_ETL_SCHEDULE: "@daily"
+    # Blueprint Jinja2 templating: Airflow Connections
+    # Accessed in .dag.yaml files as {{ conn.<conn_id>.host }}, {{ conn.<conn_id>.port }}, etc.
+    # Format: <conn_type>://<login>:<password>@<host>:<port>/<schema>?<extra_params>
+    AIRFLOW_CONN_WAREHOUSE_DB: "postgresql://etl_user:etl_password@warehouse.example.com:5432/analytics"
   volumes:
     - ./dags:/usr/local/airflow/dags
     - ./plugins:/usr/local/airflow/plugins
     - ./include:/usr/local/airflow/include
     - ./tests:/usr/local/airflow/tests
-    - ./.astro/templates:/usr/local/airflow/.astro/templates
     - airflow_logs:/usr/local/airflow/logs
 
 networks:

@@ -1,0 +1,14 @@
+# Sales Analytics Pipeline Configuration
+# Uses the multi_source_etl Blueprint to combine multiple tables
+# Demonstrates Jinja2 templating with Airflow Variables
+
+blueprint: multi_source_etl
+
+job_id: "{{ env.get('ENV', 'dev') }}-sales-analytics-pipeline"
+source_tables:
+  - "{{ var.value.source_schema | default('raw') }}.orders"
+  - "{{ var.value.source_schema | default('raw') }}.order_items"
+  - "{{ var.value.source_schema | default('raw') }}.products"
+target_table: "{{ var.value.target_schema | default('analytics') }}.sales_summary"
+schedule: "@hourly"
+parallel: true

@@ -186,69 +186,6 @@ retries: 10
         assert result.exit_code == 1
         assert "❌" in result.output
 
-    def test_init_command_creates_config_file(self, tmp_path, chdir):
-        """Test init command creates blueprint.toml config file."""
-        with chdir(tmp_path):
-            runner = CliRunner()
-            # Provide input for interactive prompts: template_path, output_dir, create_dag_loader, loader_path, create_example
-            result = runner.invoke(cli, ["init"], input="\n\ny\n\ny\n")
-            assert result.exit_code == 0
-            assert "✅ Created blueprint.toml" in result.output
-
-            # Check config file was created
-            config_file = tmp_path / "blueprint.toml"
-            assert config_file.exists()
-
-            # Check config content
-            content = config_file.read_text()
-            assert "template_path" in content
-            assert "output_dir" in content
-            assert "Blueprint configuration" in content
-
-    def test_init_command_with_custom_values(self, tmp_path, chdir):
-        """Test init command with custom template and output paths."""
-        with chdir(tmp_path):
-            runner = CliRunner()
-            # Provide custom values: template_path, output_dir, create_dag_loader, loader_path, create_example
-            result = runner.invoke(cli, ["init"], input="custom/templates\ncustom/output\ny\n\ny\n")
-            assert result.exit_code == 0
-
-            # Check config content
-            config_file = tmp_path / "blueprint.toml"
-            content = config_file.read_text()
-            assert '"custom/templates"' in content
-            assert '"custom/output"' in content
-
-    def test_init_command_creates_directories(self, tmp_path, chdir):
-        """Test init command creates template and output directories."""
-        with chdir(tmp_path):
-            runner = CliRunner()
-            result = runner.invoke(cli, ["init"], input="\n\ny\n\ny\n")
-            assert result.exit_code == 0
-
-            # Check config file was created
-            config_file = tmp_path / "blueprint.toml"
-            assert config_file.exists()
-
-            # Check that setup completed successfully
-            assert "✨ Blueprint initialized!" in result.output
-
-    def test_init_command_file_exists(self, tmp_path, chdir):
-        """Test init command when config file already exists."""
-        with chdir(tmp_path):
-            # Create existing config file
-            config_file = tmp_path / "blueprint.toml"
-            config_file.write_text("# Existing config")
-
-            runner = CliRunner()
-            result = runner.invoke(cli, ["init"], input="n\n")
-            assert result.exit_code == 0
-            assert "already exists" in result.output
-
-            # Config should be unchanged
-            content = config_file.read_text()
-            assert content == "# Existing config"
-
     def test_lint_duplicate_dag_ids(self, tmp_path):
         """Test linting detects duplicate DAG IDs across multiple files."""
         # Create blueprint

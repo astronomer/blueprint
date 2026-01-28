@@ -1,7 +1,0 @@
-blueprint: daily_etl
-
-job_id: customer-daily-sync
-source_table: raw.customers
-target_table: analytics.dim_customers
-schedule: "@daily"
-retries: 3

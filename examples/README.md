@@ -15,21 +15,141 @@ This directory contains examples of using Blueprint to create Airflow DAGs.
 
 2. **Access Airflow UI:**
    - URL: http://localhost:8080
-   - Username: `admin`
-   - Password: `admin`
+   - No authentication required (SimpleAuthManager with all admins enabled)
 
 3. **View the example DAGs:**
-   - `customer-etl-python` - Created using Python API
-   - `users_sync`, `products_sync`, `orders_sync` - Dynamically generated DAGs
-   - `unified-analytics` - Multi-source ETL example
+   - `customer-daily-sync` - Daily ETL from YAML config
+   - `sales-analytics-pipeline` - Multi-source ETL from YAML config
+   - DAGs from `templated_etl.dag.yaml` (if Airflow Variables are set)
+
+## Directory Structure
+
+The recommended pattern puts Blueprint templates **directly in dags/** so they're visible in Airflow's UI Code view:
+
+```
+examples/
+├── dags/
+│   ├── daily_etl.py              # Blueprint template + build_all() + build() examples
+│   ├── customer_etl.dag.yaml     # YAML config for customer ETL
+│   ├── templated_etl.dag.yaml    # YAML config with Jinja2 templating
+│   ├── multi_source_etl.py       # Another Blueprint template
+│   └── sales_analytics.dag.yaml  # YAML config for sales analytics
+├── blueprint.toml                # Blueprint CLI configuration
+├── docker-compose.yaml
+├── Dockerfile
+└── requirements.txt
+```
+
+## UI-Visible Blueprint Pattern
+
+### 1. Create a Blueprint Template (in dags/)
+
+```python
+# dags/daily_etl.py
+from datetime import datetime, timezone
+from blueprint import BaseModel, Blueprint, Field
+
+class DailyETLConfig(BaseModel):
+    """Configuration for daily ETL jobs."""
+    job_id: str = Field(description="Unique identifier for this job")
+    source_table: str = Field(description="Table to read from")
+    target_table: str = Field(description="Table to write to")
+    schedule: str = Field(default="@daily")
+
+class DailyETL(Blueprint[DailyETLConfig]):
+    """Daily ETL job - visible in Airflow UI Code view."""
+
+    def render(self, config: DailyETLConfig):
+        from airflow import DAG
+        from airflow.operators.bash import BashOperator
+
+        dag = DAG(
+            dag_id=config.job_id,
+            schedule=config.schedule,
+            start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        with dag:
+            # ... define tasks ...
+        return dag
+
+# Auto-discover and build DAGs from *.dag.yaml files
+DailyETL.build_all()
+
+# Programmatic DAG creation (alternative to YAML)
+DailyETL.build(
+    job_id="customer-etl-python",
+    source_table="raw.customers",
+    target_table="staging.customers",
+    schedule="@hourly",
+)
+
+# Dynamic DAG generation
+for table in ["users", "products", "orders"]:
+    DailyETL.build(
+        job_id=f"{table}-sync",
+        source_table=f"raw.{table}",
+        target_table=f"staging.{table}",
+    )
+```
+
+### 2. Create YAML Config Files (in dags/)
+
+```yaml
+# dags/customer_etl.dag.yaml
+blueprint: daily_etl
+
+job_id: customer-daily-sync
+source_table: raw.customers
+target_table: analytics.dim_customers
+schedule: "@daily"
+```
+
+### 3. Jinja2 Templating Support
+
+YAML configs support Jinja2 templating for dynamic values:
+
+```yaml
+# dags/templated_etl.dag.yaml
+blueprint: daily_etl
+
+# Environment variables
+job_id: "{{ env.ENV }}-orders-etl"
+
+# Airflow Variables
+source_table: "{{ var.value.source_schema }}.orders"
+target_table: "{{ var.value.target_schema }}.orders_clean"
+
+# With default values
+schedule: "{{ var.value.etl_schedule | default('@daily') }}"
+```
+
+## Benefits of the UI-Visible Pattern
+
+1. **Full Code Visibility**: View the complete Blueprint code in Airflow's UI Code tab
+2. **Self-Documenting**: Pydantic config model shows the schema right in the code
+3. **Auto-Discovery**: `build_all()` finds all `.dag.yaml` files that reference the blueprint
+4. **Rendered Config View**: Select a task instance and view "Rendered Templates" to see resolved YAML values
+
+## Creating New DAG Configs
+
+Use the CLI to interactively create a new YAML configuration:
+
+```bash
+blueprint new
+```
+
+This prompts you to:
+1. Select a Blueprint template
+2. Enter values for each parameter
+3. Validates the configuration
+4. Creates a `.dag.yaml` file
 
 ## Development with Tilt
 
 Tilt provides a great development experience with:
-- **Hot Reload**: Changes to Blueprint source code automatically reload in the container
-- **Live Sync**: Your local changes sync instantly to the running Airflow instance
-- **Build Logs**: Real-time feedback on builds and deployments
-- **Resource Dashboard**: Monitor all services in the Tilt UI at http://localhost:10350
+- **Hot Reload**: Changes to Blueprint source code automatically reload
+- **Live Sync**: Your local changes sync instantly to Airflow
+- **Build Logs**: Real-time feedback on builds
 
 ### Managing the Environment
 
@@ -47,99 +167,9 @@ tilt logs
 tilt ui  # or visit http://localhost:10350
 ```
 
-## Directory Structure
-
-```
-examples/
-├── docker-compose.yaml      # Airflow setup (used by Tilt)
-├── Dockerfile              # Container definition
-├── requirements.txt         # Python dependencies
-├── templates/              # Blueprint template definitions
-│   └── etl_blueprints.py   # Example ETL blueprints
-├── dags/                   # Airflow DAGs directory
-│   ├── configs/           # YAML configurations (when YAML loader is implemented)
-│   │   ├── customer_etl.dag.yaml
-│   │   └── sales_analytics.dag.yaml
-│   └── python_api_example.py  # Python API examples
-```
-
-## Example Blueprints
-
-### 1. DailyETL
-
-A simple ETL blueprint that moves data from source to target table:
-
-```python
-from examples.templates.etl_blueprints import DailyETL
-
-dag = DailyETL.build(
-    job_id="my-etl",
-    source_table="raw.data",
-    target_table="clean.data",
-    schedule="@daily"
-)
-```
-
-### 2. MultiSourceETL
-
-Combines data from multiple sources:
-
-```python
-from examples.templates.etl_blueprints import MultiSourceETL
-
-dag = MultiSourceETL.build(
-    job_id="combine-sources",
-    source_tables=["raw.table1", "raw.table2"],
-    target_table="analytics.combined",
-    parallel=True
-)
-```
-
-## Creating Your Own Blueprint
-
-1. Create a new file in `templates/`
-2. Define your config model using Pydantic
-3. Create a Blueprint class that implements `render()`
-4. Use it in your DAGs!
-
-Example:
-
-```python
-from blueprint import Blueprint, BaseModel, Field
-from airflow import DAG
-
-class MyConfig(BaseModel):
-    job_id: str
-    schedule: str = "@daily"
-
-class MyBlueprint(Blueprint[MyConfig]):
-    def render(self, config: MyConfig) -> DAG:
-        return DAG(
-            dag_id=config.job_id,
-            schedule=config.schedule,
-            # ... your DAG logic
-        )
-
-# Use it
-dag = MyBlueprint.build(job_id="my-job")
-```
-
-## Validation
-
-Blueprint uses Pydantic for validation, so you get helpful error messages:
-
-```python
-# This will raise a validation error
-dag = DailyETL.build(
-    job_id="invalid id!",  # Contains spaces
-    source_table="customers",  # Missing schema
-    retries=10  # Too many retries
-)
-```
-
 ## Next Steps
 
-- Explore the template definitions in `templates/`
-- Try modifying the example DAGs
-- Create your own Blueprint templates
+- Explore `daily_etl.py` and `multi_source_etl.py` for full Blueprint examples with both YAML and Python API usage
+- Try the templating features in `templated_etl.dag.yaml`
+- Run `blueprint new` to create your own DAG configuration
 - Check out the main README for more documentation

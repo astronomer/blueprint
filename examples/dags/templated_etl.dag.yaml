@@ -1,0 +1,30 @@
+# Templated ETL Configuration Example
+# Demonstrates Jinja2 templating with Airflow Variables, Connections, and environment variables
+#
+# Required setup (provided by docker-compose.yaml):
+#   Environment variables:
+#     - ENV: Environment name (e.g., "dev", "staging", "prod")
+#   Airflow Variables (via AIRFLOW_VAR_*):
+#     - source_schema: The schema for source tables (e.g., "raw")
+#     - target_schema: The schema for target tables (e.g., "analytics")
+#     - etl_schedule: Cron schedule for the DAG
+#   Airflow Connections (via AIRFLOW_CONN_*):
+#     - warehouse_db: Database connection for the data warehouse
+
+blueprint: daily_etl
+
+# Dynamic job_id based on environment
+job_id: "{{ env.get('ENV', 'dev') }}-orders-etl"
+
+# Use Airflow Variables for schema names
+source_table: "{{ var.value.source_schema | default('raw') }}.orders"
+target_table: "{{ var.value.target_schema | default('staging') }}.orders_clean"
+
+# Example: Access connection details (host shown in rendered template)
+# The warehouse connection host is: {{ conn.warehouse_db.host }}
+
+# Schedule from Airflow Variable with default fallback
+schedule: "{{ var.value.etl_schedule | default('@daily') }}"
+
+# Retries from variable or default
+retries: 3

@@ -40,9 +40,8 @@ def get_template_path(cli_value: Optional[str] = None) -> str:
     if template_path := config.get("template_path"):
         return template_path
 
-    # Default
-    airflow_home = os.getenv("AIRFLOW_HOME", str(Path("~/airflow").expanduser()))
-    return str(Path(airflow_home) / ".astro/templates")
+    # Default: dags/ directory (where self-rendering Blueprint templates live)
+    return str(get_airflow_dags_folder())
 
 
 def get_output_dir(cli_value: Optional[str] = None) -> str:

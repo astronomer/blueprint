@@ -1,0 +1,12 @@
+# Customer ETL DAG Configuration
+# This file is discovered by the daily_etl.py Blueprint
+#
+# Demonstrates Jinja2 templating with environment variables, Airflow Variables, and Connections
+
+blueprint: daily_etl
+
+job_id: "{{ env.get('ENV', 'dev') }}-customer-daily-sync"
+source_table: "{{ var.value.source_schema | default('raw') }}.customers"
+target_table: "{{ var.value.target_schema | default('analytics') }}.dim_customers"
+schedule: "{{ var.value.etl_schedule | default('@daily') }}"
+retries: 3

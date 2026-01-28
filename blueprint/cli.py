@@ -216,7 +216,7 @@ def describe(blueprint_name: str, template_dir: Optional[str]):
 @cli.command()
 @click.argument("blueprint_name")
 @click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
-@click.option("--template-dir", default="dags/blueprints/templates", help="Template directory path")
+@click.option("--template-dir", default="dags", help="Template directory path")
 def schema(blueprint_name: str, output: Optional[str], template_dir: str):
     """Generate JSON Schema for a blueprint.
 
@@ -408,18 +408,18 @@ def detect_environment() -> Dict[str, str]:
 
     # Check for dags directory
     if Path("dags").exists():
-        suggestions["template_path"] = "dags/blueprints/templates"
+        suggestions["template_path"] = "dags"
         suggestions["dags_folder"] = "dags"
     else:
         # Try to get dags folder from Airflow
         try:
             suggestions["dags_folder"] = str(get_airflow_dags_folder())
-            suggestions["template_path"] = f"{suggestions['dags_folder']}/blueprints/templates"
+            suggestions["template_path"] = suggestions["dags_folder"]
         except Exception:
             suggestions["dags_folder"] = "dags"
-            suggestions["template_path"] = "dags/blueprints/templates"
+            suggestions["template_path"] = "dags"
 
-    suggestions["output_dir"] = f"{suggestions.get('dags_folder', 'dags')}/blueprints/instances"
+    suggestions["output_dir"] = suggestions.get("dags_folder", "dags")
     return suggestions
 
 
@@ -506,7 +506,7 @@ def init(force: bool):
     console.print("📁 [bold]Configure Paths[/bold]")
     template_path = click.prompt(
         "  Template directory",
-        default=detected_env.get("template_path", "dags/blueprints/templates"),
+        default=detected_env.get("template_path", "dags"),
     )
     output_dir = click.prompt(
         "  Output directory for configs",

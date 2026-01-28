@@ -76,25 +76,8 @@ class DailyETL(Blueprint[ETLConfig]):
         """Test default template directory discovery."""
         dirs = registry.get_template_dirs()
 
-        # Should include default paths
-        assert any(".astro/templates" in str(d) for d in dirs)
-
-    def test_get_template_dirs_with_env_var(self, registry, tmp_path):
-        """Test template directory from environment variable."""
-        custom_dir1 = tmp_path / "custom1"
-        custom_dir2 = tmp_path / "custom2"
-
-        # Set environment variable with multiple paths
-        os.environ["BLUEPRINT_TEMPLATE_PATH"] = f"{custom_dir1}:{custom_dir2}"
-
-        try:
-            dirs = registry.get_template_dirs()
-            dir_strs = [str(d) for d in dirs]
-
-            assert str(custom_dir1) in dir_strs
-            assert str(custom_dir2) in dir_strs
-        finally:
-            del os.environ["BLUEPRINT_TEMPLATE_PATH"]
+        # Should include default dags/ path
+        assert any(str(d).endswith("/dags") or str(d) == "dags" for d in dirs)
 
     def test_discover_blueprints(self, registry, temp_blueprints, monkeypatch):
         """Test blueprint discovery."""

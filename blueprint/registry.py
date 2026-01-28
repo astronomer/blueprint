@@ -23,26 +23,16 @@ class BlueprintRegistry:
         self._cached_list: Optional[List[Dict[str, Any]]] = None
 
     def get_template_dirs(self) -> List[Path]:
-        """Get all template directories to search, with environment variable override."""
+        """Get all template directories to search."""
         dirs = []
 
-        # First priority: BLUEPRINT_TEMPLATE_PATH environment variable
-        env_path = os.getenv("BLUEPRINT_TEMPLATE_PATH")
-        if env_path:
-            # Can be a single path or colon-separated paths
-            for path_str in env_path.split(":"):
-                stripped_path = path_str.strip()
-                if stripped_path:
-                    dirs.append(Path(stripped_path))
-
-        # Second priority: AIRFLOW_HOME/.astro/templates
+        # First priority: AIRFLOW_HOME/dags (where self-rendering Blueprint templates live)
         airflow_home = os.getenv("AIRFLOW_HOME", "/usr/local/airflow")
-        default_path = Path(airflow_home) / ".astro" / "templates"
-        if default_path not in dirs:
-            dirs.append(default_path)
+        default_path = Path(airflow_home) / "dags"
+        dirs.append(default_path)
 
-        # Third priority: .astro/templates in current directory
-        local_path = Path(".astro/templates")
+        # Second priority: dags/ in current directory
+        local_path = Path("dags")
         if local_path not in dirs and local_path.exists():
             dirs.append(local_path)
 
@@ -93,13 +83,15 @@ class BlueprintRegistry:
                     sys.modules[module_name] = module
                     spec.loader.exec_module(module)
 
-                    # Find all Blueprint subclasses
+                    # Find all Blueprint subclasses defined in this module
+                    # (not just imported from elsewhere)
                     for name in dir(module):
                         obj = getattr(module, name)
                         if (
                             isinstance(obj, type)
                             and issubclass(obj, Blueprint)
                             and obj is not Blueprint
+                            and obj.__module__ == module_name  # Only if defined here
                         ):
                             blueprint_name = self._get_blueprint_name(obj.__name__)
                             location = f"{py_file.relative_to(directory.parent.parent)}"

@@ -1,9 +1,0 @@
-blueprint: multi_source_etl
-job_id: sales-analytics-pipeline
-source_tables:
-  - raw.orders
-  - raw.order_items
-  - raw.products
-target_table: analytics.sales_summary
-schedule: "@hourly"
-parallel: true
