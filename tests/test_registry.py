@@ -1,7 +1,5 @@
 """Tests for the Blueprint registry system."""
 
-import os
-
 import pytest
 
 from blueprint import Blueprint

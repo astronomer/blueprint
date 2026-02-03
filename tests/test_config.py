@@ -137,9 +137,7 @@ class TestTemplatePath:
     def test_custom_airflow_home(self, tmp_path, chdir):
         """Test default with custom AIRFLOW_HOME."""
         # Mock get_airflow_dags_folder to return custom path
-        with chdir(tmp_path), mock.patch.dict(
-            os.environ, {}, clear=True
-        ), mock.patch(
+        with chdir(tmp_path), mock.patch.dict(os.environ, {}, clear=True), mock.patch(
             "blueprint.utils.get_airflow_dags_folder",
             return_value=Path("/custom/airflow/dags"),
         ):

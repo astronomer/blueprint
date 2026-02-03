@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
-from jinja2 import Environment, StrictUndefined, TemplateError
+from jinja2 import StrictUndefined, TemplateError
+from jinja2.sandbox import SandboxedEnvironment
 
 from blueprint.airflow_context import get_airflow_template_context
 from blueprint.core import Blueprint
@@ -56,9 +57,9 @@ def render_yaml_template(
 
     # Render the Jinja2 template
     try:
-        env = Environment(undefined=StrictUndefined)
+        env = SandboxedEnvironment(undefined=StrictUndefined)
         # Add default filter for fallback values
-        env.filters["default"] = lambda value, default="": default if not value else value
+        env.filters["default"] = lambda value, default="": value if value else default
         template = env.from_string(raw_content)
         rendered_content = template.render(template_context)
     except TemplateError as e:
@@ -171,7 +172,6 @@ def from_yaml(
         try:
             with config_path.open() as f:
                 config = yaml.safe_load(f)
-            rendered_yaml = config_path.read_text()
         except yaml.YAMLError as e:
             raise YAMLParseError.from_yaml_error(e, config_path) from e
         except Exception as e:

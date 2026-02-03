@@ -102,10 +102,12 @@ class ConnectionProxy:
     Usage in templates:
         {{ conn.my_conn.host }}
         {{ conn.my_conn.login }}
-        {{ conn.my_conn.password }}
         {{ conn.my_conn.schema }}
         {{ conn.my_conn.port }}
         {{ conn.my_conn.extra_dejson }}
+
+    Note: Password is intentionally not exposed in templates for security reasons.
+    If you need connection credentials, access them directly in your DAG code.
     """
 
     def __init__(self):
@@ -151,10 +153,8 @@ class ConnectionWrapper:
         conn = self._get_connection()
         return conn.login if conn else ""
 
-    @property
-    def password(self) -> str:
-        conn = self._get_connection()
-        return conn.password if conn else ""
+    # Note: password property intentionally omitted for security reasons.
+    # Access connection credentials directly in DAG code if needed.
 
     @property
     def schema(self) -> str:

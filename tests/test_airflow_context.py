@@ -1,9 +1,6 @@
 """Tests for the Airflow context provider."""
 
-import os
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from blueprint.airflow_context import (
     ConnectionProxy,
@@ -113,7 +110,7 @@ class TestConnectionWrapper:
         wrapper = ConnectionWrapper("test_conn", None)
         assert wrapper.host == ""
         assert wrapper.login == ""
-        assert wrapper.password == ""
+        # Note: password property intentionally removed for security
         assert wrapper.schema == ""
         assert wrapper.port is None
         assert wrapper.conn_type == ""
@@ -126,7 +123,6 @@ class TestConnectionWrapper:
         mock_conn = MagicMock()
         mock_conn.host = "localhost"
         mock_conn.login = "user"
-        mock_conn.password = "pass"
         mock_conn.schema = "mydb"
         mock_conn.port = 5432
         mock_conn.conn_type = "postgres"
@@ -139,7 +135,7 @@ class TestConnectionWrapper:
 
         assert wrapper.host == "localhost"
         assert wrapper.login == "user"
-        assert wrapper.password == "pass"
+        # Note: password property intentionally removed for security
         assert wrapper.schema == "mydb"
         assert wrapper.port == 5432
         assert wrapper.conn_type == "postgres"

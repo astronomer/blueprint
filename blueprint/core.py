@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 from pydantic import BaseModel
@@ -97,6 +97,9 @@ class Blueprint(Generic[T]):
             instance = cls()
             dag = instance.render(config)
 
+            # Validate dag_id matches config if applicable
+            cls._validate_dag_id(config, dag)
+
             # Inject config for UI visibility
             config_yaml = yaml.dump(
                 {"blueprint": cls._get_blueprint_name(), **config.model_dump()},
@@ -164,6 +167,34 @@ class Blueprint(Generic[T]):
         return cls.get_config_type().model_json_schema()
 
     @classmethod
+    def _validate_dag_id(cls, config: BaseModel, dag: "DAG") -> None:
+        """Validate that the DAG's dag_id matches the expected value from config.
+
+        Checks if the config has a 'job_id' or 'dag_id' field and validates
+        that the rendered DAG's dag_id matches.
+
+        Args:
+            config: The validated configuration model
+            dag: The rendered DAG
+
+        Raises:
+            ValueError: If the dag_id doesn't match the expected config value
+        """
+        # Check common field names for dag_id
+        expected_id = None
+        for field_name in ("job_id", "dag_id"):
+            if hasattr(config, field_name):
+                expected_id = getattr(config, field_name)
+                break
+
+        if expected_id is not None and dag.dag_id != expected_id:
+            msg = (
+                f"DAG ID mismatch: config specifies '{expected_id}' "
+                f"but render() returned DAG with id '{dag.dag_id}'"
+            )
+            raise ValueError(msg)
+
+    @classmethod
     def build_from_yaml(
         cls,
         config_path: Union[str, Path],
@@ -201,9 +232,10 @@ class Blueprint(Generic[T]):
             )
             ```
         """
-        from blueprint.loaders import render_yaml_template
-        from blueprint.errors import ConfigurationError, YAMLParseError
         import yaml
+
+        from blueprint.errors import ConfigurationError, YAMLParseError
+        from blueprint.loaders import render_yaml_template
 
         config_path = Path(config_path)
 
@@ -263,6 +295,64 @@ class Blueprint(Generic[T]):
         return name.lower()
 
     @classmethod
+    def _resolve_search_path(cls, search_path: Optional[Union[str, Path]]) -> Path:
+        """Resolve the search path for YAML discovery."""
+        if search_path is not None:
+            return Path(search_path)
+
+        # Check for AIRFLOW_HOME/dags first
+        airflow_home = os.environ.get("AIRFLOW_HOME")
+        if airflow_home:
+            dags_dir = Path(airflow_home) / "dags"
+            if dags_dir.exists():
+                return dags_dir
+
+        # Fall back to caller's directory
+        return cls._get_caller_directory()
+
+    @classmethod
+    def _load_yaml_config(
+        cls,
+        yaml_path: Path,
+        render_templates: bool,
+        template_context: Optional[Dict[str, Any]],
+    ) -> Tuple[Dict[str, Any], str]:
+        """Load and optionally render a YAML configuration file.
+
+        Returns:
+            Tuple of (config dict, rendered yaml string)
+
+        Raises:
+            YAMLParseError: If YAML parsing fails
+            ConfigurationError: If file is empty or unreadable
+        """
+        from blueprint.errors import ConfigurationError, YAMLParseError
+        from blueprint.loaders import render_yaml_template
+
+        if render_templates:
+            return render_yaml_template(
+                yaml_path,
+                context=template_context,
+                use_airflow_context=True,
+            )
+
+        # Load without template rendering
+        try:
+            raw_content = yaml_path.read_text()
+            config = yaml.safe_load(raw_content)
+        except yaml.YAMLError as e:
+            raise YAMLParseError.from_yaml_error(e, yaml_path) from e
+        except Exception as e:
+            msg = f"Failed to read configuration file: {e}"
+            raise ConfigurationError(msg, yaml_path) from e
+
+        if not config:
+            msg = "Configuration file is empty"
+            raise ConfigurationError(msg, yaml_path)
+
+        return config, raw_content
+
+    @classmethod
     def build_all(
         cls,
         register_globals: Optional[dict] = None,
@@ -270,6 +360,7 @@ class Blueprint(Generic[T]):
         pattern: str = "*.dag.yaml",
         render_templates: bool = True,
         template_context: Optional[Dict[str, Any]] = None,
+        fail_fast: bool = False,
     ) -> List["DAG"]:
         """Discover and build all DAGs that use this Blueprint.
 
@@ -285,6 +376,8 @@ class Blueprint(Generic[T]):
             pattern: Glob pattern for YAML discovery (default: *.dag.yaml)
             render_templates: Whether to render Jinja2 templates in YAML files
             template_context: Additional context variables for template rendering
+            fail_fast: If True, raise immediately on first error. If False (default),
+                       log errors and continue processing remaining files.
 
         Returns:
             List of built DAGs
@@ -310,124 +403,104 @@ class Blueprint(Generic[T]):
         # Auto-capture caller's globals if not provided
         if register_globals is None:
             frame = inspect.currentframe()
-            if frame and frame.f_back:
-                register_globals = frame.f_back.f_globals
-            else:
-                register_globals = {}
-        # Import here to avoid circular imports
-        from blueprint.loaders import render_yaml_template
-        from blueprint.errors import ConfigurationError, DuplicateDAGIdError, YAMLParseError
-        import yaml
+            register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
 
-        # Determine search path
-        if search_path is None:
-            # Check for AIRFLOW_HOME/dags first
-            airflow_home = os.environ.get("AIRFLOW_HOME")
-            if airflow_home:
-                dags_dir = Path(airflow_home) / "dags"
-                if dags_dir.exists():
-                    search_path = dags_dir
-            # Fall back to caller's directory
-            if search_path is None:
-                search_path = cls._get_caller_directory()
-        else:
-            search_path = Path(search_path)
-
-        # Get the blueprint name we're looking for
+        resolved_path = cls._resolve_search_path(search_path)
         blueprint_name = cls._get_blueprint_name()
 
         logger.info(
             "Discovering DAGs for blueprint '%s' in %s (pattern: %s)",
             blueprint_name,
-            search_path,
+            resolved_path,
             pattern,
         )
 
-        # Discover all YAML files
-        yaml_files = list(search_path.rglob(pattern)) if search_path.exists() else []
-
+        yaml_files = list(resolved_path.rglob(pattern)) if resolved_path.exists() else []
         if not yaml_files:
-            logger.debug("No YAML files found matching pattern '%s' in %s", pattern, search_path)
+            logger.debug("No YAML files found matching pattern '%s' in %s", pattern, resolved_path)
             return []
 
         logger.debug("Found %d YAML files to check", len(yaml_files))
 
-        # Track DAGs and detect duplicates
-        dags: List["DAG"] = []
+        dags: List[DAG] = []
         dag_id_to_file: Dict[str, Path] = {}
 
         for yaml_path in yaml_files:
-            try:
-                # Load and render the config
-                if render_templates:
-                    config, rendered_yaml = render_yaml_template(
-                        yaml_path,
-                        context=template_context,
-                        use_airflow_context=True,
-                    )
-                else:
-                    try:
-                        raw_content = yaml_path.read_text()
-                        config = yaml.safe_load(raw_content)
-                        rendered_yaml = raw_content
-                    except yaml.YAMLError as e:
-                        raise YAMLParseError.from_yaml_error(e, yaml_path) from e
-                    except Exception as e:
-                        msg = f"Failed to read configuration file: {e}"
-                        raise ConfigurationError(msg, yaml_path) from e
+            result = cls._process_yaml_file(
+                yaml_path,
+                blueprint_name,
+                render_templates,
+                template_context,
+                register_globals,
+                dag_id_to_file,
+                fail_fast,
+            )
+            if result:
+                dags.append(result)
 
-                    if not config:
-                        msg = "Configuration file is empty"
-                        raise ConfigurationError(msg, yaml_path)
+        cls._log_build_summary(dags, blueprint_name)
+        return dags
 
-                # Check if this YAML is for our blueprint
-                yaml_blueprint = config.get("blueprint")
-                if yaml_blueprint != blueprint_name:
-                    logger.debug(
-                        "Skipping %s: blueprint is '%s', not '%s'",
-                        yaml_path.name,
-                        yaml_blueprint,
-                        blueprint_name,
-                    )
-                    continue
+    @classmethod
+    def _process_yaml_file(
+        cls,
+        yaml_path: Path,
+        blueprint_name: str,
+        render_templates: bool,
+        template_context: Optional[Dict[str, Any]],
+        register_globals: dict,
+        dag_id_to_file: Dict[str, Path],
+        fail_fast: bool,
+    ) -> Optional["DAG"]:
+        """Process a single YAML file and return the built DAG if successful."""
+        from blueprint.errors import DuplicateDAGIdError
 
-                # Remove the blueprint field before building
-                config.pop("blueprint", None)
+        dag: Optional[DAG] = None
+        rendered_yaml: str = ""
+        try:
+            config, rendered_yaml = cls._load_yaml_config(
+                yaml_path, render_templates, template_context
+            )
 
-                # Build the DAG
-                logger.info("Building DAG from %s", yaml_path.name)
-                dag = cls.build(**config)
+            # Check if this YAML is for our blueprint
+            if config.get("blueprint") != blueprint_name:
+                logger.debug(
+                    "Skipping %s: blueprint is '%s', not '%s'",
+                    yaml_path.name,
+                    config.get("blueprint"),
+                    blueprint_name,
+                )
+                return None
 
-                # Check for duplicate DAG IDs
-                dag_id = dag.dag_id
-
-                # Skip if this DAG ID already exists in the target globals (idempotent)
-                if dag_id in register_globals:
-                    logger.debug("Skipping already registered DAG: %s", dag_id)
-                    continue
-
-                if dag_id in dag_id_to_file:
-                    raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
-
-                dag_id_to_file[dag_id] = yaml_path
-
-                # Inject the rendered config for UI visibility
-                cls._inject_blueprint_config(dag, rendered_yaml)
-
-                # Register the DAG in globals
-                register_globals[dag_id] = dag
-                dags.append(dag)
-
-                logger.info("✅ Built DAG '%s' from %s", dag_id, yaml_path.name)
-
-            except DuplicateDAGIdError:
-                # Re-raise duplicate errors
+            config.pop("blueprint", None)
+            logger.info("Building DAG from %s", yaml_path.name)
+            dag = cls.build(**config)
+        except DuplicateDAGIdError:
+            raise
+        except Exception:
+            if fail_fast:
                 raise
-            except Exception as e:
-                logger.exception("❌ Failed to build DAG from %s: %s", yaml_path.name, e)
-                # Continue processing other files
-                continue
+            logger.exception("❌ Failed to build DAG from %s", yaml_path.name)
+            return None
 
+        # Check for duplicates (outside try to satisfy TRY301)
+        dag_id = dag.dag_id
+        if dag_id in dag_id_to_file:
+            _raise_duplicate_error(dag_id, dag_id_to_file[dag_id], yaml_path)
+
+        if dag_id in register_globals:
+            logger.debug("Skipping already registered DAG: %s", dag_id)
+            return None
+
+        dag_id_to_file[dag_id] = yaml_path
+        cls._inject_blueprint_config(dag, rendered_yaml)
+        register_globals[dag_id] = dag
+        logger.info("✅ Built DAG '%s' from %s", dag_id, yaml_path.name)
+        return dag
+
+    @staticmethod
+    def _log_build_summary(dags: List["DAG"], blueprint_name: str) -> None:
+        """Log a summary of built DAGs."""
         if dags:
             logger.info(
                 "Successfully built %d DAG(s) for blueprint '%s': %s",
@@ -437,8 +510,6 @@ class Blueprint(Generic[T]):
             )
         else:
             logger.debug("No DAGs built for blueprint '%s'", blueprint_name)
-
-        return dags
 
     @staticmethod
     def _get_caller_directory() -> Path:
@@ -473,4 +544,14 @@ class Blueprint(Generic[T]):
             # Extend template_fields to include our new field
             existing_fields = getattr(task, "template_fields", ()) or ()
             if "blueprint_config" not in existing_fields:
-                task.template_fields = tuple(existing_fields) + ("blueprint_config",)
+                task.template_fields = (*existing_fields, "blueprint_config")
+
+
+def _raise_duplicate_error(dag_id: str, existing_path: Path, new_path: Path) -> None:
+    """Raise DuplicateDAGIdError for duplicate DAG IDs.
+
+    This is a module-level helper to satisfy TRY301 (no raise inside try blocks).
+    """
+    from blueprint.errors import DuplicateDAGIdError
+
+    raise DuplicateDAGIdError(dag_id, [existing_path, new_path])

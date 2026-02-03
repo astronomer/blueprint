@@ -3,7 +3,7 @@
 import pytest
 from airflow import DAG
 
-from blueprint import Blueprint, BaseModel, Field
+from blueprint import BaseModel, Blueprint
 from blueprint.errors import DuplicateDAGIdError
 
 
@@ -43,16 +43,73 @@ class TestGetBlueprintName:
         assert DataWarehouseETLPipeline._get_blueprint_name() == "data_warehouse_etl_pipeline"
 
 
+class TestDagIdValidation:
+    """Tests for Blueprint._validate_dag_id()."""
+
+    def test_valid_dag_id_matches_job_id(self):
+        """Test that DAG ID matching job_id passes validation."""
+
+        class TestConfig(BaseModel):
+            job_id: str
+
+        class TestBlueprint(Blueprint[TestConfig]):
+            def render(self, config: TestConfig) -> DAG:
+                from datetime import datetime, timezone
+
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
+
+        # This should work without raising
+        dag = TestBlueprint.build(job_id="my-dag")
+        assert dag.dag_id == "my-dag"
+
+    def test_mismatched_dag_id_raises_error(self):
+        """Test that mismatched DAG ID raises ValueError."""
+
+        class TestConfig(BaseModel):
+            job_id: str
+
+        class TestBlueprint(Blueprint[TestConfig]):
+            def render(self, _config: TestConfig) -> DAG:
+                from datetime import datetime, timezone
+
+                # Intentionally return wrong dag_id (ignoring config.job_id)
+                return DAG(dag_id="wrong-id", start_date=datetime(2024, 1, 1, tzinfo=timezone.utc))
+
+        with pytest.raises(ValueError, match="DAG ID mismatch"):
+            TestBlueprint.build(job_id="expected-id")
+
+    def test_no_validation_without_job_id_field(self):
+        """Test that validation is skipped for configs without job_id/dag_id."""
+
+        class TestConfig(BaseModel):
+            name: str  # Not job_id or dag_id
+
+        class TestBlueprint(Blueprint[TestConfig]):
+            def render(self, config: TestConfig) -> DAG:
+                from datetime import datetime, timezone
+
+                return DAG(
+                    dag_id=f"dag-{config.name}",
+                    start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                )
+
+        # This should work - no validation since no job_id field
+        dag = TestBlueprint.build(name="test")
+        assert dag.dag_id == "dag-test"
+
+
 class TestInjectBlueprintConfig:
     """Tests for Blueprint._inject_blueprint_config()."""
 
-    def test_injects_config_to_all_tasks(self, tmp_path):
+    def test_injects_config_to_all_tasks(self):
         """Test that config is injected into all tasks."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         from airflow.operators.bash import BashOperator
 
-        dag = DAG(dag_id="test_dag", start_date=datetime(2024, 1, 1))
+        dag = DAG(dag_id="test_dag", start_date=datetime(2024, 1, 1, tzinfo=timezone.utc))
         with dag:
             task1 = BashOperator(task_id="task1", bash_command="echo 1")
             task2 = BashOperator(task_id="task2", bash_command="echo 2")
@@ -70,9 +127,9 @@ class TestInjectBlueprintConfig:
 
     def test_no_tasks(self):
         """Test with DAG that has no tasks."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
-        dag = DAG(dag_id="empty_dag", start_date=datetime(2024, 1, 1))
+        dag = DAG(dag_id="empty_dag", start_date=datetime(2024, 1, 1, tzinfo=timezone.utc))
 
         # Should not raise
         Blueprint._inject_blueprint_config(dag, "config: value")
@@ -83,6 +140,7 @@ class TestBuildAll:
 
     def test_discovers_matching_yaml(self, tmp_path):
         """Test that build_all discovers YAML files for the blueprint."""
+
         # Create a test blueprint
         class TestConfig(BaseModel):
             job_id: str
@@ -90,12 +148,12 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 return DAG(
                     dag_id=config.job_id,
                     schedule=config.schedule,
-                    start_date=datetime(2024, 1, 1),
+                    start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 )
 
         # Create YAML files
@@ -126,9 +184,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create YAML files with same job_id
         yaml1 = tmp_path / "config1.dag.yaml"
@@ -150,9 +210,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create YAML with Jinja2 template
         yaml_file = tmp_path / "templated.dag.yaml"
@@ -172,9 +234,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create nested directory structure
         subdir = tmp_path / "subdir" / "nested"
@@ -201,9 +265,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         test_globals = {}
         dags = TestBlueprint.build_all(register_globals=test_globals, search_path=tmp_path)
@@ -218,9 +284,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         nonexistent = tmp_path / "does_not_exist"
 
@@ -237,9 +305,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create files with different extensions
         yaml1 = tmp_path / "config.dag.yaml"
@@ -267,9 +337,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create YAML - job_id is static, but env_value uses template
         yaml_file = tmp_path / "templated.dag.yaml"
@@ -294,9 +366,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create YAML with custom variable
         yaml_file = tmp_path / "custom.dag.yaml"
@@ -320,9 +394,11 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
 
         # Create one valid and one invalid YAML
         valid_yaml = tmp_path / "valid.dag.yaml"
@@ -338,6 +414,65 @@ class TestBuildAll:
         assert len(dags) == 1
         assert "valid-job" in test_globals
 
+    def test_fail_fast_raises_on_error(self, tmp_path):
+        """Test that fail_fast=True raises on error instead of continuing."""
+        from blueprint.errors import ConfigurationError
+
+        class TestConfig(BaseModel):
+            job_id: str
+
+        class TestBlueprint(Blueprint[TestConfig]):
+            def render(self, config: TestConfig) -> DAG:
+                from datetime import datetime, timezone
+
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
+
+        # Create only an invalid YAML file
+        invalid_yaml = tmp_path / "invalid.dag.yaml"
+        invalid_yaml.write_text("blueprint: test_blueprint\njob_id: {{ broken\n")
+
+        test_globals = {}
+
+        # With fail_fast=True, should raise immediately
+        with pytest.raises(ConfigurationError):
+            TestBlueprint.build_all(
+                register_globals=test_globals, search_path=tmp_path, fail_fast=True
+            )
+
+    def test_fail_fast_false_continues_on_error(self, tmp_path):
+        """Test that fail_fast=False (default) continues processing after error."""
+
+        class TestConfig(BaseModel):
+            job_id: str
+
+        class TestBlueprint(Blueprint[TestConfig]):
+            def render(self, config: TestConfig) -> DAG:
+                from datetime import datetime, timezone
+
+                return DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
+
+        # Create one valid and one invalid YAML
+        valid_yaml = tmp_path / "valid.dag.yaml"
+        valid_yaml.write_text("blueprint: test_blueprint\njob_id: valid-job\n")
+
+        invalid_yaml = tmp_path / "invalid.dag.yaml"
+        invalid_yaml.write_text("blueprint: test_blueprint\njob_id: {{ broken\n")
+
+        test_globals = {}
+
+        # With fail_fast=False (default), should continue and build valid DAG
+        dags = TestBlueprint.build_all(
+            register_globals=test_globals, search_path=tmp_path, fail_fast=False
+        )
+
+        # Valid job should have been processed despite the error on invalid
+        assert len(dags) == 1
+        assert "valid-job" in test_globals
+
     def test_injects_blueprint_config_to_dag(self, tmp_path):
         """Test that rendered YAML is injected into DAG tasks."""
 
@@ -347,16 +482,21 @@ class TestBuildAll:
 
         class TestBlueprint(Blueprint[TestConfig]):
             def render(self, config: TestConfig) -> DAG:
-                from datetime import datetime
+                from datetime import datetime, timezone
+
                 from airflow.operators.bash import BashOperator
 
-                dag = DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+                dag = DAG(
+                    dag_id=config.job_id, start_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                )
                 with dag:
                     BashOperator(task_id="task1", bash_command="echo 1")
                 return dag
 
         yaml_file = tmp_path / "config.dag.yaml"
-        yaml_file.write_text("blueprint: test_blueprint\njob_id: inject-test\nschedule: '@hourly'\n")
+        yaml_file.write_text(
+            "blueprint: test_blueprint\njob_id: inject-test\nschedule: '@hourly'\n"
+        )
 
         test_globals = {}
         dags = TestBlueprint.build_all(register_globals=test_globals, search_path=tmp_path)

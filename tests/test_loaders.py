@@ -258,10 +258,10 @@ class TemplatedBlueprint(Blueprint[TemplatedConfig]):
         (template_dir / "templated.py").write_text(blueprint_code)
 
         # Create YAML with Jinja2 template
-        yaml_content = '''
+        yaml_content = """
 blueprint: templated_blueprint
 job_id: "{{ env.TEST_ENV }}-job"
-'''
+"""
         config_file = tmp_path / "templated.yaml"
         config_file.write_text(yaml_content)
 
@@ -297,11 +297,11 @@ class LiteralBlueprint(Blueprint[LiteralConfig]):
         (template_dir / "literal.py").write_text(blueprint_code)
 
         # Create YAML - job_id is static, env_value uses template
-        yaml_content = '''
+        yaml_content = """
 blueprint: literal_blueprint
 job_id: static-job-id
 env_value: "{{ env.TEST_ENV }}"
-'''
+"""
         config_file = tmp_path / "literal.yaml"
         config_file.write_text(yaml_content)
 
@@ -341,10 +341,10 @@ schedule: "@daily"
         """Test rendering with environment variable."""
         monkeypatch.setenv("MY_ENV", "production")
 
-        yaml_content = '''
+        yaml_content = """
 blueprint: test
 job_id: "{{ env.MY_ENV }}-job"
-'''
+"""
         config_file = tmp_path / "env.yaml"
         config_file.write_text(yaml_content)
 
@@ -355,10 +355,10 @@ job_id: "{{ env.MY_ENV }}-job"
 
     def test_default_filter(self, tmp_path):
         """Test the default filter for fallback values."""
-        yaml_content = '''
+        yaml_content = """
 blueprint: test
 schedule: "{{ var.value.missing_key | default('@daily') }}"
-'''
+"""
         config_file = tmp_path / "default.yaml"
         config_file.write_text(yaml_content)
 
@@ -368,10 +368,10 @@ schedule: "{{ var.value.missing_key | default('@daily') }}"
 
     def test_custom_context(self, tmp_path):
         """Test rendering with custom context."""
-        yaml_content = '''
+        yaml_content = """
 blueprint: test
 job_id: "{{ custom_var }}-job"
-'''
+"""
         config_file = tmp_path / "custom.yaml"
         config_file.write_text(yaml_content)
 
@@ -386,10 +386,10 @@ job_id: "{{ custom_var }}-job"
         """Test rendering with Airflow context disabled."""
         monkeypatch.setenv("MY_ENV", "production")
 
-        yaml_content = '''
+        yaml_content = """
 blueprint: test
 job_id: "{{ env.MY_ENV }}-job"
-'''
+"""
         config_file = tmp_path / "no_airflow.yaml"
         config_file.write_text(yaml_content)
 
@@ -400,10 +400,10 @@ job_id: "{{ env.MY_ENV }}-job"
 
     def test_invalid_template_syntax(self, tmp_path):
         """Test error handling for invalid Jinja2 syntax."""
-        yaml_content = '''
+        yaml_content = """
 blueprint: test
 job_id: "{{ invalid syntax here"
-'''
+"""
         config_file = tmp_path / "invalid.yaml"
         config_file.write_text(yaml_content)
 
@@ -424,3 +424,19 @@ job_id: "{{ invalid syntax here"
 
         with pytest.raises(ConfigurationError, match="Failed to read"):
             render_yaml_template(config_file)
+
+    def test_sandboxed_environment_blocks_dangerous_operations(self, tmp_path):
+        """Test that the Jinja2 sandbox blocks dangerous template operations."""
+        from jinja2.exceptions import SecurityError
+
+        # Attempt to access __class__ which should be blocked by sandbox
+        dangerous_yaml = """
+blueprint: test
+job_id: "{{ ''.__class__.__mro__[1].__subclasses__() }}"
+"""
+        config_file = tmp_path / "dangerous.yaml"
+        config_file.write_text(dangerous_yaml)
+
+        # Should raise SecurityError or ConfigurationError wrapping it
+        with pytest.raises((SecurityError, ConfigurationError)):
+            render_yaml_template(config_file, use_airflow_context=False)
