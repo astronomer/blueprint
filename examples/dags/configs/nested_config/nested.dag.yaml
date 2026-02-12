@@ -1,6 +1,0 @@
-blueprint: daily_etl
-
-job_id: nested-etl
-source_table: raw.customers
-target_table: analytics.dim_customers
-retries: 3

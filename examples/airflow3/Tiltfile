@@ -1,0 +1,28 @@
+docker_compose('./docker-compose.yaml')
+
+dc_resource('postgres')
+dc_resource('db-migration', resource_deps=['postgres'])
+dc_resource('api-server', resource_deps=['db-migration'])
+dc_resource('scheduler', resource_deps=['db-migration'])
+dc_resource('dag-processor', resource_deps=['db-migration'])
+dc_resource('triggerer', resource_deps=['db-migration'])
+
+sync_pyproj_toml = sync('../../pyproject.toml', '/usr/local/airflow/blueprint/pyproject.toml')
+sync_readme = sync('../../README.md', '/usr/local/airflow/blueprint/README.md')
+sync_src = sync('../../blueprint', '/usr/local/airflow/blueprint/blueprint')
+
+docker_build(
+    'blueprint-airflow',
+    context='../..',
+    dockerfile='./Dockerfile',
+    ignore=['.venv', '**/logs/**'],
+    live_update=[
+        sync_pyproj_toml,
+        sync_src,
+        sync_readme,
+        run(
+            'cd /usr/local/airflow/blueprint && uv pip install -e .',
+            trigger=['pyproject.toml']
+        ),
+    ]
+)

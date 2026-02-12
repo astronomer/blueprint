@@ -1,9 +1,10 @@
-"""Blueprint CLI for managing and validating DAG templates."""
+"""Blueprint CLI for managing reusable task templates and validating DAG definitions."""
 
+import copy
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any
 
 import click
 import yaml
@@ -12,80 +13,69 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from blueprint import (
-    discover_blueprints,
-    from_yaml,
-    get_blueprint_info,
-    load_blueprint,
-)
-from blueprint.config import get_output_dir, get_template_path
-from blueprint.errors import DuplicateDAGIdError
-from blueprint.utils import get_airflow_dags_folder
+from blueprint.loaders import discover_blueprints, get_blueprint_info, validate_yaml
+from blueprint.registry import BlueprintRegistry
 
 console = Console()
-
-# Constants
-DESCRIPTION_LENGTH_LIMIT = 50
-DESCRIPTION_TRUNCATE_LENGTH = 47
 
 
 @click.group()
 @click.version_option(package_name="airflow-blueprint")
 def cli():
-    """Blueprint - Reusable, validated Airflow DAG templates.
+    """Blueprint - Reusable task templates composed into Airflow DAGs.
 
-    Create and manage templated Airflow DAGs with type-safe configurations.
+    Define reusable blueprint classes in Python, compose them into DAGs
+    with YAML, and let Blueprint handle validation and wiring.
     """
 
 
-def _get_configs_to_check(path: Optional[str]) -> List[Path]:
+def _get_configs_to_check(path: str | None) -> list[Path]:
     """Get list of configuration files to check."""
     configs_to_check = []
 
     if path:
         configs_to_check.append(Path(path))
     else:
-        # Find all .dag.yaml files
         for yaml_file in Path().rglob("*.dag.yaml"):
             configs_to_check.append(yaml_file)
 
     return configs_to_check
 
 
-def _validate_config(
-    config_path: Path, template_dir: str
-) -> tuple[bool, Optional[str], Optional[object]]:
+def _validate_config(config_path: Path, template_dir: str | None) -> tuple[bool, str | None]:
     """Validate a single configuration file.
 
     Returns:
-        tuple of (success, job_id, config)
+        tuple of (success, dag_id)
     """
     try:
-        config = from_yaml(str(config_path), template_dir=template_dir, validate_only=True)
+        result = validate_yaml(str(config_path), template_dir=template_dir)
     except Exception as e:
-        console.print(f"❌ {config_path}")
+        console.print(f"[red]FAIL[/red] {config_path}")
         if hasattr(e, "_format_message") and callable(e._format_message):
-            console.print(e._format_message())  # type: ignore[misc]
+            console.print(e._format_message())
         else:
             console.print(f"  [red]Error:[/red] {e}")
-        return False, None, None
+        return False, None
     else:
-        console.print(f"✅ {config_path} - Valid")
-        job_id = getattr(config, "job_id", None)
-        return True, job_id, config
+        dag_id = result.get("dag_id")
+        console.print(f"[green]PASS[/green] {config_path} (dag_id={dag_id})")
+        return True, dag_id
 
 
-def _check_duplicate_dag_ids(dag_ids_to_files: Dict[str, List[Path]]) -> bool:
+def _check_duplicate_dag_ids(dag_ids_to_files: dict[str, list[Path]]) -> bool:
     """Check for duplicate DAG IDs and report errors.
 
     Returns:
         True if duplicates found, False otherwise
     """
+    from blueprint.errors import DuplicateDAGIdError
+
     errors_found = False
     for dag_id, config_files in dag_ids_to_files.items():
         if len(config_files) > 1:
             errors_found = True
-            console.print("\n❌ Duplicate DAG ID detected:")
+            console.print("\n[red]Duplicate DAG ID detected:[/red]")
             error = DuplicateDAGIdError(dag_id, config_files)
             console.print(str(error))
     return errors_found
@@ -93,40 +83,36 @@ def _check_duplicate_dag_ids(dag_ids_to_files: Dict[str, List[Path]]) -> bool:
 
 @cli.command()
 @click.argument("path", required=False, type=click.Path(exists=True))
-@click.option("--template-dir", default=None, help="Template directory path")
-def lint(path: Optional[str], template_dir: Optional[str]):
-    """Validate blueprint configurations.
+@click.option("--template-dir", default=None, help="Directory containing blueprint files")
+def lint(path: str | None, template_dir: str | None):
+    """Validate DAG YAML definitions.
 
     If PATH is provided, validate a specific file.
-    Otherwise, validate all .dag.yaml files in the current directory.
+    Otherwise, validate all .dag.yaml files in the current directory tree.
     """
-    template_dir = get_template_path(template_dir)
     configs_to_check = _get_configs_to_check(path)
 
     if not configs_to_check:
-        console.print("[yellow]No configuration files found.[/yellow]")
+        console.print("[yellow]No .dag.yaml files found.[/yellow]")
         return
 
     errors_found = False
-    dag_ids_to_files = {}  # Track DAG IDs to detect duplicates
-    valid_configs = []  # Track successfully validated configs
+    dag_ids_to_files: dict[str, list[Path]] = {}
+    valid_count = 0
 
-    # First pass: validate individual configurations
     for config_path in configs_to_check:
-        success, job_id, config = _validate_config(config_path, template_dir)
+        success, dag_id = _validate_config(config_path, template_dir)
 
-        if success and config:
-            if job_id:
-                if job_id in dag_ids_to_files:
-                    dag_ids_to_files[job_id].append(config_path)
-                else:
-                    dag_ids_to_files[job_id] = [config_path]
-            valid_configs.append((config_path, config))
-        else:
+        if success and dag_id:
+            if dag_id in dag_ids_to_files:
+                dag_ids_to_files[dag_id].append(config_path)
+            else:
+                dag_ids_to_files[dag_id] = [config_path]
+            valid_count += 1
+        elif not success:
             errors_found = True
 
-    # Second pass: check for duplicate DAG IDs (only if multiple files and no validation errors)
-    if len(valid_configs) > 1 and not errors_found and _check_duplicate_dag_ids(dag_ids_to_files):
+    if valid_count > 1 and _check_duplicate_dag_ids(dag_ids_to_files):
         errors_found = True
 
     if errors_found:
@@ -134,50 +120,51 @@ def lint(path: Optional[str], template_dir: Optional[str]):
 
 
 @cli.command("list")
-@click.option("--template-dir", default=None, help="Template directory path")
-def list_blueprints(template_dir: Optional[str]):
+@click.option("--template-dir", default=None, help="Directory containing blueprint files")
+def list_blueprints(template_dir: str | None):
     """List available blueprints."""
-    template_dir = get_template_path(template_dir)
     blueprints = discover_blueprints(template_dir)
 
     if not blueprints:
-        console.print(f"[yellow]No blueprints found in {template_dir}[/yellow]")
+        console.print("[yellow]No blueprints found.[/yellow]")
         return
 
     table = Table(title="Available Blueprints", show_lines=True)
     table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("Versions", style="green", no_wrap=True)
     table.add_column("Description", overflow="fold")
-    table.add_column("Class / Path", style="dim", no_wrap=False)
+    table.add_column("Class", style="dim", no_wrap=False)
 
     for bp in blueprints:
-        # Combine class and path info
-        metadata = f"{bp['class']}\n{bp['module']}"
-        table.add_row(bp["name"], bp["description"], metadata)
+        versions_str = ", ".join(str(v) for v in bp["versions"])
+        desc = bp["description"].split("\n")[0] if bp["description"] else "-"
+        table.add_row(bp["name"], versions_str, desc, bp["class"])
 
     console.print(table)
 
 
 @cli.command()
 @click.argument("blueprint_name")
-@click.option("--template-dir", default=None, help="Template directory path")
-def describe(blueprint_name: str, template_dir: Optional[str]):
+@click.option("--version", "-v", type=int, default=None, help="Specific version (default: latest)")
+@click.option("--template-dir", default=None, help="Directory containing blueprint files")
+def describe(blueprint_name: str, version: int | None, template_dir: str | None):
     """Show blueprint parameters and documentation."""
-    template_dir = get_template_path(template_dir)
     try:
-        info = get_blueprint_info(blueprint_name, template_dir)
-    except ValueError as e:
+        info = get_blueprint_info(blueprint_name, template_dir, version=version)
+    except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    # Print header
+    versions_str = ", ".join(str(v) for v in info["versions"])
     console.print(
         Panel(
-            f"[bold cyan]{info['class']}[/bold cyan]\n{info['description']}",
+            f"[bold cyan]{info['class']}[/bold cyan] (v{info['version']})\n"
+            f"{info['description']}\n"
+            f"Available versions: {versions_str}",
             title=f"Blueprint: {info['name']}",
         )
     )
 
-    # Parameters table
     if info["parameters"]:
         table = Table(title="Parameters")
         table.add_column("Name", style="cyan")
@@ -192,63 +179,111 @@ def describe(blueprint_name: str, template_dir: Optional[str]):
                 param_info["type"],
                 "Yes" if param_info["required"] else "No",
                 str(param_info.get("default", "-")),
-                param_info.get("description", "-"),
+                param_info.get("description", "-") or "-",
             )
 
         console.print(table)
 
-    # Example usage
-    console.print("\n[bold]Example YAML configuration:[/bold]")
+    console.print("\n[bold]Example YAML step:[/bold]")
 
-    example_config = {"blueprint": blueprint_name}
+    example_step: dict[str, object] = {"blueprint": blueprint_name}
+    if version:
+        example_step["version"] = version
     for param_name, param_info in info["parameters"].items():
         if param_info["required"]:
-            example_config[param_name] = f"<{param_info['type']}>"
+            example_step[param_name] = f"<{param_info['type']}>"
         elif param_info.get("default") is not None:
-            example_config[param_name] = param_info["default"]
+            example_step[param_name] = param_info["default"]
 
     yaml_syntax = Syntax(
-        yaml.dump(example_config, default_flow_style=False), "yaml", theme="monokai"
+        yaml.dump({"my_step": example_step}, default_flow_style=False, sort_keys=False),
+        "yaml",
+        theme="monokai",
     )
     console.print(yaml_syntax)
+
+
+def _get_registry(template_dir: str | None) -> BlueprintRegistry:
+    """Get a BlueprintRegistry for the given template directory."""
+    from blueprint.loaders import get_registry
+
+    return get_registry(template_dir)
+
+
+def _build_version_schema(
+    blueprint_name: str,
+    version: int,
+    base_name: str,
+    raw_schema: dict,
+) -> dict:
+    """Build a schema variant for a single version of a blueprint."""
+    schema_data = copy.deepcopy(raw_schema)
+
+    if "properties" not in schema_data:
+        schema_data["properties"] = {}
+
+    schema_data["properties"]["blueprint"] = {
+        "type": "string",
+        "const": blueprint_name,
+        "description": "The blueprint template to use",
+    }
+    schema_data["properties"]["version"] = {
+        "type": "integer",
+        "const": version,
+        "description": "The blueprint version",
+    }
+
+    if "required" not in schema_data:
+        schema_data["required"] = []
+    schema_data["required"].insert(0, "blueprint")
+    if "version" not in schema_data["required"]:
+        schema_data["required"].insert(1, "version")
+
+    schema_data["title"] = base_name
+    schema_data.pop("$schema", None)
+
+    return schema_data
 
 
 @cli.command()
 @click.argument("blueprint_name")
 @click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
-@click.option("--template-dir", default="dags/blueprints/templates", help="Template directory path")
-def schema(blueprint_name: str, output: Optional[str], template_dir: str):
-    """Generate JSON Schema for a blueprint.
+@click.option("--template-dir", default=None, help="Directory containing blueprint files")
+def schema(blueprint_name: str, output: str | None, template_dir: str | None):
+    """Generate JSON Schema for a blueprint's configuration.
 
-    This can be used for YAML validation in editors like VS Code.
+    Emits a single schema covering all versions. Multi-version blueprints
+    use oneOf discriminated by the version field.
     """
     try:
-        info = get_blueprint_info(blueprint_name, template_dir)
-    except ValueError as e:
+        reg = _get_registry(template_dir)
+        versions_info = reg.get_all_versions_info(blueprint_name)
+    except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    # Add blueprint field to schema
-    schema = info["schema"]
-    if "properties" not in schema:
-        schema["properties"] = {}
+    variants = [
+        _build_version_schema(
+            blueprint_name,
+            vi["version"],
+            vi["base_name"],
+            vi["schema"],
+        )
+        for vi in versions_info
+    ]
 
-    schema["properties"]["blueprint"] = {
-        "type": "string",
-        "const": blueprint_name,
-        "description": "The blueprint template to use",
-    }
+    if len(variants) == 1:
+        schema_data = variants[0]
+        schema_data["$schema"] = "http://json-schema.org/draft-07/schema#"
+    else:
+        schema_data = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": blueprint_name,
+            "oneOf": variants,
+            "discriminator": {"propertyName": "version"},
+        }
 
-    if "required" not in schema:
-        schema["required"] = []
-    schema["required"].insert(0, "blueprint")
-
-    # Add schema metadata
-    schema["$schema"] = "http://json-schema.org/draft-07/schema#"
-    schema["title"] = f"{info['class']} Configuration"
-
-    # Output
-    json_output = json.dumps(schema, indent=2)
+    json_output = json.dumps(schema_data, indent=2)
 
     if output:
         Path(output).write_text(json_output)
@@ -258,11 +293,13 @@ def schema(blueprint_name: str, output: Optional[str], template_dir: str):
         console.print(syntax)
 
 
-def _select_blueprint(blueprints):
+def _select_blueprint(blueprints: list[dict[str, Any]]) -> dict[str, Any]:
     """Select a blueprint from the available options."""
     console.print("[bold]Available blueprints:[/bold]")
     for i, bp in enumerate(blueprints):
-        console.print(f"  {i + 1}. [cyan]{bp['name']}[/cyan] - {bp['description']}")
+        desc = bp["description"].split("\n")[0] if bp["description"] else "-"
+        versions_str = ", ".join(str(v) for v in bp["versions"])
+        console.print(f"  {i + 1}. [cyan]{bp['name']}[/cyan] (v{versions_str}) - {desc}")
 
     while True:
         try:
@@ -275,7 +312,7 @@ def _select_blueprint(blueprints):
             sys.exit(0)
 
 
-def _convert_param_value(value, param_info):
+def _convert_param_value(value: object, param_info: dict[str, Any]) -> object:
     if value:
         if param_info["type"] == "integer":
             try:
@@ -286,18 +323,16 @@ def _convert_param_value(value, param_info):
         elif param_info["type"] == "boolean":
             return value.lower() in ("true", "yes", "1", "on")
         elif param_info["type"] == "array" and isinstance(value, str):
-            # Simple comma-separated list
             return [v.strip() for v in value.split(",")]
     return value
 
 
-def _collect_parameters(info):
+def _collect_parameters(info: dict[str, Any]) -> dict[str, object]:
     """Collect parameter values from user input."""
-    config = {"blueprint": info["name"]}
+    config: dict[str, object] = {}
 
     console.print("\n[bold]Enter configuration values:[/bold]")
     for param_name, param_info in info["parameters"].items():
-        # Build prompt
         prompt = f"{param_name}"
         if param_info.get("description"):
             prompt += f" ({param_info['description']})"
@@ -307,7 +342,6 @@ def _collect_parameters(info):
 
         prompt += ": "
 
-        # Get value
         if param_info["required"]:
             while True:
                 value = console.input(prompt)
@@ -324,243 +358,58 @@ def _collect_parameters(info):
     return config
 
 
-def _validate_configuration(blueprint_name, config, template_dir):
-    """Validate the configuration by attempting to build the DAG."""
-    try:
-        blueprint_class = load_blueprint(blueprint_name, template_dir)
-        # This will validate the config
-        _ = blueprint_class.build(**{k: v for k, v in config.items() if k != "blueprint"})
-        console.print("\n[green]✅ Configuration is valid![/green]")
-    except Exception as e:
-        console.print(f"\n[red]Configuration error:[/red] {e}")
-        return click.confirm("Save anyway?")
-    else:
-        return True
-
-
-def _save_configuration(config, blueprint_name, output_dir):
-    """Save the configuration to a YAML file."""
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Generate filename from job_id or blueprint name
-    filename = config.get("job_id", config.get("dag_id", blueprint_name))
-    filename = filename.replace("-", "_") + ".dag.yaml"
-
-    file_path = output_path / filename
-
-    # Check if file exists
-    if file_path.exists() and not click.confirm(f"{file_path} already exists. Overwrite?"):
-        sys.exit(0)
-
-    # Write YAML
-    with file_path.open("w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-    console.print(f"\n[green]Created {file_path}[/green]")
-    console.print("\nTo use this DAG, ensure the YAML loader is in your DAGs directory.")
-
-
 @cli.command()
-@click.option("--template-dir", default=None, help="Template directory path")
-@click.option("--output-dir", default=None, help="Output directory for YAML config")
-def new(template_dir: Optional[str], output_dir: Optional[str]):
-    """Interactively create a new DAG from a blueprint."""
-    template_dir = get_template_path(template_dir)
-    output_dir = get_output_dir(output_dir)
-    # Discover available blueprints
+@click.option("--template-dir", default=None, help="Directory containing blueprint files")
+@click.option("--output-dir", default=".", help="Output directory for YAML config")
+def new(template_dir: str | None, output_dir: str):
+    """Interactively create a new DAG YAML definition."""
     blueprints = discover_blueprints(template_dir)
 
     if not blueprints:
-        console.print(f"[red]No blueprints found in {template_dir}[/red]")
+        console.print("[red]No blueprints found.[/red]")
         sys.exit(1)
 
-    # Select blueprint
     selected = _select_blueprint(blueprints)
     console.print(f"\n[green]Selected:[/green] {selected['name']}")
 
-    # Get blueprint info
     info = get_blueprint_info(selected["name"], template_dir)
 
-    # Collect parameters
-    config = _collect_parameters(info)
-
-    # Validate configuration
-    if not _validate_configuration(selected["name"], config, template_dir):
+    dag_id = console.input("\nDAG ID: ")
+    if not dag_id:
+        console.print("[red]DAG ID is required[/red]")
         sys.exit(1)
 
-    # Save configuration
-    _save_configuration(config, selected["name"], output_dir)
+    schedule = console.input("Schedule [default: @daily]: ") or "@daily"
 
+    step_name = console.input(f"Step name [default: {selected['name']}]: ") or selected["name"]
 
-def _load_template(template_name: str) -> str:
-    """Load a template file from the templates directory."""
-    template_path = Path(__file__).parent / "templates" / template_name
-    if not template_path.exists():
-        msg = f"Template not found: {template_path}"
-        raise FileNotFoundError(msg)
-    return template_path.read_text()
+    step_config = _collect_parameters(info)
 
+    dag_def: dict[str, object] = {
+        "dag_id": dag_id,
+        "schedule": schedule,
+        "steps": {
+            step_name: {
+                "blueprint": selected["name"],
+                **step_config,
+            },
+        },
+    }
 
-def detect_environment() -> Dict[str, str]:
-    """Detect project structure and suggest defaults."""
-    suggestions = {}
+    filename = dag_id.replace("-", "_") + ".dag.yaml"
+    file_path = Path(output_dir) / filename
 
-    # Check for dags directory
-    if Path("dags").exists():
-        suggestions["template_path"] = "dags/blueprints/templates"
-        suggestions["dags_folder"] = "dags"
-    else:
-        # Try to get dags folder from Airflow
-        try:
-            suggestions["dags_folder"] = str(get_airflow_dags_folder())
-            suggestions["template_path"] = f"{suggestions['dags_folder']}/blueprints/templates"
-        except Exception:
-            suggestions["dags_folder"] = "dags"
-            suggestions["template_path"] = "dags/blueprints/templates"
+    if file_path.exists() and not click.confirm(f"{file_path} already exists. Overwrite?"):
+        sys.exit(0)
 
-    suggestions["output_dir"] = f"{suggestions.get('dags_folder', 'dags')}/blueprints/instances"
-    return suggestions
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w") as f:
+        yaml.dump(dag_def, f, default_flow_style=False, sort_keys=False)
 
-
-def create_dag_loader(path: str, template_path: str, output_dir: str, force: bool):
-    """Create the DAG loader file."""
-    # template_path and output_dir are kept for backward compatibility
-    # but are no longer used since the loader reads from blueprint.toml
-    _ = template_path
-    _ = output_dir
-    loader_content = _load_template("dag_loader.py.template")
-
-    loader_path = Path(path)
-    if loader_path.exists() and not force:
-        console.print(f"[yellow]  {path} already exists. Use --force to overwrite.[/yellow]")
-        return
-
-    loader_path.parent.mkdir(parents=True, exist_ok=True)
-    loader_path.write_text(loader_content)
-    console.print(f"  ✅ Created DAG loader: {path}")
-
-
-def create_example_blueprint(template_path: str, force: bool):
-    """Create an example blueprint template."""
-    example_path = Path(template_path) / "example_etl.py"
-
-    if example_path.exists() and not force:
-        console.print(
-            f"[yellow]  {example_path} already exists. Use --force to overwrite.[/yellow]"
-        )
-        return
-
-    example_content = _load_template("example_etl.py.template")
-
-    example_path.parent.mkdir(parents=True, exist_ok=True)
-    example_path.write_text(example_content)
-    console.print(f"  ✅ Created example blueprint: {example_path}")
-
-
-def handle_requirements_txt():
-    """Check and update requirements.txt with airflow-blueprint package."""
-    requirements_path = Path("requirements.txt")
-    package_name = "airflow-blueprint"
-
-    if requirements_path.exists():
-        content = requirements_path.read_text()
-        # Check if package is already in requirements
-        if package_name in content:
-            return
-
-        # Ask user if they want to add it
-        if click.confirm(f"\n  Add {package_name} to requirements.txt?", default=True):
-            with requirements_path.open("a") as f:
-                f.write(f"\n{package_name}\n")
-            console.print(f"  ✅ Added {package_name} to requirements.txt")
-        else:
-            console.print(
-                f"\n  [yellow]⚠️  Remember to add '{package_name}' to your requirements.txt[/yellow]"
-            )
-    else:
-        console.print(
-            f"\n  [yellow]⚠️  No requirements.txt found. Make sure to install '{package_name}' "
-            "in your Airflow environment.[/yellow]"
-        )
-
-
-@cli.command()
-@click.option("--force", is_flag=True, help="Overwrite existing files")
-def init(force: bool):
-    """Initialize Blueprint in your Airflow project."""
-    console.print("[bold]Blueprint Setup Wizard[/bold]\n")
-
-    # Check if already initialized
-    if Path("blueprint.toml").exists() and not force:
-        console.print(
-            "[yellow]blueprint.toml already exists. Use --force to reinitialize.[/yellow]"
-        )
-        if not click.confirm("Continue anyway?"):
-            return
-
-    # 1. Detect environment
-    detected_env = detect_environment()
-
-    # 2. Configure paths
-    console.print("📁 [bold]Configure Paths[/bold]")
-    template_path = click.prompt(
-        "  Template directory",
-        default=detected_env.get("template_path", "dags/blueprints/templates"),
-    )
-    output_dir = click.prompt(
-        "  Output directory for configs",
-        default=detected_env.get("output_dir", "dags/blueprints/instances"),
-    )
-
-    # 3. DAG loader setup
-    console.print("\n🔧 [bold]DAG Loader Setup[/bold]")
-    setup_loader = click.confirm("  Create DAG loader file?", default=True)
-
-    loader_path = None
-    if setup_loader:
-        default_loader_path = f"{detected_env.get('dags_folder', 'dags')}/blueprints/loader.py"
-        loader_path = click.prompt("  DAG loader location", default=default_loader_path)
-
-    # 4. Example blueprint
-    console.print("\n📝 [bold]Example Blueprint[/bold]")
-    create_example = click.confirm("  Create example blueprint?", default=True)
-
-    # 5. Create files
-    console.print("\n[bold]Creating files...[/bold]")
-
-    # Create blueprint.toml
-    config_content = _load_template("blueprint.toml.template").format(
-        template_path=template_path, output_dir=output_dir
-    )
-
-    config_path = Path("blueprint.toml")
-    if config_path.exists() and not force:
-        console.print("[yellow]  blueprint.toml already exists. Use --force to overwrite.[/yellow]")
-    else:
-        config_path.write_text(config_content)
-        console.print("  ✅ Created blueprint.toml")
-
-    # Create DAG loader if requested
-    if setup_loader and loader_path:
-        create_dag_loader(loader_path, template_path, output_dir, force)
-
-    # Create example blueprint
-    if create_example:
-        create_example_blueprint(template_path, force)
-
-    # Handle requirements.txt
-    handle_requirements_txt()
-
-    # 6. Next steps
-    console.print("\n[green]✨ Blueprint initialized![/green]")
-    console.print("\n[bold]Next steps:[/bold]")
-    console.print("  1. Run [cyan]blueprint list[/cyan] to see available blueprints")
-    if create_example:
-        console.print("  2. Run [cyan]blueprint new[/cyan] to create a DAG from the example")
-    console.print("  3. Commit [cyan]blueprint.toml[/cyan] to share configuration with your team")
-    if setup_loader:
-        console.print(f"  4. Ensure [cyan]{loader_path}[/cyan] is in your DAGs folder")
+    console.print(f"\n[green]Created {file_path}[/green]")
+    console.print("\nTo load this DAG, add a loader.py to your dags/ directory:")
+    console.print("  from blueprint import build_all")
+    console.print("  build_all()")
 
 
 def main():

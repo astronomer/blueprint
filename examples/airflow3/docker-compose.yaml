@@ -1,18 +1,18 @@
 ---
-version: "3"
-
 x-airflow-common: &airflow-common
   image: blueprint-airflow
   build:
-    context: ..
-    dockerfile: examples/Dockerfile
-  env_file: .env
+    context: ../..
+    dockerfile: examples/airflow3/Dockerfile
+  env_file:
+    - path: ../.env
+      required: false
   networks:
     - airflow
   environment: &common-env-vars
     AIRFLOW__API__BASE_URL: "http://localhost:8080"
     AIRFLOW__API__PORT: 8080
-    AIRFLOW__API_AUTH__JWT_SECRET: "blueprint"
+    AIRFLOW__API_AUTH__JWT_SECRET: "api-auth-secret"
     AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://api-server:8080/execution/"
@@ -22,18 +22,17 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
     AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: True
-    AIRFLOW__WEBSERVER__SECRET_KEY: "blueprint"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "webserver-secret"
     AIRFLOW__WEBSERVER__RBAC: "True"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
     ASTRONOMER_ENVIRONMENT: local
     OPENLINEAGE_DISABLED: "True"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
   volumes:
-    - ./dags:/usr/local/airflow/dags
-    - ./plugins:/usr/local/airflow/plugins
-    - ./include:/usr/local/airflow/include
-    - ./tests:/usr/local/airflow/tests
-    - ./.astro/templates:/usr/local/airflow/.astro/templates
+    - ../dags:/usr/local/airflow/dags
+    - ../plugins:/usr/local/airflow/plugins
+    - ../include:/usr/local/airflow/include
+    - ../tests:/usr/local/airflow/tests
     - airflow_logs:/usr/local/airflow/logs
 
 networks:
@@ -69,7 +68,8 @@ services:
   db-migration:
     <<: *airflow-common
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     command:
       - airflow
       - db
@@ -78,7 +78,8 @@ services:
   scheduler:
     <<: *airflow-common
     depends_on:
-      - db-migration
+      db-migration:
+        condition: service_completed_successfully
     command:
       - airflow
       - scheduler
@@ -93,7 +94,8 @@ services:
   dag-processor:
     <<: *airflow-common
     depends_on:
-      - db-migration
+      db-migration:
+        condition: service_completed_successfully
     command:
       - airflow
       - dag-processor
@@ -112,7 +114,8 @@ services:
   api-server:
     <<: *airflow-common
     depends_on:
-      - db-migration
+      db-migration:
+        condition: service_completed_successfully
     command:
       - airflow
       - api-server
@@ -129,7 +132,8 @@ services:
   triggerer:
     <<: *airflow-common
     depends_on:
-      - db-migration
+      db-migration:
+        condition: service_completed_successfully
     command:
       - airflow
       - triggerer

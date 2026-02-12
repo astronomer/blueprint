@@ -1,91 +1,98 @@
-"""Global registry for Blueprint discovery and management."""
+"""Global registry for Blueprint discovery and management with version tracking."""
 
-import ast
 import importlib.util
+import logging
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 from blueprint.core import Blueprint
-from blueprint.errors import BlueprintNotFoundError, DuplicateBlueprintError
+from blueprint.errors import BlueprintNotFoundError, DuplicateBlueprintError, InvalidVersionError
+
+logger = logging.getLogger(__name__)
 
 
 class BlueprintRegistry:
-    """Registry for discovered blueprints with caching and conflict detection."""
+    """Registry for discovered blueprints with version tracking.
 
-    def __init__(self):
-        self._blueprints: Dict[str, Type[Blueprint]] = {}
-        self._blueprint_locations: Dict[str, List[str]] = {}
+    Blueprints are tracked as: name -> {version: class}
+
+    Version is auto-detected from the class name:
+        Extract -> ('extract', 1)
+        ExtractV2 -> ('extract', 2)
+        MultiSourceETLV3 -> ('multi_source_etl', 3)
+    """
+
+    def __init__(
+        self,
+        template_dirs: list[Path] | None = None,
+        exclude_files: set[Path] | None = None,
+    ) -> None:
+        self._blueprints: dict[str, dict[int, type[Blueprint]]] = {}
+        self._blueprint_locations: dict[str, dict[int, str]] = {}
         self._discovered = False
-        self._template_dirs: List[Path] = []
-        self._cached_list: Optional[List[Dict[str, Any]]] = None
+        self._discovery_in_progress = False
+        self._template_dirs = template_dirs
+        self._exclude_files = {p.resolve() for p in exclude_files} if exclude_files else set()
 
-    def get_template_dirs(self) -> List[Path]:
-        """Get all template directories to search, with environment variable override."""
-        dirs = []
+    def get_template_dirs(self) -> list[Path]:
+        """Get all template directories to search."""
+        if self._template_dirs is not None:
+            return list(self._template_dirs)
 
-        # First priority: BLUEPRINT_TEMPLATE_PATH environment variable
-        env_path = os.getenv("BLUEPRINT_TEMPLATE_PATH")
-        if env_path:
-            # Can be a single path or colon-separated paths
-            for path_str in env_path.split(":"):
-                stripped_path = path_str.strip()
-                if stripped_path:
-                    dirs.append(Path(stripped_path))
+        dirs: list[Path] = []
 
-        # Second priority: AIRFLOW_HOME/.astro/templates
         airflow_home = os.getenv("AIRFLOW_HOME", "/usr/local/airflow")
-        default_path = Path(airflow_home) / ".astro" / "templates"
-        if default_path not in dirs:
-            dirs.append(default_path)
+        default_path = Path(airflow_home) / "dags"
+        dirs.append(default_path)
 
-        # Third priority: .astro/templates in current directory
-        local_path = Path(".astro/templates")
-        if local_path not in dirs and local_path.exists():
+        local_path = Path("dags").resolve()
+        if local_path != default_path.resolve() and local_path.exists():
             dirs.append(local_path)
 
         return dirs
 
-    def discover_blueprints(self, force: bool = False) -> None:
+    def discover(self, force: bool = False) -> None:
         """Discover all blueprints in template directories.
 
         Args:
             force: Force re-discovery even if already discovered
         """
+        if self._discovery_in_progress:
+            return
+
         if self._discovered and not force:
             return
 
-        # Clear existing registrations
         self._blueprints.clear()
         self._blueprint_locations.clear()
-        self._cached_list = None
 
-        # Get template directories
-        self._template_dirs = self.get_template_dirs()
-
-        # Discover blueprints in each directory
-        for template_dir in self._template_dirs:
-            if template_dir.exists():
-                self._discover_in_directory(template_dir)
+        self._discovery_in_progress = True
+        try:
+            for template_dir in self.get_template_dirs():
+                if template_dir.exists():
+                    self._discover_in_directory(template_dir)
+        finally:
+            self._discovery_in_progress = False
 
         self._discovered = True
 
     def _discover_in_directory(self, directory: Path) -> None:
-        """Discover blueprints in a specific directory."""
+        """Discover blueprints in a specific directory by importing modules."""
         for py_file in directory.rglob("*.py"):
             if py_file.name.startswith("_"):
                 continue
+            if py_file.resolve() in self._exclude_files:
+                continue
 
             try:
-                # Create a unique module name from the relative path
                 relative_path = py_file.relative_to(directory)
                 module_path_parts = list(relative_path.parts)
                 module_path_parts[-1] = relative_path.stem
                 flat_module_path = "_".join(module_path_parts)
 
-                # Load the module
                 module_name = f"_blueprint_templates_{directory.name}_{flat_module_path}"
                 spec = importlib.util.spec_from_file_location(module_name, py_file)
                 if spec and spec.loader:
@@ -93,182 +100,124 @@ class BlueprintRegistry:
                     sys.modules[module_name] = module
                     spec.loader.exec_module(module)
 
-                    # Find all Blueprint subclasses
                     for name in dir(module):
                         obj = getattr(module, name)
                         if (
                             isinstance(obj, type)
                             and issubclass(obj, Blueprint)
                             and obj is not Blueprint
+                            and obj.__module__ == module_name
                         ):
-                            blueprint_name = self._get_blueprint_name(obj.__name__)
-                            location = f"{py_file.relative_to(directory.parent.parent)}"
+                            self._register_class(obj, py_file, directory)
 
-                            # Track locations for conflict detection
-                            if blueprint_name not in self._blueprint_locations:
-                                self._blueprint_locations[blueprint_name] = []
-                            self._blueprint_locations[blueprint_name].append(location)
+            except DuplicateBlueprintError:
+                raise
+            except (ImportError, SyntaxError) as e:
+                logger.warning("Failed to load %s: %s", py_file, e)
 
-                            # Register blueprint (last one wins for now)
-                            self._blueprints[blueprint_name] = obj
+    def _register_class(self, cls: type[Blueprint], py_file: Path, base_dir: Path) -> None:
+        """Register a blueprint class with its parsed name and version."""
+        bp_name, version = cls.parse_name_and_version()
 
-            except Exception as e:
-                # Log but continue discovering other files
-                print(f"Warning: Failed to load {py_file}: {e}")
+        try:
+            location = str(py_file.relative_to(base_dir.parent.parent))
+        except ValueError:
+            location = str(py_file)
 
-    def _get_blueprint_name(self, class_name: str) -> str:
-        """Convert class name to blueprint name (CamelCase to snake_case)."""
-        # Handle consecutive capitals and normal camelCase
-        name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", class_name)
-        name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", name)
-        return name.lower()
+        if bp_name not in self._blueprints:
+            self._blueprints[bp_name] = {}
+            self._blueprint_locations[bp_name] = {}
 
-    def get_blueprint(self, name: str) -> Type[Blueprint]:
-        """Get a blueprint by name.
+        if version in self._blueprints[bp_name]:
+            existing_loc = self._blueprint_locations[bp_name][version]
+            dup_name = f"{bp_name} (v{version})"
+            raise DuplicateBlueprintError(dup_name, [existing_loc, location])
+
+        self._blueprints[bp_name][version] = cls
+        self._blueprint_locations[bp_name][version] = location
+
+    def get(self, name: str, version: int | None = None) -> type[Blueprint]:
+        """Get a blueprint by name and optional version.
 
         Args:
             name: Blueprint name (snake_case)
+            version: Specific version number. None returns the latest version.
 
         Returns:
             The Blueprint class
 
         Raises:
-            BlueprintNotFoundError: If blueprint not found
-            DuplicateBlueprintError: If multiple blueprints with same name
+            BlueprintNotFoundError: If blueprint name not found
+            InvalidVersionError: If specific version not found
         """
-        # Ensure discovery has run
-        self.discover_blueprints()
+        self.discover()
 
-        # Check for conflicts
-        if name in self._blueprint_locations and len(self._blueprint_locations[name]) > 1:
-            raise DuplicateBlueprintError(name, self._blueprint_locations[name])
-
-        # Get blueprint
         if name not in self._blueprints:
-            raise BlueprintNotFoundError(name, list(self._blueprints.keys()))
+            available = list(self._blueprints.keys())
+            raise BlueprintNotFoundError(name, available)
 
-        return self._blueprints[name]
+        versions = self._blueprints[name]
 
-    def list_blueprints(self) -> List[Dict[str, Any]]:
+        if version is None:
+            latest = max(versions.keys())
+            return versions[latest]
+
+        if version not in versions:
+            raise InvalidVersionError(name, version, list(versions.keys()))
+
+        return versions[version]
+
+    def get_latest_version(self, name: str) -> int:
+        """Get the latest version number for a blueprint."""
+        self.discover()
+
+        if name not in self._blueprints:
+            available = list(self._blueprints.keys())
+            raise BlueprintNotFoundError(name, available)
+
+        return max(self._blueprints[name].keys())
+
+    def list_blueprints(self) -> list[dict[str, Any]]:
         """List all available blueprints with metadata.
 
         Returns:
             List of blueprint information dictionaries
         """
-        # Ensure discovery has run
-        self.discover_blueprints()
+        self.discover()
 
-        # Use cached list if available
-        if self._cached_list is not None:
-            return self._cached_list
+        result = []
+        for name, versions in sorted(self._blueprints.items()):
+            latest_version = max(versions.keys())
+            latest_cls = versions[latest_version]
+            all_versions = sorted(versions.keys())
 
-        # For listing, we don't need to import - just scan files
-        self._cached_list = self._list_blueprints_without_import()
-        return self._cached_list
+            result.append(
+                {
+                    "name": name,
+                    "class": latest_cls.__name__,
+                    "description": latest_cls.__doc__ or "No description",
+                    "versions": all_versions,
+                    "latest_version": latest_version,
+                    "locations": self._blueprint_locations.get(name, {}),
+                }
+            )
 
-    def _list_blueprints_without_import(self) -> List[Dict[str, Any]]:
-        """List blueprints by scanning files without importing them."""
+        return result
 
-        blueprints = {}  # Use dict to detect duplicates
-        blueprint_locations = {}  # Track all locations for each blueprint name
-        template_dirs = self.get_template_dirs()
-
-        for template_dir in template_dirs:
-            if not template_dir.exists():
-                continue
-
-            for py_file in template_dir.rglob("*.py"):
-                if py_file.name.startswith("_"):
-                    continue
-
-                try:
-                    with py_file.open() as f:
-                        content = f.read()
-
-                    tree = ast.parse(content)
-
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.ClassDef) and self._is_blueprint_class_ast(node):
-                            blueprint_name = self._get_blueprint_name(node.name)
-
-                            # Track location for duplicate detection
-                            if blueprint_name not in blueprint_locations:
-                                blueprint_locations[blueprint_name] = []
-
-                            location = (
-                                str(py_file.relative_to(template_dir.parent.parent))
-                                if template_dir.parent.parent in py_file.parents
-                                else str(py_file)
-                            )
-                            blueprint_locations[blueprint_name].append(location)
-
-                            # Extract docstring
-                            description = "No description"
-                            if (
-                                node.body
-                                and isinstance(node.body[0], ast.Expr)
-                                and isinstance(node.body[0].value, ast.Constant)
-                                and isinstance(node.body[0].value.value, str)
-                            ):
-                                description = node.body[0].value.value
-
-                            # Check for duplicates
-                            if blueprint_name in blueprints:
-                                # Duplicate found - raise error
-                                locations = blueprint_locations[blueprint_name]
-                                self._raise_duplicate_error(blueprint_name, locations)
-
-                            blueprints[blueprint_name] = {
-                                "name": blueprint_name,
-                                "class": node.name,
-                                "module": location,  # Use full path instead of just filename
-                                "description": description,
-                                "schema": {},  # Would need full import to get schema
-                                "locations": [location],
-                            }
-
-                except Exception as e:
-                    # Skip files that can't be parsed, but re-raise DuplicateBlueprintError
-                    if isinstance(e, DuplicateBlueprintError):
-                        raise
-                    print(f"Warning: Could not parse {py_file}: {e}")
-                    continue
-
-        return sorted(blueprints.values(), key=lambda x: x["name"])
-
-    def _raise_duplicate_error(self, blueprint_name: str, locations: List[str]) -> None:
-        """Raise a DuplicateBlueprintError."""
-        raise DuplicateBlueprintError(blueprint_name, locations)
-
-    def _is_blueprint_class_ast(self, node: "ast.ClassDef") -> bool:
-        """Check if AST node represents a Blueprint subclass."""
-        for base in node.bases:
-            # Check for Blueprint[ConfigType] or just Blueprint
-            if isinstance(base, ast.Name) and base.id == "Blueprint":
-                return True
-            if (
-                isinstance(base, ast.Subscript)
-                and isinstance(base.value, ast.Name)
-                and base.value.id == "Blueprint"
-            ):
-                return True
-        return False
-
-    def get_blueprint_info(self, name: str) -> Dict[str, Any]:
+    def get_blueprint_info(self, name: str, version: int | None = None) -> dict[str, Any]:
         """Get detailed information about a specific blueprint.
 
         Args:
             name: Blueprint name
+            version: Specific version (None for latest)
 
         Returns:
             Dictionary with blueprint information including schema
         """
-        blueprint_class = self.get_blueprint(name)
+        cls = self.get(name, version)
+        resolved_version = version if version is not None else self.get_latest_version(name)
+        schema = cls.get_schema()
 
-        # Get schema
-        schema = blueprint_class.get_schema()
-
-        # Extract parameter info
         parameters = {}
         if "properties" in schema:
             for param_name, param_schema in schema["properties"].items():
@@ -283,50 +232,62 @@ class BlueprintRegistry:
                     "enum": param_schema.get("enum"),
                 }
 
-        # Get defaults from the schema
-        defaults = {
-            name: info["default"]
-            for name, info in parameters.items()
-            if "default" in info and info["default"] is not None
-        }
+        all_versions = sorted(self._blueprints.get(name, {}).keys())
 
         return {
             "name": name,
-            "class": blueprint_class.__name__,
-            "description": blueprint_class.__doc__ or "No description",
+            "class": cls.__name__,
+            "version": resolved_version,
+            "versions": all_versions,
+            "description": cls.__doc__ or "No description",
             "parameters": parameters,
-            "defaults": defaults,
             "schema": schema,
-            "locations": self._blueprint_locations.get(name, []),
+            "locations": self._blueprint_locations.get(name, {}),
         }
+
+    def get_all_versions_info(self, name: str) -> list[dict[str, Any]]:
+        """Get schema information for all versions of a blueprint.
+
+        Args:
+            name: Blueprint name (snake_case)
+
+        Returns:
+            List of dicts sorted by version, each with version, class name,
+            base_name (class name without V{N} suffix), and schema.
+        """
+        self.discover()
+
+        if name not in self._blueprints:
+            available = list(self._blueprints.keys())
+            raise BlueprintNotFoundError(name, available)
+
+        result = []
+        for version in sorted(self._blueprints[name]):
+            cls = self._blueprints[name][version]
+            bp_name, _ = cls.parse_name_and_version()
+
+            base_class_name = cls.__name__
+            version_match = re.match(r"^(.+?)V\d+$", base_class_name)
+            if version_match:
+                base_class_name = version_match.group(1)
+
+            result.append(
+                {
+                    "version": version,
+                    "class": cls.__name__,
+                    "base_name": base_class_name,
+                    "schema": cls.get_schema(),
+                }
+            )
+
+        return result
 
     def clear(self) -> None:
         """Clear the registry and force re-discovery on next access."""
         self._blueprints.clear()
         self._blueprint_locations.clear()
         self._discovered = False
+        self._discovery_in_progress = False
 
 
-# Global registry instance
 registry = BlueprintRegistry()
-
-
-# Convenience functions that use the global registry
-def get_blueprint(name: str) -> Type[Blueprint]:
-    """Get a blueprint by name from the global registry."""
-    return registry.get_blueprint(name)
-
-
-def list_blueprints() -> List[Dict[str, Any]]:
-    """List all available blueprints from the global registry."""
-    return registry.list_blueprints()
-
-
-def get_blueprint_info(name: str) -> Dict[str, Any]:
-    """Get detailed information about a blueprint from the global registry."""
-    return registry.get_blueprint_info(name)
-
-
-def discover_blueprints(force: bool = False) -> None:
-    """Discover all blueprints in template directories."""
-    registry.discover_blueprints(force)

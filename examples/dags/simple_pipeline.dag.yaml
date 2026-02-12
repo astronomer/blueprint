@@ -1,0 +1,5 @@
+dag_id: simple_pipeline
+steps:
+  process:
+    blueprint: transform
+    operations: [clean]

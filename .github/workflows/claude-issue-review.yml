@@ -59,7 +59,7 @@ jobs:
 
             5. **Technical Context**: If relevant, identify:
                - Which blueprint components or features are affected
-               - Whether this relates to DAG templates, CLI, or configuration
+               - Whether this relates to blueprints, the builder, CLI, or configuration
 
             Do NOT:
             - Close or transfer the issue
@@ -73,7 +73,7 @@ jobs:
           allowed_tools: |
             Bash(uv run blueprint --help),
             Bash(cd examples && uv run blueprint list),
-            Bash(ls examples/.astro/templates/)
+            Bash(ls examples/dags/)
 
           # Use sticky comment so Claude updates the same comment if issue is edited
           use_sticky_comment: true
