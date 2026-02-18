@@ -109,6 +109,7 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "C420",  # dict comprehension -> dict.fromkeys (conflicts with ty Literal inference)
     "PLR0913", # too many arguments
     "TRY003", # long exception messages
     "PLC0415", # import outside top level (needed for optional dependencies)

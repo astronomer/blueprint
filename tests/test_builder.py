@@ -398,12 +398,12 @@ class TestBuilder:
         all_tasks = list(dag.task_dict.values())
         assert len(all_tasks) == 2
         for task in all_tasks:
-            assert hasattr(
-                task, "blueprint_step_config"
-            ), f"Task {task.task_id} missing blueprint_step_config"
-            assert hasattr(
-                task, "blueprint_step_code"
-            ), f"Task {task.task_id} missing blueprint_step_code"
+            assert hasattr(task, "blueprint_step_config"), (
+                f"Task {task.task_id} missing blueprint_step_config"
+            )
+            assert hasattr(task, "blueprint_step_code"), (
+                f"Task {task.task_id} missing blueprint_step_code"
+            )
             assert "blueprint_step_config" in task.template_fields
             assert "blueprint_step_code" in task.template_fields
 
