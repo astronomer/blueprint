@@ -1,286 +1,281 @@
-"""Tests for the Blueprint registry system."""
-
-import os
+"""Tests for the version-aware Blueprint registry."""
 
 import pytest
+from pydantic import BaseModel
 
-from blueprint import Blueprint
-from blueprint.errors import BlueprintNotFoundError, DuplicateBlueprintError
+from blueprint.core import Blueprint
+from blueprint.errors import BlueprintNotFoundError, InvalidVersionError
 from blueprint.registry import BlueprintRegistry
+
+
+class SimpleConfig(BaseModel):
+    name: str
+
+
+class AdvancedConfig(BaseModel):
+    items: list[str]
+
+
+class Simple(Blueprint[SimpleConfig]):
+    """A simple blueprint."""
+
+    def render(self, config):
+        pass
+
+
+class SimpleV2(Blueprint[AdvancedConfig]):
+    """Simple blueprint v2 with breaking changes."""
+
+    def render(self, config):
+        pass
 
 
 class TestBlueprintRegistry:
     """Test the BlueprintRegistry functionality."""
 
     @pytest.fixture
-    def registry(self):
-        """Create a fresh registry for each test."""
-        reg = BlueprintRegistry()
-        reg.clear()
-        return reg
+    def reg(self):
+        return BlueprintRegistry()
 
     @pytest.fixture
     def temp_blueprints(self, tmp_path):
-        """Create temporary blueprint files for testing."""
-        # Create templates directory
-        template_dir = tmp_path / ".astro" / "templates"
+        template_dir = tmp_path / "dags"
         template_dir.mkdir(parents=True)
 
-        # Create a simple blueprint
-        simple_bp = template_dir / "simple.py"
-        simple_bp.write_text(
-            """
-from blueprint import Blueprint, BaseModel
+        (template_dir / "blueprints.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
 
-class SimpleConfig(BaseModel):
-    job_id: str
+class ExtractConfig(BaseModel):
+    source: str
 
-class SimpleBlueprint(Blueprint[SimpleConfig]):
-    '''A simple test blueprint.'''
+class Extract(Blueprint[ExtractConfig]):
+    '''Extract data from a source.'''
     def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-"""
-        )
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo extract")
 
-        # Create another blueprint
-        etl_bp = template_dir / "etl.py"
-        etl_bp.write_text(
-            """
-from blueprint import Blueprint, BaseModel
+class ExtractV2Config(BaseModel):
+    sources: list[str]
 
-class ETLConfig(BaseModel):
-    job_id: str
-    source_table: str
-
-class ETLBlueprint(Blueprint[ETLConfig]):
-    '''An ETL blueprint.'''
+class ExtractV2(Blueprint[ExtractV2Config]):
+    '''Extract v2 with multi-source support.'''
     def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo extract_v2")
 
-class DailyETL(Blueprint[ETLConfig]):
-    '''Daily ETL variant.'''
+class LoadConfig(BaseModel):
+    target: str
+
+class Load(Blueprint[LoadConfig]):
+    '''Load data to a target.'''
     def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-"""
-        )
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo load")
+""")
 
         return template_dir
 
-    def test_get_template_dirs_default(self, registry):
-        """Test default template directory discovery."""
-        dirs = registry.get_template_dirs()
+    def test_discover_blueprints(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        # Should include default paths
-        assert any(".astro/templates" in str(d) for d in dirs)
-
-    def test_get_template_dirs_with_env_var(self, registry, tmp_path):
-        """Test template directory from environment variable."""
-        custom_dir1 = tmp_path / "custom1"
-        custom_dir2 = tmp_path / "custom2"
-
-        # Set environment variable with multiple paths
-        os.environ["BLUEPRINT_TEMPLATE_PATH"] = f"{custom_dir1}:{custom_dir2}"
-
-        try:
-            dirs = registry.get_template_dirs()
-            dir_strs = [str(d) for d in dirs]
-
-            assert str(custom_dir1) in dir_strs
-            assert str(custom_dir2) in dir_strs
-        finally:
-            del os.environ["BLUEPRINT_TEMPLATE_PATH"]
-
-    def test_discover_blueprints(self, registry, temp_blueprints, monkeypatch):
-        """Test blueprint discovery."""
-        # Override get_template_dirs to use our temp directory
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-
-        registry.discover_blueprints()
-
-        # Check blueprints were discovered
-        blueprints = registry.list_blueprints()
+        blueprints = reg.list_blueprints()
         names = [bp["name"] for bp in blueprints]
+        assert "extract" in names
+        assert "load" in names
 
-        assert "simple_blueprint" in names
-        assert "etl_blueprint" in names
-        assert "daily_etl" in names
+    def test_version_tracking(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-    def test_get_blueprint(self, registry, temp_blueprints, monkeypatch):
-        """Test getting a blueprint by name."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-        registry.discover_blueprints()
+        extract_info = next(bp for bp in reg.list_blueprints() if bp["name"] == "extract")
+        assert sorted(extract_info["versions"]) == [1, 2]
+        assert extract_info["latest_version"] == 2
 
-        # Get blueprint
-        bp_class = registry.get_blueprint("simple_blueprint")
-        assert bp_class.__name__ == "SimpleBlueprint"
-        assert issubclass(bp_class, Blueprint)
+    def test_get_latest_version(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-    def test_get_blueprint_not_found(self, registry, temp_blueprints, monkeypatch):
-        """Test error when blueprint not found."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-        registry.discover_blueprints()
+        cls = reg.get("extract")
+        assert cls.__name__ == "ExtractV2"
 
-        with pytest.raises(BlueprintNotFoundError) as exc_info:
-            registry.get_blueprint("nonexistent_blueprint")
+    def test_get_specific_version(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        error = exc_info.value
-        assert "nonexistent_blueprint" in str(error)
-        assert "simple_blueprint" in str(error)  # Should list available
+        cls_v1 = reg.get("extract", version=1)
+        assert cls_v1.__name__ == "Extract"
 
-    def test_duplicate_blueprint_detection(self, registry, tmp_path, monkeypatch):
-        """Test detection of duplicate blueprint names."""
-        # Create two directories with same blueprint name
-        dir1 = tmp_path / "templates1"
-        dir2 = tmp_path / "templates2"
-        dir1.mkdir()
-        dir2.mkdir()
+        cls_v2 = reg.get("extract", version=2)
+        assert cls_v2.__name__ == "ExtractV2"
 
-        # Same blueprint name in both
-        for d in [dir1, dir2]:
-            (d / "test.py").write_text(
-                """
-from blueprint import Blueprint, BaseModel
+    def test_get_nonexistent_name(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-class Config(BaseModel):
-    job_id: str
+        with pytest.raises(BlueprintNotFoundError):
+            reg.get("nonexistent")
 
-class TestBlueprint(Blueprint[Config]):
-    def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-"""
-            )
+    def test_get_nonexistent_version(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        # Override template dirs
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [dir1, dir2])
-        registry.discover_blueprints(force=True)
+        with pytest.raises(InvalidVersionError):
+            reg.get("extract", version=99)
 
-        # Should detect duplicate
-        with pytest.raises(DuplicateBlueprintError) as exc_info:
-            registry.get_blueprint("test_blueprint")
+    def test_get_blueprint_info(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        error = exc_info.value
-        assert "test_blueprint" in str(error)
-        assert "templates1/test.py" in str(error)
-        assert "templates2/test.py" in str(error)
+        info = reg.get_blueprint_info("load")
+        assert info["name"] == "load"
+        assert info["class"] == "Load"
+        assert info["version"] == 1
+        assert "target" in info["parameters"]
+        assert info["parameters"]["target"]["required"] is True
 
-    def test_list_blueprints_with_metadata(self, registry, temp_blueprints, monkeypatch):
-        """Test listing blueprints with full metadata."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-        registry.discover_blueprints()
+    def test_get_blueprint_info_versioned(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        blueprints = registry.list_blueprints()
+        info = reg.get_blueprint_info("extract", version=1)
+        assert info["class"] == "Extract"
+        assert "source" in info["parameters"]
 
-        # Find simple blueprint
-        simple = next(bp for bp in blueprints if bp["name"] == "simple_blueprint")
+        info_v2 = reg.get_blueprint_info("extract", version=2)
+        assert info_v2["class"] == "ExtractV2"
+        assert "sources" in info_v2["parameters"]
 
-        assert simple["class"] == "SimpleBlueprint"
-        assert "simple test blueprint" in simple["description"]
-        assert "schema" in simple
-        # list_blueprints() uses AST parsing and doesn't load full schema
-        # Use get_blueprint_info() for full schema
-        assert simple["schema"] == {}
+    def test_clear_and_rediscover(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-    def test_get_blueprint_info(self, registry, temp_blueprints, monkeypatch):
-        """Test getting detailed blueprint information."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-        registry.discover_blueprints()
+        initial_count = len(reg.list_blueprints())
+        assert initial_count > 0
 
-        info = registry.get_blueprint_info("etl_blueprint")
+        reg.clear()
+        assert len(reg._blueprints) == 0
+        assert reg._discovered is False
 
-        assert info["name"] == "etl_blueprint"
-        assert info["class"] == "ETLBlueprint"
-        assert "ETL blueprint" in info["description"]
+        reg.discover(force=True)
+        assert len(reg.list_blueprints()) == initial_count
 
-        # Check parameters
-        params = info["parameters"]
-        assert "job_id" in params
-        assert "source_table" in params
-        assert params["job_id"]["required"] is True
-        assert params["source_table"]["required"] is True
+    def test_lazy_discovery(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
 
-    def test_force_rediscovery(self, registry, temp_blueprints, monkeypatch):
-        """Test force rediscovery of blueprints."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
+        cls = reg.get("extract")
+        assert cls is not None
 
-        # First discovery
-        registry.discover_blueprints()
-        initial_count = len(registry.list_blueprints())
+    def test_no_force_uses_cache(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
 
-        # Add a new blueprint
-        new_bp = temp_blueprints / "new.py"
-        new_bp.write_text(
-            """
-from blueprint import Blueprint, BaseModel
+        initial_count = len(reg.list_blueprints())
+
+        (temp_blueprints / "new_bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
 
 class NewConfig(BaseModel):
-    job_id: str
+    x: int = 1
 
-class NewBlueprint(Blueprint[NewConfig]):
+class NewBp(Blueprint[NewConfig]):
     def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-"""
-        )
+        pass
+""")
 
-        # Without force, should use cache
-        registry.discover_blueprints()
-        assert len(registry.list_blueprints()) == initial_count
+        reg.discover()
+        assert len(reg.list_blueprints()) == initial_count
 
-        # With force, should rediscover
-        registry.discover_blueprints(force=True)
-        assert len(registry.list_blueprints()) == initial_count + 1
+    def test_duplicate_blueprint_raises(self, tmp_path):
+        from blueprint.errors import DuplicateBlueprintError
 
-        names = [bp["name"] for bp in registry.list_blueprints()]
-        assert "new_blueprint" in names
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
 
-    def test_clear_registry(self, registry, temp_blueprints, monkeypatch):
-        """Test clearing the registry."""
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
+        (template_dir / "aaa_first.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
 
-        # Discover blueprints
-        registry.discover_blueprints()
-        assert len(registry.list_blueprints()) > 0
+class DupConfig(BaseModel):
+    x: int = 1
 
-        # Clear
-        registry.clear()
-
-        # Should be empty until rediscovered
-        assert registry._discovered is False
-        assert len(registry._blueprints) == 0
-
-        # Rediscover
-        registry.discover_blueprints()
-        assert len(registry.list_blueprints()) > 0
-
-    def test_nested_templates(self, registry, temp_blueprints, monkeypatch):
-        nested = temp_blueprints / "nested"
-        nested.mkdir(parents=True)
-        simple_bp = nested / "nested.py"
-        simple_bp.write_text(
-            """
-from blueprint import Blueprint, BaseModel
-
-class SimpleConfig(BaseModel):
-    job_id: str
-
-class NestedBlueprint(Blueprint[SimpleConfig]):
-    '''A simple test blueprint.'''
+class Dup(Blueprint[DupConfig]):
     def render(self, config):
-        from airflow import DAG
-        from datetime import datetime
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-"""
-        )
-        monkeypatch.setattr(registry, "get_template_dirs", lambda: [temp_blueprints])
-        registry.discover_blueprints(force=True)
-        blueprints = registry.list_blueprints()
-        assert "nested_blueprint" in [bp["name"] for bp in blueprints]
+        pass
+""")
+
+        (template_dir / "zzz_second.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class DupConfig2(BaseModel):
+    y: str = "hi"
+
+class Dup(Blueprint[DupConfig2]):
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        with pytest.raises(DuplicateBlueprintError, match="dup"):
+            reg.discover(force=True)
+
+    def test_template_dirs_constructor(self, temp_blueprints):
+        reg = BlueprintRegistry(template_dirs=[temp_blueprints])
+        reg.discover(force=True)
+
+        blueprints = reg.list_blueprints()
+        names = [bp["name"] for bp in blueprints]
+        assert "extract" in names
+        assert "load" in names
+
+    def test_template_dirs_constructor_overrides_defaults(self, temp_blueprints):
+        reg = BlueprintRegistry(template_dirs=[temp_blueprints])
+        dirs = reg.get_template_dirs()
+        assert dirs == [temp_blueprints]
+
+    def test_default_template_dirs_no_duplicates(self, tmp_path, monkeypatch):
+        dags_dir = tmp_path / "dags"
+        dags_dir.mkdir()
+
+        monkeypatch.setenv("AIRFLOW_HOME", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+
+        reg = BlueprintRegistry()
+        dirs = reg.get_template_dirs()
+        resolved = [d.resolve() for d in dirs]
+        assert len(resolved) == len(set(resolved)), f"Duplicate dirs found: {dirs}"
+
+    def test_get_all_versions_info_single(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
+
+        versions = reg.get_all_versions_info("load")
+        assert len(versions) == 1
+        assert versions[0]["version"] == 1
+        assert versions[0]["class"] == "Load"
+        assert versions[0]["base_name"] == "Load"
+        assert "properties" in versions[0]["schema"]
+        assert "$defs" not in versions[0]["schema"]
+
+    def test_get_all_versions_info_multi(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
+
+        versions = reg.get_all_versions_info("extract")
+        assert len(versions) == 2
+        assert versions[0]["version"] == 1
+        assert versions[0]["class"] == "Extract"
+        assert versions[0]["base_name"] == "Extract"
+        assert versions[1]["version"] == 2
+        assert versions[1]["class"] == "ExtractV2"
+        assert versions[1]["base_name"] == "Extract"
+
+    def test_get_all_versions_info_not_found(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
+
+        with pytest.raises(BlueprintNotFoundError):
+            reg.get_all_versions_info("nonexistent")

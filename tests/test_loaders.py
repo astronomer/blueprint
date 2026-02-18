@@ -1,235 +1,303 @@
-"""Tests for YAML loading and blueprint discovery."""
+"""Tests for YAML loading, Jinja2 rendering, and blueprint discovery."""
 
 import pytest
-from airflow import DAG
 
-from blueprint import (
+from blueprint.core import Blueprint
+from blueprint.errors import (
+    BlueprintNotFoundError,
+    ConfigurationError,
+    CyclicDependencyError,
+    InvalidDependencyError,
+)
+from blueprint.loaders import (
     discover_blueprints,
-    from_yaml,
     get_blueprint_info,
     load_blueprint,
+    render_yaml_template,
+    validate_yaml,
 )
-from blueprint.errors import BlueprintNotFoundError, ConfigurationError
-
-# Constants
-EXPECTED_RETRIES_OVERRIDE = 5
-EXPECTED_BLUEPRINT_COUNT = 2
-EXPECTED_DEFAULT_RETRIES = 2
-EXPECTED_MAX_RETRIES = 5
 
 
-class TestLoaders:
-    """Test the loader functionality."""
+class TestRenderYamlTemplate:
+    """Test YAML template loading and Jinja2 rendering."""
 
-    def test_load_blueprint_from_yaml(self, tmp_path):
-        """Test loading a blueprint from YAML configuration."""
+    def test_basic_yaml_load(self, tmp_path):
+        yaml_file = tmp_path / "test.yaml"
+        yaml_file.write_text("dag_id: test\nschedule: '@daily'\nsteps:\n  s: {blueprint: x}\n")
 
-        # Create a test blueprint
-        blueprint_code = """
-from blueprint import Blueprint, BaseModel, Field
-from airflow import DAG
-from datetime import datetime
+        config, rendered = render_yaml_template(yaml_file, use_airflow_context=False)
+        assert config["dag_id"] == "test"
+        assert config["schedule"] == "@daily"
 
-class TestConfig(BaseModel):
-    job_id: str
-    param1: str = "default"
+    def test_jinja2_rendering(self, tmp_path):
+        yaml_file = tmp_path / "jinja.yaml"
+        yaml_file.write_text("dag_id: {{ prefix }}_pipeline\nsteps:\n  s: {blueprint: x}\n")
 
-class TestBlueprint(Blueprint[TestConfig]):
-    def render(self, config: TestConfig) -> DAG:
-        return DAG(
-            dag_id=config.job_id,
-            start_date=datetime(2024, 1, 1),
-            tags=[config.param1]
+        config, rendered = render_yaml_template(
+            yaml_file, context={"prefix": "prod"}, use_airflow_context=False
         )
-"""
+        assert config["dag_id"] == "prod_pipeline"
 
-        # Create template directory and file
-        template_dir = tmp_path / ".astro" / "templates"
-        template_dir.mkdir(parents=True)
-        (template_dir / "test_blueprints.py").write_text(blueprint_code)
+    def test_empty_yaml_raises(self, tmp_path):
+        yaml_file = tmp_path / "empty.yaml"
+        yaml_file.write_text("")
 
-        # Create YAML config
-        yaml_config = """
-blueprint: test_blueprint
-job_id: test-dag
-param1: custom-value
-"""
-        config_file = tmp_path / "test.yaml"
-        config_file.write_text(yaml_config)
+        with pytest.raises(ConfigurationError, match="empty or invalid"):
+            render_yaml_template(yaml_file, use_airflow_context=False)
 
-        # Load DAG from YAML
-        dag = from_yaml(str(config_file), template_dir=str(template_dir))
+    def test_invalid_yaml_raises(self, tmp_path):
+        yaml_file = tmp_path / "bad.yaml"
+        yaml_file.write_text("dag_id: test\n  bad_indent: true\n")
 
-        assert isinstance(dag, DAG)
-        assert dag.dag_id == "test-dag"
-        assert "custom-value" in dag.tags
+        with pytest.raises(ConfigurationError):
+            render_yaml_template(yaml_file, use_airflow_context=False)
 
-    def test_yaml_with_overrides(self, tmp_path):
-        """Test loading YAML with parameter overrides."""
+    def test_missing_file_raises(self, tmp_path):
+        yaml_file = tmp_path / "missing.yaml"
 
-        # Create a test blueprint
-        blueprint_code = """
-from blueprint import Blueprint, BaseModel
-from airflow import DAG
-from datetime import datetime
+        with pytest.raises(ConfigurationError, match="Failed to read"):
+            render_yaml_template(yaml_file, use_airflow_context=False)
 
-class SimpleConfig(BaseModel):
-    job_id: str
-    retries: int = 2
+    def test_jinja_render_error_raises_configuration_error(self, tmp_path):
+        yaml_file = tmp_path / "bad_jinja.yaml"
+        yaml_file.write_text("dag_id: {{ undefined_var }}\nsteps:\n  s: {blueprint: x}\n")
 
-class SimpleBlueprint(Blueprint[SimpleConfig]):
-    def render(self, config: SimpleConfig) -> DAG:
-        return DAG(
-            dag_id=config.job_id,
-            default_args={"retries": config.retries},
-            start_date=datetime(2024, 1, 1)
-        )
-"""
+        with pytest.raises(ConfigurationError, match="Jinja2 template rendering failed"):
+            render_yaml_template(yaml_file, use_airflow_context=False)
 
-        # Setup
-        template_dir = tmp_path / "templates"
+    def test_jinja_strict_undefined(self, tmp_path):
+        yaml_file = tmp_path / "strict.yaml"
+        yaml_file.write_text("dag_id: {{ missing }}\nsteps:\n  s: {blueprint: x}\n")
+
+        with pytest.raises(ConfigurationError):
+            render_yaml_template(yaml_file, context={}, use_airflow_context=False)
+
+
+class TestLoadBlueprint:
+    """Test loading blueprints by name."""
+
+    def test_load_from_template_dir(self, tmp_path):
+        template_dir = tmp_path / "dags"
         template_dir.mkdir()
-        (template_dir / "simple.py").write_text(blueprint_code)
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
 
-        yaml_content = """
-blueprint: simple_blueprint
-job_id: test-dag
-retries: 3
-"""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml_content)
+class MyConfig(BaseModel):
+    x: int = 1
 
-        # Load with override
-        dag = from_yaml(
-            str(config_file),
-            overrides={"retries": EXPECTED_RETRIES_OVERRIDE},
-            template_dir=str(template_dir),
-        )
+class MyBlueprint(Blueprint[MyConfig]):
+    '''Test blueprint.'''
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
 
-        assert dag.default_args["retries"] == EXPECTED_RETRIES_OVERRIDE
+        cls = load_blueprint("my_blueprint", template_dir=str(template_dir))
+        assert cls.__name__ == "MyBlueprint"
+        assert issubclass(cls, Blueprint)
 
-    def test_discover_blueprints(self, tmp_path):
-        """Test discovering available blueprints."""
-
-        # Create multiple blueprints
-        blueprint_code = '''
-from blueprint import Blueprint, BaseModel, Field
-from airflow import DAG
-from datetime import datetime
-
-class Config1(BaseModel):
-    job_id: str
-
-class FirstBlueprint(Blueprint[Config1]):
-    """First test blueprint."""
-    def render(self, config: Config1) -> DAG:
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-
-class Config2(BaseModel):
-    job_id: str
-    schedule: str = "@daily"
-
-class SecondBlueprint(Blueprint[Config2]):
-    """Second test blueprint."""
-    def render(self, config: Config2) -> DAG:
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-
-# This should not be discovered
-class NotABlueprint:
-    pass
-'''
-
-        template_dir = tmp_path / "templates"
+    def test_load_versioned(self, tmp_path):
+        template_dir = tmp_path / "dags"
         template_dir.mkdir()
-        (template_dir / "test_blueprints.py").write_text(blueprint_code)
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
 
-        # Discover blueprints
+class FooConfig(BaseModel):
+    x: int = 1
+
+class Foo(Blueprint[FooConfig]):
+    def render(self, config):
+        pass
+
+class FooV2Config(BaseModel):
+    y: str = "hello"
+
+class FooV2(Blueprint[FooV2Config]):
+    def render(self, config):
+        pass
+""")
+
+        cls_latest = load_blueprint("foo", template_dir=str(template_dir))
+        assert cls_latest.__name__ == "FooV2"
+
+        cls_v1 = load_blueprint("foo", template_dir=str(template_dir), version=1)
+        assert cls_v1.__name__ == "Foo"
+
+    def test_load_not_found(self, tmp_path):
+        template_dir = tmp_path / "empty"
+        template_dir.mkdir()
+
+        with pytest.raises(BlueprintNotFoundError):
+            load_blueprint("nonexistent", template_dir=str(template_dir))
+
+
+class TestDiscoverBlueprints:
+    """Test blueprint discovery."""
+
+    def test_discover_in_directory(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bps.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class AConfig(BaseModel):
+    x: int = 1
+
+class AlphaBlueprint(Blueprint[AConfig]):
+    '''Alpha blueprint.'''
+    def render(self, config):
+        pass
+
+class BConfig(BaseModel):
+    y: str = "hello"
+
+class BetaBlueprint(Blueprint[BConfig]):
+    '''Beta blueprint.'''
+    def render(self, config):
+        pass
+""")
+
         blueprints = discover_blueprints(str(template_dir))
-
-        assert len(blueprints) == EXPECTED_BLUEPRINT_COUNT
-
-        # Check blueprint names
         names = [bp["name"] for bp in blueprints]
-        assert "first_blueprint" in names
-        assert "second_blueprint" in names
+        assert "alpha_blueprint" in names
+        assert "beta_blueprint" in names
 
-        # Check descriptions
-        first_bp = next(bp for bp in blueprints if bp["name"] == "first_blueprint")
-        assert first_bp["description"] == "First test blueprint."
-        assert first_bp["class"] == "FirstBlueprint"
-
-    def test_get_blueprint_info(self, tmp_path):
-        """Test getting detailed blueprint information."""
-
-        blueprint_code = '''
-from blueprint import Blueprint, BaseModel, Field
-from airflow import DAG
-from datetime import datetime
-
-class DetailedConfig(BaseModel):
-    job_id: str = Field(description="Unique job identifier")
-    retries: int = Field(default=2, ge=0, le=5, description="Number of retries")
-    enabled: bool = Field(default=True, description="Whether job is enabled")
-
-class DetailedBlueprint(Blueprint[DetailedConfig]):
-    """A blueprint with detailed configuration."""
-    def render(self, config: DetailedConfig) -> DAG:
-        return DAG(dag_id=config.job_id, start_date=datetime(2024, 1, 1))
-'''
-
-        template_dir = tmp_path / "templates"
+    def test_discover_empty_dir(self, tmp_path):
+        template_dir = tmp_path / "empty"
         template_dir.mkdir()
-        (template_dir / "detailed.py").write_text(blueprint_code)
+        assert discover_blueprints(str(template_dir)) == []
 
-        # Get blueprint info
-        info = get_blueprint_info("detailed_blueprint", str(template_dir))
 
-        assert info["name"] == "detailed_blueprint"
-        assert info["class"] == "DetailedBlueprint"
-        assert "A blueprint with detailed configuration" in info["description"]
+class TestGetBlueprintInfo:
+    """Test getting detailed blueprint information."""
 
-        # Check parameters
-        params = info["parameters"]
-        assert "job_id" in params
-        assert params["job_id"]["description"] == "Unique job identifier"
-        assert params["job_id"]["required"] is True
+    def test_get_info(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel, Field
+from blueprint.core import Blueprint
 
-        assert "retries" in params
-        assert params["retries"]["default"] == EXPECTED_DEFAULT_RETRIES
-        assert params["retries"]["minimum"] == 0
-        assert params["retries"]["maximum"] == EXPECTED_MAX_RETRIES
+class DetailConfig(BaseModel):
+    name: str = Field(description="The name")
+    count: int = Field(default=5, ge=1, description="Count value")
 
-        # Check defaults
-        assert info["defaults"] == {"retries": EXPECTED_DEFAULT_RETRIES, "enabled": True}
+class Detail(Blueprint[DetailConfig]):
+    '''A detailed blueprint.'''
+    def render(self, config):
+        pass
+""")
 
-    def test_load_nonexistent_blueprint(self, tmp_path):
-        """Test error when loading non-existent blueprint."""
+        info = get_blueprint_info("detail", str(template_dir))
+        assert info["name"] == "detail"
+        assert info["class"] == "Detail"
+        assert "name" in info["parameters"]
+        assert info["parameters"]["name"]["required"] is True
+        assert info["parameters"]["count"]["default"] == 5
 
-        # Create empty template dir
-        template_dir = tmp_path / "templates"
+
+class TestValidateYaml:
+    """Test YAML validation without building a DAG."""
+
+    def test_valid_yaml(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        yaml_file = tmp_path / "test.dag.yaml"
+        yaml_file.write_text("dag_id: test\nsteps:\n  s:\n    blueprint: stub\n")
+
+        result = validate_yaml(str(yaml_file), template_dir=str(template_dir))
+        assert result["dag_id"] == "test"
+
+    def test_invalid_blueprint_name(self, tmp_path):
+        template_dir = tmp_path / "dags"
         template_dir.mkdir()
 
-        with pytest.raises(BlueprintNotFoundError, match="Blueprint 'nonexistent' not found"):
-            load_blueprint("nonexistent", str(template_dir))
+        yaml_file = tmp_path / "bad.dag.yaml"
+        yaml_file.write_text("dag_id: test\nsteps:\n  s:\n    blueprint: nonexistent\n")
 
-    def test_yaml_missing_blueprint_field(self, tmp_path):
-        """Test error when YAML is missing blueprint field."""
+        with pytest.raises(BlueprintNotFoundError):
+            validate_yaml(str(yaml_file), template_dir=str(template_dir))
 
-        yaml_content = """
-job_id: test-dag
-param1: value
-"""
-        config_file = tmp_path / "bad.yaml"
-        config_file.write_text(yaml_content)
+    def test_invalid_step_config(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel, Field
+from blueprint.core import Blueprint
 
-        with pytest.raises(ConfigurationError, match="Missing required field 'blueprint'"):
-            from_yaml(str(config_file))
+class ReqConfig(BaseModel):
+    required_field: str
 
-    def test_empty_yaml_file(self, tmp_path):
-        """Test error with empty YAML file."""
+class Req(Blueprint[ReqConfig]):
+    def render(self, config):
+        pass
+""")
 
-        config_file = tmp_path / "empty.yaml"
-        config_file.write_text("")
+        yaml_file = tmp_path / "bad.dag.yaml"
+        yaml_file.write_text("dag_id: test\nsteps:\n  s:\n    blueprint: req\n")
 
-        with pytest.raises(ConfigurationError, match="Configuration file is empty"):
-            from_yaml(str(config_file))
+        with pytest.raises((ConfigurationError, ValueError)):
+            validate_yaml(str(yaml_file), template_dir=str(template_dir))
+
+    def test_invalid_dependency_reference(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        yaml_file = tmp_path / "bad_dep.dag.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  step_a:\n    blueprint: stub\n    depends_on: [nonexistent]\n"
+        )
+
+        with pytest.raises(InvalidDependencyError, match="nonexistent"):
+            validate_yaml(str(yaml_file), template_dir=str(template_dir))
+
+    def test_cyclic_dependency(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        yaml_file = tmp_path / "cycle.dag.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n"
+            "  a:\n    blueprint: stub\n    depends_on: [b]\n"
+            "  b:\n    blueprint: stub\n    depends_on: [a]\n"
+        )
+
+        with pytest.raises(CyclicDependencyError):
+            validate_yaml(str(yaml_file), template_dir=str(template_dir))

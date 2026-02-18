@@ -2,7 +2,7 @@
 
 import difflib
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 import yaml
 
@@ -20,10 +20,10 @@ class ConfigurationError(BlueprintError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Path] = None,
-        line_number: Optional[int] = None,
-        column: Optional[int] = None,
-        suggestions: Optional[List[str]] = None,
+        file_path: Path | None = None,
+        line_number: int | None = None,
+        column: int | None = None,
+        suggestions: list[str] | None = None,
     ):
         self.message = message
         self.file_path = file_path
@@ -67,7 +67,7 @@ class ConfigurationError(BlueprintError):
 
         return "\n".join(lines)
 
-    def _get_file_context(self) -> List[str]:
+    def _get_file_context(self) -> list[str]:
         """Get surrounding lines from file for context."""
         if not self.file_path or not self.file_path.exists() or not self.line_number:
             return []
@@ -94,7 +94,7 @@ class ConfigurationError(BlueprintError):
                     context_lines.append(arrow_line)
                 else:
                     context_lines.append(f"{marker}{line_num:3} | {line_content}")
-        except Exception:
+        except OSError:
             return []
         else:
             return context_lines
@@ -103,7 +103,7 @@ class ConfigurationError(BlueprintError):
 class BlueprintNotFoundError(BlueprintError):
     """Blueprint not found error with suggestions."""
 
-    def __init__(self, blueprint_name: str, available_blueprints: Optional[List[str]] = None):
+    def __init__(self, blueprint_name: str, available_blueprints: list[str] | None = None):
         self.blueprint_name = blueprint_name
         self.available_blueprints = available_blueprints or []
 
@@ -128,9 +128,9 @@ class BlueprintNotFoundError(BlueprintError):
             suggestions.extend(
                 [
                     "No blueprints found. Check that:",
-                    "1. Your templates directory exists (.astro/templates/)",
-                    "2. Your blueprint files are in the templates directory",
-                    "3. Your blueprint classes inherit from Blueprint[ConfigType]",
+                    "1. Your blueprint Python files exist in the dags directory",
+                    "2. Your blueprint classes inherit from Blueprint[ConfigType]",
+                    "3. The template directory path is correct",
                 ]
             )
 
@@ -146,10 +146,10 @@ class ValidationError(BlueprintError):
     def __init__(
         self,
         message: str,
-        field_name: Optional[str] = None,
-        expected_type: Optional[str] = None,
-        actual_value: Optional[Any] = None,
-        suggestions: Optional[List[str]] = None,
+        field_name: str | None = None,
+        expected_type: str | None = None,
+        actual_value: Any | None = None,
+        suggestions: list[str] | None = None,
     ):
         self.field_name = field_name
         self.expected_type = expected_type
@@ -204,7 +204,7 @@ class YAMLParseError(ConfigurationError):
 class DuplicateBlueprintError(BlueprintError):
     """Error when duplicate blueprint names are found."""
 
-    def __init__(self, blueprint_name: str, locations: List[str]):
+    def __init__(self, blueprint_name: str, locations: list[str]):
         self.blueprint_name = blueprint_name
         self.locations = locations
 
@@ -222,7 +222,7 @@ class DuplicateBlueprintError(BlueprintError):
 class DuplicateDAGIdError(BlueprintError):
     """Error when duplicate DAG IDs are found across configurations."""
 
-    def __init__(self, dag_id: str, config_files: List[Path]):
+    def __init__(self, dag_id: str, config_files: list[Path]):
         self.dag_id = dag_id
         self.config_files = config_files
 
@@ -231,14 +231,64 @@ class DuplicateDAGIdError(BlueprintError):
             message += f"\n  • {config_file.name}"
 
         message += "\n\n💡 Suggestions:"
-        message += "\n  • Change the 'job_id' field in one of the configuration files"
+        message += "\n  • Change the 'dag_id' field in one of the configuration files"
         message += "\n  • Use unique DAG IDs for each configuration"
         message += "\n  • Consider using a naming convention like '<team>-<service>-<purpose>'"
 
         super().__init__(message)
 
 
-def suggest_valid_values(invalid_value: str, valid_values: List[str], field_name: str) -> List[str]:
+class CyclicDependencyError(BlueprintError):
+    """Error when step dependencies form a cycle."""
+
+    def __init__(self, cycle: list[str]):
+        self.cycle = cycle
+        cycle_display = " -> ".join(cycle)
+        message = f"Cyclic dependency detected: {cycle_display}"
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Review the 'depends_on' fields in your DAG YAML"
+        message += "\n  • Remove one of the dependencies to break the cycle"
+        super().__init__(message)
+
+
+class InvalidDependencyError(BlueprintError):
+    """Error when a step references a non-existent dependency."""
+
+    def __init__(self, step_name: str, invalid_dep: str, available_steps: list[str]):
+        self.step_name = step_name
+        self.invalid_dep = invalid_dep
+        self.available_steps = available_steps
+
+        message = f"Step '{step_name}' depends on '{invalid_dep}', which does not exist"
+
+        if available_steps:
+            similar = difflib.get_close_matches(invalid_dep, available_steps, n=3, cutoff=0.6)
+            if similar:
+                quoted = [f"'{s}'" for s in similar]
+                message += f"\n  Did you mean: {', '.join(quoted)}?"
+            message += f"\n  Available steps: {', '.join(sorted(available_steps))}"
+
+        super().__init__(message)
+
+
+class InvalidVersionError(BlueprintError):
+    """Error when a requested blueprint version does not exist."""
+
+    def __init__(self, blueprint_name: str, requested_version: int, available_versions: list[int]):
+        self.blueprint_name = blueprint_name
+        self.requested_version = requested_version
+        self.available_versions = available_versions
+
+        message = f"Version {requested_version} of blueprint '{blueprint_name}' does not exist"
+        if available_versions:
+            versions_str = ", ".join(str(v) for v in sorted(available_versions))
+            message += f"\n  Available versions: {versions_str}"
+            message += f"\n  Latest version: {max(available_versions)}"
+
+        super().__init__(message)
+
+
+def suggest_valid_values(invalid_value: str, valid_values: list[str], field_name: str) -> list[str]:
     """Generate suggestions for invalid values.
 
     Args:

@@ -1,7 +1,7 @@
 [project]
 name = "airflow-blueprint"
 dynamic = ["version"]
-description = "Create reusable Airflow DAG templates with validated configurations"
+description = "Reusable task group templates composed into Airflow DAGs via YAML"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -10,11 +10,10 @@ authors = [
 maintainers = [
     { name = "Astronomer", email = "humans@astronomer.io" }
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
     "apache-airflow>=2.5.0",
-    "typing-extensions>=4.0.0; python_version<'3.9'",
     "click>=8.0.0",
     "pydantic>=2.10.6",
     "rich>=13.9.4",
@@ -26,8 +25,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -69,10 +66,11 @@ dev = [
     "ruff>=0.12.3",
     "pyright>=1.1.0",
     "ty>=0.0.1a15",
+    "playwright>=1.58.0",
 ]
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 100
 extend-exclude = ["examples/"]
 
@@ -111,6 +109,7 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "C420",  # dict comprehension -> dict.fromkeys (conflicts with ty Literal inference)
     "PLR0913", # too many arguments
     "TRY003", # long exception messages
     "PLC0415", # import outside top level (needed for optional dependencies)
@@ -118,6 +117,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004"]  # Magic value comparisons are fine in tests
+"blueprint/models.py" = ["UP035"]  # Intentional re-exports of typing.Dict, typing.List, etc.
 
 [tool.ruff.lint.isort]
 known-first-party = ["blueprint"]

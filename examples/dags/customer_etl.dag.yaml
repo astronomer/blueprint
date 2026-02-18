@@ -1,0 +1,35 @@
+dag_id: customer_etl
+schedule: "@daily"
+tags: [etl, customers]
+
+steps:
+  # Pinned to v1 -- uses Extract class, validated against ExtractConfig
+  # v1 has source_table (string) and batch_size
+  extract_legacy:
+    blueprint: extract
+    version: 1
+    source_table: raw.customers
+    batch_size: 500
+
+  # Latest (v2) -- uses ExtractV2 class, validated against ExtractV2Config
+  # v2 replaced source_table with structured sources list
+  extract_multi:
+    blueprint: extract
+    sources:
+      - schema_name: raw
+        table: orders
+      - schema_name: raw
+        table: order_items
+        filter: "status = 'active'"
+    parallel: true
+
+  transform:
+    blueprint: transform
+    depends_on: [extract_legacy, extract_multi]
+    operations: [dedupe, normalize, enrich]
+
+  load_warehouse:
+    blueprint: load
+    depends_on: [transform]
+    target_table: analytics.customer_360
+    mode: overwrite

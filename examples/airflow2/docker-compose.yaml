@@ -1,0 +1,130 @@
+---
+x-airflow-common: &airflow-common
+  image: blueprint-airflow2
+  build:
+    context: ../..
+    dockerfile: examples/airflow2/Dockerfile
+  env_file:
+    - path: ../.env
+      required: false
+  networks:
+    - airflow
+  environment: &common-env-vars
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://airflow:pg_password@postgres:5432/airflow
+    AIRFLOW__WEBSERVER__SECRET_KEY: "webserver-secret"
+    AIRFLOW__WEBSERVER__RBAC: "True"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    ASTRONOMER_ENVIRONMENT: local
+    OPENLINEAGE_DISABLED: "True"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+  volumes:
+    - ../dags:/usr/local/airflow/dags
+    - ../plugins:/usr/local/airflow/plugins
+    - ../include:/usr/local/airflow/include
+    - ../tests:/usr/local/airflow/tests
+    - airflow_logs:/usr/local/airflow/logs
+
+networks:
+  airflow:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  airflow_logs:
+    driver: local
+
+services:
+  postgres:
+    image: postgres:13
+    restart: unless-stopped
+    networks:
+      - airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: pg_password
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+  db-init:
+    <<: *airflow-common
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - >
+        airflow db init &&
+        (airflow sync-perm || true) &&
+        airflow users create
+        --username admin --password admin
+        --firstname Admin --lastname User
+        --role Admin --email admin@example.com
+
+  webserver:
+    <<: *airflow-common
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    command:
+      - airflow
+      - webserver
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  scheduler:
+    <<: *airflow-common
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    command:
+      - airflow
+      - scheduler
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  triggerer:
+    <<: *airflow-common
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    command:
+      - airflow
+      - triggerer
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

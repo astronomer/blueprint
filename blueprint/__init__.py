@@ -1,14 +1,18 @@
-"""Blueprint - Reusable, validated Airflow DAG templates."""
+"""Blueprint - Reusable task templates composed into Airflow DAGs via YAML."""
 
 __version__ = "0.0.1a3"
 
-from .core import Blueprint
+from .builder import Builder, DAGConfig, StepConfig, build_all
+from .core import Blueprint, TaskOrGroup
 from .errors import (
     BlueprintError,
     BlueprintNotFoundError,
     ConfigurationError,
+    CyclicDependencyError,
     DuplicateBlueprintError,
     DuplicateDAGIdError,
+    InvalidDependencyError,
+    InvalidVersionError,
     YAMLParseError,
 )
 from .errors import (
@@ -16,9 +20,9 @@ from .errors import (
 )
 from .loaders import (
     discover_blueprints,
-    from_yaml,
     get_blueprint_info,
     load_blueprint,
+    validate_yaml,
 )
 from .models import (
     Any,
@@ -33,13 +37,7 @@ from .models import (
     field_validator,
     model_validator,
 )
-from .registry import registry
-from .template_loader import (
-    auto_load_yaml_dags,
-    discover_yaml_dags,
-    load_template,
-    setup_template_path,
-)
+from .registry import BlueprintRegistry, registry
 
 __all__ = [
     "Any",
@@ -47,27 +45,32 @@ __all__ = [
     "Blueprint",
     "BlueprintError",
     "BlueprintNotFoundError",
+    "BlueprintRegistry",
     "BlueprintValidationError",
+    "Builder",
     "ConfigDict",
     "ConfigurationError",
+    "CyclicDependencyError",
+    "DAGConfig",
     "Dict",
     "DuplicateBlueprintError",
     "DuplicateDAGIdError",
     "Field",
+    "InvalidDependencyError",
+    "InvalidVersionError",
     "List",
     "Optional",
+    "StepConfig",
+    "TaskOrGroup",
     "Union",
     "ValidationError",
     "YAMLParseError",
-    "auto_load_yaml_dags",
+    "build_all",
     "discover_blueprints",
-    "discover_yaml_dags",
     "field_validator",
-    "from_yaml",
     "get_blueprint_info",
     "load_blueprint",
-    "load_template",
     "model_validator",
     "registry",
-    "setup_template_path",
+    "validate_yaml",
 ]

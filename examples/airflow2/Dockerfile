@@ -1,4 +1,4 @@
-FROM astrocrpublic.azurecr.io/runtime:3.0-1-base
+FROM quay.io/astronomer/astro-runtime:13.4.0-base
 
 USER root
 
@@ -9,10 +9,8 @@ COPY ./pyproject.toml ${AIRFLOW_HOME}/blueprint/pyproject.toml
 COPY ./README.md ${AIRFLOW_HOME}/blueprint/README.md
 COPY ./blueprint ${AIRFLOW_HOME}/blueprint/blueprint
 
-# install the package in editable mode
 RUN uv pip install --system -e "${AIRFLOW_HOME}/blueprint"
 
-# install the requirements
 RUN uv pip install --system -r "${AIRFLOW_HOME}/requirements.txt"
 
 RUN chown -R astro:astro ${AIRFLOW_HOME}/blueprint

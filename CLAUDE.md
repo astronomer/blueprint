@@ -1,17 +1,18 @@
 # Claude Code Instructions for Airflow Blueprint
 
-This is an Airflow Blueprint tool for creating reusable DAG templates with validated configurations.
+Reusable task group templates composed into Airflow DAGs via YAML.
 
 ## Project Overview
-- Python package for generating Airflow DAG templates
+- Python package for defining reusable Airflow task group templates (Blueprints)
+- Blueprints render into tasks or TaskGroups; DAGs are composed from YAML
 - CLI tool accessible via `blueprint` command
-- Supports Python 3.8+ and Apache Airflow 2.5.0+
+- Supports Python 3.10+ and Apache Airflow 2.5.0+
 - Uses Pydantic for configuration validation
-- Templates stored in `examples/.astro/templates/`
+- Template versioning via separate classes with V{N} suffix
 
 ## Development Setup
 - **Package Manager**: Use `uv` for all Python operations (NOT pip, poetry, or conda)
-- **Python Version**: Development uses Python 3.12, but maintain compatibility with 3.8+
+- **Python Version**: Development uses Python 3.12, but maintain compatibility with 3.10+
 - **Dependencies**: Install with `uv sync --all-extras --dev`
 
 ## Code Quality Commands
@@ -22,18 +23,17 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
 - **Pre-commit**: `uv run pre-commit run --all-files`
 
 ## Blueprint CLI Commands
-- **List templates**: `uv run blueprint list` or `cd examples && uv run blueprint list`
-- **Initialize**: `uv run blueprint init`
-- **Create from template**: `uv run blueprint new <template_name> <dag_id>`
-- **Describe template**: `uv run blueprint describe <template_name>`
-- **Lint DAG**: `uv run blueprint lint <dag_file>`
-- **With custom template path**: `BLUEPRINT_TEMPLATE_PATH=examples/.astro/templates uv run blueprint list`
+- **List blueprints**: `uv run blueprint list --template-dir dags/`
+- **Describe a blueprint**: `uv run blueprint describe extract`
+- **Describe specific version**: `uv run blueprint describe extract -v 1`
+- **Validate DAG YAML**: `uv run blueprint lint path/to/dag.dag.yaml`
+- **Generate JSON schema**: `uv run blueprint schema extract`
+- **Create DAG interactively**: `uv run blueprint new`
 
 ## Testing
 - Run all tests: `uv run pytest tests/`
 - Run specific test: `uv run pytest tests/test_<module>.py`
 - Run with coverage: `uv run pytest --cov=blueprint tests/`
-- Integration test in examples: `cd examples && uv run blueprint list`
 
 ## Code Style Guidelines
 - Follow Ruff configuration in `pyproject.toml`
@@ -45,15 +45,30 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
 
 ## Project Structure
 - `blueprint/`: Main package code
+  - `core.py`: Blueprint base class (renders TaskOrGroup, has step_id)
+  - `builder.py`: DAGConfig, StepConfig, Builder, build_all()
+  - `registry.py`: Version-aware blueprint discovery (V{N} class name parsing)
+  - `loaders.py`: YAML loading, Jinja2 rendering, blueprint discovery helpers
   - `cli.py`: CLI implementation using Click
-  - `models.py`: Pydantic models for blueprint configs
-  - `loader.py`: Template loading logic
-  - `validator.py`: DAG validation logic
-  - `dag_loader.py`: Dynamic DAG loading for Airflow
+  - `models.py`: Pydantic model re-exports
+  - `errors.py`: Custom exceptions (CyclicDependencyError, InvalidVersionError, etc.)
+  - `utils.py`: Common utilities
 - `tests/`: Test files
-- `examples/`: Example blueprints and templates
-  - `.astro/templates/`: Blueprint template definitions
+- `examples/`: Example blueprints and YAML DAG definitions
+  - `airflow2/`: Dockerfile and docker-compose for Airflow 2
+  - `airflow3/`: Dockerfile and docker-compose for Airflow 3
+  - `dags/etl_blueprints.py`: Blueprint class definitions
+  - `dags/*.dag.yaml`: DAG definitions composed from blueprints
+  - `dags/loader.py`: DAG loader calling build_all()
 - `.github/workflows/`: CI/CD pipelines
+
+## Architecture
+- **Blueprint** classes define reusable task group templates (render -> TaskOrGroup)
+- **DAGs** are defined in YAML as compositions of blueprint steps
+- **Builder** resolves blueprints from registry, validates configs, renders tasks, wires dependencies
+- **Registry** auto-discovers blueprints and tracks versions (name -> {version: class})
+- **Versioning**: Extract (v1), ExtractV2 (v2) -- separate classes, separate configs
+- **Step context**: Each task instance gets blueprint_step_config and blueprint_step_code in template_fields
 
 ## Git Workflow
 - Main branch: `main`
@@ -67,7 +82,7 @@ This is an Airflow Blueprint tool for creating reusable DAG templates with valid
 - Version managed in `blueprint/__init__.py`
 
 ## Important Notes
-- Always verify template paths when working with blueprint commands
-- The examples directory contains working templates for testing
-- Maintain backward compatibility with Airflow 2.5.0+
+- Blueprints render tasks/TaskGroups, not DAGs
+- DAGs are always defined via YAML with steps referencing blueprints
+- build_all() is the main entry point for DAG loading
 - Use pathlib for file operations (enforced by Ruff)
