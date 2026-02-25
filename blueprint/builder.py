@@ -2,7 +2,6 @@
 
 import inspect
 import logging
-import os
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -507,18 +506,11 @@ def _resolve_search_path(search_path: str | Path | None) -> Path:
 
     Resolution order:
     1. Explicit search_path argument
-    2. $AIRFLOW_HOME/dags (if exists)
-    3. Directory of the file that called build_all()
-    4. Current working directory
+    2. Directory of the file that called build_all()
+    3. Current working directory
     """
     if search_path is not None:
         return Path(search_path)
-
-    airflow_home = os.environ.get("AIRFLOW_HOME")
-    if airflow_home:
-        dags_dir = Path(airflow_home) / "dags"
-        if dags_dir.exists():
-            return dags_dir
 
     caller_file = _get_caller_file()
     if caller_file:
