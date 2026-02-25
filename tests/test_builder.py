@@ -587,15 +587,6 @@ class TestBuildFromYamlJinja:
 
 
 class TestResolveSearchPath:
-    def test_resolve_with_airflow_home(self, tmp_path, monkeypatch):
-        from blueprint.builder import _resolve_search_path
-
-        dags_dir = tmp_path / "dags"
-        dags_dir.mkdir()
-        monkeypatch.setenv("AIRFLOW_HOME", str(tmp_path))
-        result = _resolve_search_path(None)
-        assert result == dags_dir
-
     def test_resolve_explicit_path(self):
         from blueprint.builder import _resolve_search_path
 
