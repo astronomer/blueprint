@@ -286,6 +286,74 @@ class ExtractConfig(BaseModel):
 
 `init=False` fields are excluded from the JSON Schema output since YAML authors cannot set them. This is useful for internal tuning parameters that should not be exposed as part of the public config interface.
 
+## Composing Templates
+
+A blueprint can use other blueprints inside its `render()` method. This lets you build higher-level templates from lower-level building blocks while exposing a single, simplified config to YAML authors.
+
+```python
+# dags/quality_blueprints.py
+from airflow.operators.bash import BashOperator
+from airflow.utils.task_group import TaskGroup
+from blueprint import Blueprint, BaseModel, Field
+
+
+class ValidateConfig(BaseModel):
+    checks: list[str] = Field(description="List of checks to run")
+
+class Validate(Blueprint[ValidateConfig]):
+    """Run data quality checks."""
+
+    def render(self, config: ValidateConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            for check in config.checks:
+                BashOperator(task_id=check, bash_command=f"echo 'Running {check}'")
+        return group
+
+
+class ReportConfig(BaseModel):
+    channel: str = Field(description="Notification channel")
+
+class Report(Blueprint[ReportConfig]):
+    """Send a quality report."""
+
+    def render(self, config: ReportConfig) -> BashOperator:
+        return BashOperator(
+            task_id=self.step_id,
+            bash_command=f"echo 'Sending report to {config.channel}'"
+        )
+
+
+class QualityGateConfig(BaseModel):
+    checks: list[str] = Field(default=["nulls", "duplicates"])
+    report_channel: str = Field(default="data-alerts")
+
+class QualityGate(Blueprint[QualityGateConfig]):
+    """Run checks then send a report -- composed from Validate and Report."""
+
+    def render(self, config: QualityGateConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            validate = Validate()
+            validate.step_id = "validate"
+            validate_group = validate.render(ValidateConfig(checks=config.checks))
+
+            report = Report()
+            report.step_id = "report"
+            report_task = report.render(ReportConfig(channel=config.report_channel))
+
+            validate_group >> report_task
+        return group
+```
+
+YAML authors see a single step with a flat config:
+
+```yaml
+steps:
+  quality:
+    blueprint: quality_gate
+    checks: [nulls, duplicates, freshness]
+    report_channel: "#data-alerts"
+```
+
 ## Installation
 
 ```bash
