@@ -56,6 +56,11 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+norecursedirs = ["tests/integration/project"]
+markers = [
+    "integration: integration tests using Astro CLI standalone mode",
+    "needs_airflow: tests that require a running Airflow instance",
+]
 
 [dependency-groups]
 dev = [
@@ -67,12 +72,13 @@ dev = [
     "pyright>=1.1.0",
     "ty>=0.0.1a15",
     "playwright>=1.58.0",
+    "httpx>=0.28.0",
 ]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = ["examples/"]
+extend-exclude = ["examples/", "tests/integration/project/"]
 
 [tool.ruff.lint]
 select = [
@@ -117,6 +123,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004"]  # Magic value comparisons are fine in tests
+"tests/integration/*" = ["TC002", "TC003", "ARG001", "ARG002"]
 "blueprint/models.py" = ["UP035"]  # Intentional re-exports of typing.Dict, typing.List, etc.
 
 [tool.ruff.lint.isort]
