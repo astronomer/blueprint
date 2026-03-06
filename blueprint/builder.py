@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from blueprint.core import TaskOrGroup
 from blueprint.errors import (
+    ConfigurationError,
     CyclicDependencyError,
     DuplicateDAGIdError,
     InvalidDependencyError,
@@ -91,8 +92,6 @@ class Builder:
             A fully wired Airflow DAG
         """
         from airflow import DAG
-
-        from blueprint.errors import ConfigurationError
 
         merged = self._merge_defaults(config, raw_yaml=raw_yaml)
 
@@ -285,20 +284,55 @@ class Builder:
         step_config: StepConfig,
     ) -> TaskOrGroup:
         """Render a single step by instantiating its blueprint."""
+        from pydantic import ValidationError
+
         bp_class = self._registry.get(step_config.blueprint, step_config.version)
 
         config_type = bp_class.get_config_type()
         blueprint_config = step_config.get_blueprint_config()
-        validated_config = config_type(**blueprint_config)
+
+        resolved_version = step_config.version
+        if resolved_version is None:
+            resolved_version = self._registry.get_latest_version(step_config.blueprint)
+
+        try:
+            validated_config = config_type(**blueprint_config)
+        except ValidationError as e:
+            error_lines = []
+            for err in e.errors():
+                field = " -> ".join(str(loc) for loc in err["loc"])
+                err_type = err["type"]
+                if err_type == "missing":
+                    error_lines.append(f"  - missing required field '{field}'")
+                elif err_type == "extra_forbidden":
+                    error_lines.append(f"  - unexpected field '{field}'")
+                elif err_type == "string_pattern_mismatch":
+                    pattern = err.get("ctx", {}).get("pattern", "")
+                    error_lines.append(
+                        f"  - '{field}': must match pattern '{pattern}', got {err.get('input')!r}"
+                    )
+                else:
+                    error_lines.append(f"  - '{field}': {err['msg']}")
+
+            unknown = set(blueprint_config) - set(config_type.model_fields)
+            for field_name in sorted(unknown):
+                error_lines.append(f"  - unexpected field '{field_name}'")
+
+            errors_str = "\n".join(error_lines)
+
+            msg = (
+                f"Step '{step_name}' has invalid config for blueprint "
+                f"'{step_config.blueprint}' (v{resolved_version}, {config_type.__name__}):\n"
+                f"{errors_str}\n\n"
+                f"Run 'blueprint lint' to validate your DAG files, or "
+                f"'blueprint describe {step_config.blueprint}' to see the expected config."
+            )
+            raise ConfigurationError(msg) from e
 
         instance = bp_class()
         instance.step_id = step_name
 
         result = instance.render(validated_config)
-
-        resolved_version = step_config.version
-        if resolved_version is None:
-            resolved_version = self._registry.get_latest_version(step_config.blueprint)
 
         step_yaml = yaml.dump(
             {
@@ -375,7 +409,6 @@ def build_all(
     pattern: str = "*.dag.yaml",
     render_templates: bool = True,
     template_context: dict[str, Any] | None = None,
-    fail_fast: bool = False,
     bp_registry: BlueprintRegistry | None = None,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
@@ -393,7 +426,6 @@ def build_all(
         pattern: Glob pattern for YAML discovery (default: *.dag.yaml)
         render_templates: Whether to render Jinja2 templates in YAML files
         template_context: Additional context variables for template rendering
-        fail_fast: If True, raise immediately on first error
         bp_registry: Custom BlueprintRegistry to use. If not provided,
             auto-discovers blueprints from the search path.
 
@@ -440,34 +472,26 @@ def build_all(
     dag_id_to_file: dict[str, Path] = {}
 
     for yaml_path in yaml_files:
-        try:
-            if render_templates:
-                raw_config, _rendered = render_yaml_template(
-                    yaml_path, context=template_context, use_airflow_context=True
-                )
-            else:
-                raw_content = yaml_path.read_text()
-                raw_config = yaml.safe_load(raw_content)
+        if render_templates:
+            raw_config, _rendered = render_yaml_template(
+                yaml_path, context=template_context, use_airflow_context=True
+            )
+        else:
+            raw_content = yaml_path.read_text()
+            raw_config = yaml.safe_load(raw_content)
 
-            if not raw_config or "steps" not in raw_config:
-                logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
-                continue
+        if not raw_config or "steps" not in raw_config:
+            logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
+            continue
 
-            dag_config = DAGConfig.model_validate(raw_config)
-            _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-            dag = builder.build(dag_config, raw_yaml=raw_config)
+        dag_config = DAGConfig.model_validate(raw_config)
+        _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
+        dag = builder.build(dag_config, raw_yaml=raw_config)
 
-            dag_id_to_file[dag.dag_id] = yaml_path
-            register_globals[dag.dag_id] = dag
-            dags.append(dag)
-            logger.info("Built DAG '%s' from %s", dag.dag_id, yaml_path.name)
-
-        except DuplicateDAGIdError:
-            raise
-        except Exception:
-            if fail_fast:
-                raise
-            logger.exception("Failed to build DAG from %s", yaml_path.name)
+        dag_id_to_file[dag.dag_id] = yaml_path
+        register_globals[dag.dag_id] = dag
+        dags.append(dag)
+        logger.info("Built DAG '%s' from %s", dag.dag_id, yaml_path.name)
 
     if dags:
         logger.info(

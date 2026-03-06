@@ -738,7 +738,7 @@ class Stub(Blueprint[StubConfig]):
             )
         assert len(globals_dict) <= 1
 
-    def test_build_all_fail_fast_raises(self, tmp_path):
+    def test_build_all_raises_on_error(self, tmp_path):
         from blueprint.builder import build_all
         from blueprint.errors import BlueprintNotFoundError
 
@@ -765,38 +765,4 @@ class Stub(Blueprint[StubConfig]):
                 search_path=tmp_path,
                 register_globals=globals_dict,
                 render_templates=False,
-                fail_fast=True,
             )
-
-    def test_build_all_no_fail_fast_continues(self, tmp_path):
-        from blueprint.builder import build_all
-
-        bp_file = tmp_path / "blueprints.py"
-        bp_file.write_text("""
-from pydantic import BaseModel
-from blueprint.core import Blueprint
-
-class StubConfig(BaseModel):
-    x: int = 1
-
-class Stub(Blueprint[StubConfig]):
-    def render(self, config):
-        from airflow.operators.bash import BashOperator
-        return BashOperator(task_id=self.step_id, bash_command="echo ok")
-""")
-
-        yaml_bad = tmp_path / "bad.dag.yaml"
-        yaml_bad.write_text("dag_id: bad\nsteps:\n  s:\n    blueprint: nonexistent\n")
-
-        yaml_good = tmp_path / "good.dag.yaml"
-        yaml_good.write_text("dag_id: good\nsteps:\n  s:\n    blueprint: stub\n")
-
-        globals_dict = {}
-        dags = build_all(
-            search_path=tmp_path,
-            register_globals=globals_dict,
-            render_templates=False,
-            fail_fast=False,
-        )
-        dag_ids = [d.dag_id for d in dags]
-        assert "good" in dag_ids
