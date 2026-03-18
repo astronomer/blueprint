@@ -1,0 +1,4 @@
+airflow:
+  connections: []
+  pools: []
+  variables: []

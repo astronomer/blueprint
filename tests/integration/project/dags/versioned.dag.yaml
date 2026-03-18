@@ -1,0 +1,31 @@
+dag_id: versioned_etl
+schedule: "@daily"
+tags: [integration-test, etl]
+
+steps:
+  extract_legacy:
+    blueprint: extract
+    version: 1
+    source_table: raw.customers
+    batch_size: 500
+
+  extract_multi:
+    blueprint: extract
+    sources:
+      - schema_name: raw
+        table: orders
+      - schema_name: raw
+        table: order_items
+        filter: "status = 'active'"
+    parallel: true
+
+  transform:
+    blueprint: transform
+    depends_on: [extract_legacy, extract_multi]
+    operations: [dedupe, normalize, enrich]
+
+  load_warehouse:
+    blueprint: load
+    depends_on: [transform]
+    target_table: analytics.customer_360
+    mode: overwrite
