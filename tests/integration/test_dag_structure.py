@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.integration, pytest.mark.needs_airflow]
 
-EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test"}
+EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test", "explicit_naming"}
 
 
 class TestDagsLoaded:
@@ -138,6 +138,73 @@ class TestVersionedETL:
             assert task.get("retries") == 3, (
                 f"Task {task_id} retries={task.get('retries')}, expected 3 (critical tier)"
             )
+
+
+class TestExplicitNaming:
+    """Verify the explicit_naming DAG using blueprints with explicit name/version attrs.
+
+    Covers: explicit name+version (ingest v1/v2), explicit name only (quality_check),
+    and explicit version only (notify).
+    """
+
+    EXPECTED_TASKS: ClassVar[set[str]] = {
+        "ingest_v1.download",
+        "ingest_v1.parse",
+        "ingest_v2.stream_events",
+        "ingest_v2.stream_clicks",
+        "check.not_null",
+        "check.unique",
+        "notify",
+    }
+
+    def _get_tasks(self, api_client: AirflowAPI) -> dict:
+        resp = api_client.get("/dags/explicit_naming/tasks")
+        assert resp.status_code == 200
+        return {t["task_id"]: t for t in resp.json()["tasks"]}
+
+    def test_all_expected_tasks_present(self, api_client: AirflowAPI):
+        tasks = self._get_tasks(api_client)
+        assert set(tasks.keys()) == self.EXPECTED_TASKS
+
+    def test_ingest_v1_uses_explicit_name(self, api_client: AirflowAPI):
+        """S3DataIngester (name='ingest', version=1) produces download+parse."""
+        tasks = self._get_tasks(api_client)
+        v1_tasks = {t for t in tasks if t.startswith("ingest_v1.")}
+        assert v1_tasks == {"ingest_v1.download", "ingest_v1.parse"}
+
+    def test_ingest_v2_uses_explicit_name(self, api_client: AirflowAPI):
+        """StreamingIngester (name='ingest', version=2) produces per-source tasks."""
+        tasks = self._get_tasks(api_client)
+        v2_tasks = {t for t in tasks if t.startswith("ingest_v2.")}
+        assert v2_tasks == {"ingest_v2.stream_events", "ingest_v2.stream_clicks"}
+
+    def test_quality_check_explicit_name_only(self, api_client: AirflowAPI):
+        """DataQualityValidator (name='quality_check', version inferred) produces check tasks."""
+        tasks = self._get_tasks(api_client)
+        qc_tasks = {t for t in tasks if t.startswith("check.")}
+        assert qc_tasks == {"check.not_null", "check.unique"}
+
+    def test_notify_explicit_version_only(self, api_client: AirflowAPI):
+        """Notify (version=1 explicit, name inferred) produces a single task."""
+        tasks = self._get_tasks(api_client)
+        assert "notify" in tasks
+
+    def test_dependency_chain(self, api_client: AirflowAPI):
+        """ingest_v1 + ingest_v2 -> check -> notify."""
+        tasks = self._get_tasks(api_client)
+        for t in [t for t in tasks if t.startswith(("ingest_v1.", "ingest_v2."))]:
+            assert "check.not_null" in tasks[t]["downstream_task_ids"], (
+                f"{t} should flow into check"
+            )
+        for t in [t for t in tasks if t.startswith("check.")]:
+            assert "notify" in tasks[t]["downstream_task_ids"], f"{t} should flow into notify"
+
+    def test_dag_has_default_team_tag(self, api_client: AirflowAPI):
+        """explicit_naming uses default team=platform, tier=standard from ProjectDagArgs."""
+        resp = api_client.get("/dags/explicit_naming")
+        assert resp.status_code == 200
+        tags = api_client.get_tags(resp.json())
+        assert tags == {"team:platform", "standard"}
 
 
 class TestDagArgsRendering:

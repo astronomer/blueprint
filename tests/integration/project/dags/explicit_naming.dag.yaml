@@ -1,0 +1,22 @@
+dag_id: explicit_naming
+
+steps:
+  ingest_v1:
+    blueprint: ingest
+    version: 1
+    source: s3://bucket/data
+
+  ingest_v2:
+    blueprint: ingest
+    version: 2
+    sources: [events, clicks]
+
+  check:
+    blueprint: quality_check
+    depends_on: [ingest_v1, ingest_v2]
+    checks: [not_null, unique]
+
+  notify:
+    blueprint: notify
+    depends_on: [check]
+    message: "explicit naming pipeline complete"

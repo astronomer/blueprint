@@ -101,3 +101,27 @@ class TestDagArgsExecution:
         task_instances = resp.json().get("task_instances", [])
         failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
         assert not failed, f"Tasks did not succeed: {failed}"
+
+
+class TestExplicitNamingExecution:
+    """Execute the explicit_naming DAG using blueprints with explicit name/version."""
+
+    def test_runs_successfully(self, api_client: AirflowAPI):
+        dag_id = "explicit_naming"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(api_client, dag_id)
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
+
+    def test_all_tasks_succeed(self, api_client: AirflowAPI):
+        dag_id = "explicit_naming"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(api_client, dag_id)
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success"
+
+        resp = api_client.get(f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances")
+        assert resp.status_code == 200
+        task_instances = resp.json().get("task_instances", [])
+        failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
+        assert not failed, f"Tasks did not succeed: {failed}"

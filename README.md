@@ -80,6 +80,8 @@ steps:
 
 Step config is flat -- `blueprint:`, `depends_on:`, and `version:` are reserved keys; everything else is passed to the blueprint's config model. Steps with no `depends_on` run in parallel.
 
+The `blueprint:` value is the snake_case form of the class name. `Extract` becomes `extract`, `MultiSourceETL` becomes `multi_source_etl`. See [Template Versioning](#template-versioning) for details on how names and versions are determined.
+
 ### 3. Load DAGs
 
 ```python
@@ -155,7 +157,42 @@ When no `BlueprintDagArgs` is defined, the built-in `DefaultDagArgs` provides `s
 
 ## Template Versioning
 
-Each blueprint version is a separate class with its own config model. The initial version uses a clean name. Later versions add a `V{N}` suffix. The registry auto-detects the version from the class name.
+### How names and versions are determined
+
+By default, the blueprint name and version are inferred from the class name. The class name is converted to snake_case, and a trailing `V{N}` suffix is parsed as the version number:
+
+| Class name         | Blueprint name       | Version |
+|--------------------|----------------------|---------|
+| `Extract`          | `extract`            | 1       |
+| `ExtractV2`        | `extract`            | 2       |
+| `MultiSourceETL`   | `multi_source_etl`   | 1       |
+| `MultiSourceETLV3` | `multi_source_etl`   | 3       |
+
+Classes without a `V{N}` suffix are version 1.
+
+#### Explicit name and version
+
+When the class name doesn't match the desired blueprint name, set `name` and/or `version` as class attributes. This is useful when you want descriptive class names that don't dictate the registry identity:
+
+```python
+class S3DataIngester(Blueprint[IngestConfig]):
+    name = "ingest"
+    version = 1
+
+    def render(self, config: IngestConfig) -> TaskGroup: ...
+
+class StreamingIngester(Blueprint[IngestV2Config]):
+    name = "ingest"
+    version = 2
+
+    def render(self, config: IngestV2Config) -> TaskGroup: ...
+```
+
+Both register under `ingest` despite having unrelated class names. You can also set just one -- an explicit `name` with an inferred version from the class suffix, or an explicit `version` with a name inferred from the class name.
+
+### Versioning workflow
+
+Each blueprint version is a separate class with its own config model. The initial version uses a clean name. Later versions add a `V{N}` suffix (or use explicit attributes). Breaking config changes are fine -- each version has an independent schema.
 
 ```python
 # v1 -- clean, no version thinking

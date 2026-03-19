@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from .conftest import PROJECT_DIR, _run_astro
+from .conftest import PROJECT_DIR, _run_astro, _wait_for_clean_dags
 
 if TYPE_CHECKING:
     from .conftest import AirflowAPI
@@ -39,6 +39,7 @@ class TestDagParsing:
             assert result.returncode != 0, "Expected failure for invalid blueprint reference"
         finally:
             bad_yaml.unlink(missing_ok=True)
+            _wait_for_clean_dags(api_client)
 
     def test_invalid_dag_args_field_causes_failure(self, api_client: AirflowAPI):
         """A YAML with fields not in the DagArgs config should cause a parse failure."""
@@ -56,3 +57,4 @@ class TestDagParsing:
             assert result.returncode != 0, "Expected failure for unknown dag args field 'catchup'"
         finally:
             bad_yaml.unlink(missing_ok=True)
+            _wait_for_clean_dags(api_client)
