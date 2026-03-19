@@ -10,11 +10,11 @@ import subprocess
 
 import pytest
 
-from .conftest import PROJECT_DIR
+from .conftest import INTEGRATION_DIR
 
 pytestmark = pytest.mark.integration
 
-DAGS_DIR = str(PROJECT_DIR / "dags")
+DAGS_DIR = str(INTEGRATION_DIR / "project" / "dags")
 
 
 def _run_blueprint(*args: str) -> subprocess.CompletedProcess:

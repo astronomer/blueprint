@@ -245,43 +245,88 @@ def _build_version_schema(
     return schema_data
 
 
+def _build_dag_yaml_schema(dag_args_schema: dict) -> dict:
+    schema = copy.deepcopy(dag_args_schema)
+    schema["$schema"] = "http://json-schema.org/draft-07/schema#"
+    schema["title"] = "DAG"
+    props = schema.setdefault("properties", {})
+    props["dag_id"] = {"type": "string", "description": "Unique DAG identifier"}
+    props["steps"] = {
+        "type": "object",
+        "description": "Blueprint step definitions",
+        "additionalProperties": {"type": "object"},
+    }
+    required = schema.setdefault("required", [])
+    for field in ("dag_id", "steps"):
+        if field not in required:
+            required.insert(0, field)
+    return schema
+
+
 @cli.command()
-@click.argument("blueprint_name")
+@click.argument("blueprint_name", required=False, default=None)
+@click.option("--dag-args", "dag_args", is_flag=True, help="Emit schema for DAG-level YAML fields")
 @click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
-def schema(blueprint_name: str, output: str | None, template_dir: str | None):
+def schema(
+    blueprint_name: str | None,
+    dag_args: bool,
+    output: str | None,
+    template_dir: str | None,
+):
     """Generate JSON Schema for a blueprint's configuration.
 
     Emits a single schema covering all versions. Multi-version blueprints
     use oneOf discriminated by the version field.
+
+    With --dag-args, emits the schema for DAG-level YAML (dag_id, steps, and
+    any custom dag args fields).
     """
+    if dag_args and blueprint_name:
+        console.print("[red]Error:[/red] Cannot use --dag-args with a blueprint name.")
+        sys.exit(1)
+
+    if not dag_args and not blueprint_name:
+        console.print("[red]Error:[/red] Provide a blueprint name or use --dag-args.")
+        sys.exit(1)
+
     try:
         reg = _get_registry(template_dir)
-        versions_info = reg.get_all_versions_info(blueprint_name)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    variants = [
-        _build_version_schema(
-            blueprint_name,
-            vi["version"],
-            vi["base_name"],
-            vi["schema"],
-        )
-        for vi in versions_info
-    ]
-
-    if len(variants) == 1:
-        schema_data = variants[0]
-        schema_data["$schema"] = "http://json-schema.org/draft-07/schema#"
+    if dag_args:
+        dag_args_cls = reg.get_dag_args()
+        schema_data = _build_dag_yaml_schema(dag_args_cls.get_schema())
     else:
-        schema_data = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": blueprint_name,
-            "oneOf": variants,
-            "discriminator": {"propertyName": "version"},
-        }
+        assert blueprint_name is not None
+        try:
+            versions_info = reg.get_all_versions_info(blueprint_name)
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            sys.exit(1)
+
+        variants = [
+            _build_version_schema(
+                blueprint_name,
+                vi["version"],
+                vi["base_name"],
+                vi["schema"],
+            )
+            for vi in versions_info
+        ]
+
+        if len(variants) == 1:
+            schema_data = variants[0]
+            schema_data["$schema"] = "http://json-schema.org/draft-07/schema#"
+        else:
+            schema_data = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": blueprint_name,
+                "oneOf": variants,
+                "discriminator": {"propertyName": "version"},
+            }
 
     json_output = json.dumps(schema_data, indent=2)
 
@@ -379,15 +424,34 @@ def new(template_dir: str | None, output_dir: str):
         console.print("[red]DAG ID is required[/red]")
         sys.exit(1)
 
-    schedule = console.input("Schedule [default: @daily]: ") or "@daily"
+    reg = _get_registry(template_dir)
+    dag_args_cls = reg.get_dag_args()
+    dag_args_schema = dag_args_cls.get_schema()
+    dag_args_params = dag_args_schema.get("properties", {})
 
-    step_name = console.input(f"Step name [default: {selected['name']}]: ") or selected["name"]
+    dag_args_values: dict[str, object] = {}
+    if dag_args_params:
+        console.print("\n[bold]DAG arguments:[/bold]")
+        dag_args_info = {
+            "parameters": {
+                name: {
+                    "type": prop.get("type", "string"),
+                    "description": prop.get("description", ""),
+                    "default": prop.get("default"),
+                    "required": name in dag_args_schema.get("required", []),
+                }
+                for name, prop in dag_args_params.items()
+            }
+        }
+        dag_args_values = _collect_parameters(dag_args_info)
+
+    step_name = console.input(f"\nStep name [default: {selected['name']}]: ") or selected["name"]
 
     step_config = _collect_parameters(info)
 
     dag_def: dict[str, object] = {
         "dag_id": dag_id,
-        "schedule": schedule,
+        **{k: v for k, v in dag_args_values.items() if v},
         "steps": {
             step_name: {
                 "blueprint": selected["name"],

@@ -3,8 +3,8 @@
 import pytest
 from pydantic import BaseModel
 
-from blueprint.core import Blueprint
-from blueprint.errors import BlueprintNotFoundError, InvalidVersionError
+from blueprint.core import Blueprint, DefaultDagArgs
+from blueprint.errors import BlueprintNotFoundError, InvalidVersionError, MultipleDagArgsError
 from blueprint.registry import BlueprintRegistry
 
 
@@ -279,3 +279,139 @@ class Dup(Blueprint[DupConfig2]):
 
         with pytest.raises(BlueprintNotFoundError):
             reg.get_all_versions_info("nonexistent")
+
+
+class TestDagArgsDiscovery:
+    def test_no_dag_args_returns_default(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class XConfig(BaseModel):
+    x: str = "a"
+
+class X(Blueprint[XConfig]):
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+        assert reg.get_dag_args() is DefaultDagArgs
+
+    def test_custom_dag_args_discovered(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "dag_args.py").write_text("""
+from typing import Any
+from pydantic import BaseModel, ConfigDict
+from blueprint.core import BlueprintDagArgs
+
+class MyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schedule: str | None = None
+
+class MyDagArgs(BlueprintDagArgs[MyConfig]):
+    def render(self, config) -> dict[str, Any]:
+        return {"schedule": config.schedule} if config.schedule else {}
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        dag_args_cls = reg.get_dag_args()
+        assert dag_args_cls is not DefaultDagArgs
+        assert dag_args_cls.__name__ == "MyDagArgs"
+
+    def test_multiple_dag_args_raises(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "aaa_first.py").write_text("""
+from typing import Any
+from pydantic import BaseModel
+from blueprint.core import BlueprintDagArgs
+
+class Config1(BaseModel):
+    x: str = "a"
+
+class DagArgs1(BlueprintDagArgs[Config1]):
+    def render(self, config) -> dict[str, Any]:
+        return {}
+""")
+
+        (template_dir / "zzz_second.py").write_text("""
+from typing import Any
+from pydantic import BaseModel
+from blueprint.core import BlueprintDagArgs
+
+class Config2(BaseModel):
+    y: str = "b"
+
+class DagArgs2(BlueprintDagArgs[Config2]):
+    def render(self, config) -> dict[str, Any]:
+        return {}
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        with pytest.raises(MultipleDagArgsError):
+            reg.discover(force=True)
+
+    def test_clear_resets_dag_args(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "dag_args.py").write_text("""
+from typing import Any
+from pydantic import BaseModel
+from blueprint.core import BlueprintDagArgs
+
+class ClearConfig(BaseModel):
+    x: str = "a"
+
+class ClearDagArgs(BlueprintDagArgs[ClearConfig]):
+    def render(self, config) -> dict[str, Any]:
+        return {}
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+        assert reg.get_dag_args() is not DefaultDagArgs
+
+        reg.clear()
+        assert reg._dag_args is None
+
+    def test_dag_args_not_in_list_blueprints(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "all.py").write_text("""
+from typing import Any
+from pydantic import BaseModel
+from blueprint.core import Blueprint, BlueprintDagArgs
+
+class BpConfig(BaseModel):
+    x: str = "a"
+
+class MyBp(Blueprint[BpConfig]):
+    def render(self, config):
+        pass
+
+class DaConfig(BaseModel):
+    y: str = "b"
+
+class MyDa(BlueprintDagArgs[DaConfig]):
+    def render(self, config) -> dict[str, Any]:
+        return {}
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        bp_names = [bp["name"] for bp in reg.list_blueprints()]
+        assert "my_bp" in bp_names
+        assert "my_da" not in bp_names

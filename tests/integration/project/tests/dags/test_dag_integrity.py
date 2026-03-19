@@ -44,7 +44,7 @@ def get_dags():
     return [(k, v, strip_path_prefix(v.fileloc)) for k, v in dag_bag.dags.items()]
 
 
-EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl"}
+EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test"}
 
 
 @pytest.mark.parametrize(
@@ -68,3 +68,13 @@ def test_expected_dags_present():
     loaded_ids = set(dag_bag.dags.keys())
     missing = EXPECTED_DAG_IDS - loaded_ids
     assert not missing, f"Missing DAGs: {missing}"
+
+
+def test_dag_args_team_tag_generated():
+    """Verify that the team/tier abstraction generates the expected auto-tags."""
+    with suppress_logging("airflow"):
+        dag_bag = DagBag(include_examples=False)
+    dag = dag_bag.dags["dag_args_test"]
+    tags = set(dag.tags)
+    assert "team:analytics" in tags, f"Expected 'team:analytics' tag, got {tags}"
+    assert "critical" in tags, f"Expected 'critical' tag, got {tags}"

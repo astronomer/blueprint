@@ -196,6 +196,10 @@ def validate_yaml(
     builder = Builder(bp_registry=reg)
     builder.validate_dependencies(dag_config)
 
+    dag_args_cls = reg.get_dag_args()
+    dag_args_config_type = dag_args_cls.get_config_type()
+    dag_args_config_type(**dag_config.get_extra_fields())
+
     for _step_name, step_config in dag_config.steps.items():
         bp_class = reg.get(step_config.blueprint, step_config.version)
         config_type = bp_class.get_config_type()

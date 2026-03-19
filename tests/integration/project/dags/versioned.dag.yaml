@@ -1,6 +1,7 @@
 dag_id: versioned_etl
 schedule: "@daily"
-tags: [integration-test, etl]
+team: data-eng
+tier: critical
 
 steps:
   extract_legacy:

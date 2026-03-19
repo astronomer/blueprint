@@ -1,0 +1,18 @@
+dag_id: dag_args_test
+schedule: "@daily"
+description: "Proves BlueprintDagArgs team/tier abstraction works end-to-end"
+team: analytics
+tier: critical
+
+steps:
+  extract:
+    blueprint: extract
+    version: 1
+    source_table: raw.dag_args_data
+    batch_size: 100
+
+  load:
+    blueprint: load
+    depends_on: [extract]
+    target_table: analytics.dag_args_output
+    mode: append

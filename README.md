@@ -60,7 +60,6 @@ Blueprints typically return a **TaskGroup** containing multiple tasks. For simpl
 # dags/customer_pipeline.dag.yaml
 dag_id: customer_pipeline
 schedule: "@daily"
-tags: [etl, customers]
 
 steps:
   extract_customers:
@@ -87,11 +86,7 @@ Step config is flat -- `blueprint:`, `depends_on:`, and `version:` are reserved 
 # dags/loader.py
 from blueprint import build_all
 
-build_all(
-    dag_defaults={
-        "default_args": {"owner": "data-team", "retries": 2},
-    }
-)
+build_all()
 ```
 
 ### 4. Validate
@@ -112,33 +107,51 @@ tilt up
 
 See the [examples README](examples/README.md) for full setup details.
 
-## DAG Defaults
+## DAG Arguments
 
-The `build_all()` function accepts `dag_defaults` for org-wide DAG properties. YAML values take precedence. Dict fields like `default_args` are deep-merged.
+By default, DAG YAML files support `schedule` and `description` at the top level (alongside `dag_id` and `steps`). For more control over DAG construction, define a `BlueprintDagArgs` template.
+
+A `BlueprintDagArgs` subclass works like a Blueprint but for DAG-level arguments. It defines a Pydantic config model whose fields become the valid top-level YAML fields, and a `render()` method that returns DAG constructor kwargs. At most one may exist per project.
 
 ```python
-build_all(
-    dag_defaults={
-        "schedule": "@daily",
-        "tags": ["managed"],
-        "default_args": {
-            "owner": "data-team",
-            "retries": 2,
-            "retry_delay_seconds": 300,
-        },
-    }
-)
+from datetime import timedelta
+from blueprint import BlueprintDagArgs, BaseModel, Field
+
+class ProjectDagArgsConfig(BaseModel):
+    schedule: str | None = None
+    owner: str = "data-team"
+    retries: int = Field(default=2, ge=0)
+
+class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig]):
+    """Project-wide DAG argument template."""
+
+    def render(self, config: ProjectDagArgsConfig) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "default_args": {
+                "owner": config.owner,
+                "retries": config.retries,
+            },
+        }
+        if config.schedule is not None:
+            kwargs["schedule"] = config.schedule
+        return kwargs
 ```
 
-A minimal YAML can then skip repeated boilerplate:
+DAG YAML files then use the config fields directly:
 
 ```yaml
-dag_id: simple_pipeline
+dag_id: customer_pipeline
+schedule: "@daily"
+owner: analytics-team
+retries: 3
+
 steps:
-  process:
-    blueprint: transform
-    operations: [clean]
+  extract:
+    blueprint: extract
+    source_table: raw.customers
 ```
+
+When no `BlueprintDagArgs` is defined, the built-in `DefaultDagArgs` provides `schedule` and `description` pass-through.
 
 ## Template Versioning
 
@@ -224,7 +237,7 @@ config = DAGConfig(
     steps={
         "step1": {"blueprint": "extract", "source_table": "raw.data"},
         "step2": {"blueprint": "load", "depends_on": ["step1"], "target_table": "out"},
-    }
+    },
 )
 
 dag = Builder().build(config)
@@ -405,6 +418,7 @@ my_dag:
 ```yaml
 dag_id: customer_pipeline
 schedule: "@daily"
+
 steps:
   extract:
     blueprint: extract

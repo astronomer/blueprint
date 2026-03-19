@@ -14,7 +14,7 @@ from typing import (
     get_origin,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from airflow.models import BaseOperator
@@ -266,3 +266,110 @@ class Blueprint(Generic[T]):
         snake_name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", base_name)
         snake_name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", snake_name)
         return snake_name.lower(), version
+
+
+class BlueprintDagArgs(Generic[T]):
+    """Base class for DAG argument templates.
+
+    Subclass this to define custom DAG constructor arguments with validated
+    Pydantic config. At most one BlueprintDagArgs subclass may exist per project.
+
+    The render() method receives the validated config and returns a dict of
+    kwargs passed to the Airflow DAG constructor.
+
+    Example:
+        class MyDagArgsConfig(BaseModel):
+            schedule: str | None = None
+            owner: str = "data-team"
+            retries: int = 2
+
+        class MyDagArgs(BlueprintDagArgs[MyDagArgsConfig]):
+            def render(self, config: MyDagArgsConfig) -> dict[str, Any]:
+                return {
+                    "schedule": config.schedule,
+                    "default_args": {
+                        "owner": config.owner,
+                        "retries": config.retries,
+                    },
+                }
+    """
+
+    _config_type: type[BaseModel]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+
+        orig_bases = getattr(cls, "__orig_bases__", ())
+        for base in orig_bases:
+            if hasattr(base, "__args__") and base.__args__:
+                config_type = base.__args__[0]
+                if isinstance(config_type, type) and issubclass(config_type, BaseModel):
+                    cls._config_type = config_type
+                    cls._validate_yaml_compatible_fields()
+                    break
+
+    def render(self, config: T) -> dict[str, Any]:
+        """Render DAG constructor kwargs from the validated configuration.
+
+        Must be implemented by BlueprintDagArgs subclasses.
+
+        Args:
+            config: The validated configuration model instance
+
+        Returns:
+            Dict of kwargs to pass to the Airflow DAG constructor
+        """
+        msg = f"{self.__class__.__name__} must implement the render() method"
+        raise NotImplementedError(msg)
+
+    @classmethod
+    def _validate_yaml_compatible_fields(cls) -> None:
+        config_type = cls._config_type
+        errors: list[str] = []
+
+        for field_name, field_info in config_type.model_fields.items():
+            error = _is_yaml_compatible(field_info.annotation)
+            if error:
+                errors.append(f"  {field_name}: {error}")
+
+        if errors:
+            fields_str = "\n".join(errors)
+            msg = (
+                f"{cls.__name__} config model {config_type.__name__} has "
+                f"non-YAML-compatible fields:\n{fields_str}"
+            )
+            raise TypeError(msg)
+
+    @classmethod
+    def get_config_type(cls) -> type[BaseModel]:
+        if not hasattr(cls, "_config_type"):
+            msg = (
+                f"{cls.__name__} was not properly initialized. "
+                "Make sure it inherits from BlueprintDagArgs[ConfigType]"
+            )
+            raise RuntimeError(msg)
+        return cls._config_type
+
+    @classmethod
+    def get_schema(cls) -> dict:
+        raw = cls.get_config_type().model_json_schema()
+        return _resolve_refs(raw)
+
+
+class DefaultDagArgsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schedule: str | None = None
+    description: str | None = None
+
+
+class DefaultDagArgs(BlueprintDagArgs[DefaultDagArgsConfig]):
+    """Built-in DAG arguments template providing schedule and description pass-through."""
+
+    def render(self, config: DefaultDagArgsConfig) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {}
+        if config.schedule is not None:
+            kwargs["schedule"] = config.schedule
+        if config.description is not None:
+            kwargs["description"] = config.description
+        return kwargs
