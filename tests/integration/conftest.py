@@ -129,6 +129,23 @@ def _wait_for_health(base_url: str) -> None:
     raise TimeoutError(msg)
 
 
+def _wait_for_clean_dags(api: AirflowAPI) -> None:
+    """Wait for the scheduler to clear all import errors and reload all expected DAGs."""
+    deadline = time.monotonic() + DAG_PARSE_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            resp = api.get("/importErrors")
+            has_errors = resp.status_code != 200 or resp.json().get("import_errors", [])
+            if not has_errors and api.get_dag_ids() >= EXPECTED_DAG_IDS:
+                return
+        except Exception:
+            pass
+        time.sleep(HEALTH_CHECK_INTERVAL)
+
+    msg = f"DAGs did not recover within {DAG_PARSE_TIMEOUT}s"
+    raise TimeoutError(msg)
+
+
 def _wait_for_dags(api: AirflowAPI) -> None:
     deadline = time.monotonic() + DAG_PARSE_TIMEOUT
     while time.monotonic() < deadline:
