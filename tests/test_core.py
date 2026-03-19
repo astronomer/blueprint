@@ -246,6 +246,28 @@ class TestParseNameAndVersion:
 
             Bad.parse_name_and_version()
 
+    def test_explicit_version_on_versioned_class(self):
+        class FooV3(Blueprint[SimpleConfig]):
+            version = 5
+
+            def render(self, config):
+                pass
+
+        name, version = FooV3.parse_name_and_version()
+        assert name == "foo"
+        assert version == 5
+
+    def test_invalid_version_bool(self):
+        with pytest.raises(ValueError, match="integer >= 1"):
+
+            class Bad(Blueprint[SimpleConfig]):
+                version = True
+
+                def render(self, config):
+                    pass
+
+            Bad.parse_name_and_version()
+
     def test_invalid_version_zero(self):
         with pytest.raises(ValueError, match="integer >= 1"):
 

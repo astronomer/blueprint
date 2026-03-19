@@ -279,7 +279,9 @@ class Blueprint(Generic[T]):
                 raise ValueError(msg)
 
         if explicit_version is not None and (
-            not isinstance(explicit_version, int) or explicit_version < 1
+            not isinstance(explicit_version, int)
+            or isinstance(explicit_version, bool)
+            or explicit_version < 1
         ):
             msg = f"{cls.__name__}: 'version' must be an integer >= 1, got {explicit_version!r}"
             raise ValueError(msg)

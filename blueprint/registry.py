@@ -128,7 +128,7 @@ class BlueprintRegistry:
                         ):
                             self._register_dag_args(obj, py_file, directory)
 
-            except (DuplicateBlueprintError, MultipleDagArgsError):
+            except (DuplicateBlueprintError, MultipleDagArgsError, ValueError):
                 raise
             except (ImportError, SyntaxError) as e:
                 logger.warning("Failed to load %s: %s", py_file, e)
