@@ -10,7 +10,7 @@ from typing import Any, Literal
 import pytest
 from pydantic import BaseModel, Field
 
-from blueprint.core import Blueprint, TaskOrGroup, _resolve_refs
+from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup, _resolve_refs
 
 
 class SimpleConfig(BaseModel):
@@ -608,3 +608,83 @@ class TestResolveRefs:
         assert "$defs" not in result
         assert result["properties"]["local"]["type"] == "object"
         assert result["properties"]["ext"] == {"$ref": "https://example.com/schema.json"}
+
+
+class TestBlueprintDagArgs:
+    def test_config_type_extracted(self):
+        class MyConfig(BaseModel):
+            schedule: str | None = None
+
+        class MyDagArgs(BlueprintDagArgs[MyConfig]):
+            def render(self, _config):
+                return {}
+
+        assert MyDagArgs.get_config_type() is MyConfig
+
+    def test_render_not_implemented(self):
+        class StubConfig(BaseModel):
+            x: str = "a"
+
+        class StubDagArgs(BlueprintDagArgs[StubConfig]):
+            pass
+
+        with pytest.raises(NotImplementedError, match="StubDagArgs must implement"):
+            StubDagArgs().render(StubConfig())
+
+    def test_yaml_validation_rejects_bad_types(self):
+        class BadConfig(BaseModel):
+            data: bytes
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class BadDagArgs(BlueprintDagArgs[BadConfig]):
+                def render(self, _config):
+                    return {}
+
+    def test_get_schema(self):
+        class SchemaConfig(BaseModel):
+            name: str
+            count: int = 5
+
+        class SchemaDagArgs(BlueprintDagArgs[SchemaConfig]):
+            def render(self, _config):
+                return {}
+
+        schema = SchemaDagArgs.get_schema()
+        assert "properties" in schema
+        assert "name" in schema["properties"]
+        assert "count" in schema["properties"]
+
+    def test_config_type_missing(self):
+        with pytest.raises(RuntimeError, match="not properly initialized"):
+            BlueprintDagArgs.get_config_type()
+
+
+class TestDefaultDagArgs:
+    def test_renders_schedule(self):
+        from blueprint.core import DefaultDagArgsConfig
+
+        config = DefaultDagArgsConfig(schedule="@daily")
+        result = DefaultDagArgs().render(config)
+        assert result == {"schedule": "@daily"}
+
+    def test_renders_description(self):
+        from blueprint.core import DefaultDagArgsConfig
+
+        config = DefaultDagArgsConfig(description="A test DAG")
+        result = DefaultDagArgs().render(config)
+        assert result == {"description": "A test DAG"}
+
+    def test_omits_none_values(self):
+        from blueprint.core import DefaultDagArgsConfig
+
+        config = DefaultDagArgsConfig()
+        result = DefaultDagArgs().render(config)
+        assert result == {}
+
+    def test_renders_both(self):
+        from blueprint.core import DefaultDagArgsConfig
+
+        config = DefaultDagArgsConfig(schedule="@hourly", description="Test")
+        result = DefaultDagArgs().render(config)
+        assert result == {"schedule": "@hourly", "description": "Test"}

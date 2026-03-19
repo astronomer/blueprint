@@ -8,8 +8,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from blueprint.core import Blueprint
-from blueprint.errors import BlueprintNotFoundError, DuplicateBlueprintError, InvalidVersionError
+from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs
+from blueprint.errors import (
+    BlueprintNotFoundError,
+    DuplicateBlueprintError,
+    InvalidVersionError,
+    MultipleDagArgsError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,8 @@ class BlueprintRegistry:
     ) -> None:
         self._blueprints: dict[str, dict[int, type[Blueprint]]] = {}
         self._blueprint_locations: dict[str, dict[int, str]] = {}
+        self._dag_args: type[BlueprintDagArgs] | None = None
+        self._dag_args_location: str | None = None
         self._discovered = False
         self._discovery_in_progress = False
         self._template_dirs = template_dirs
@@ -68,6 +75,8 @@ class BlueprintRegistry:
 
         self._blueprints.clear()
         self._blueprint_locations.clear()
+        self._dag_args = None
+        self._dag_args_location = None
 
         self._discovery_in_progress = True
         try:
@@ -109,8 +118,15 @@ class BlueprintRegistry:
                             and obj.__module__ == module_name
                         ):
                             self._register_class(obj, py_file, directory)
+                        elif (
+                            isinstance(obj, type)
+                            and issubclass(obj, BlueprintDagArgs)
+                            and obj not in (BlueprintDagArgs, DefaultDagArgs)
+                            and obj.__module__ == module_name
+                        ):
+                            self._register_dag_args(obj, py_file, directory)
 
-            except DuplicateBlueprintError:
+            except (DuplicateBlueprintError, MultipleDagArgsError):
                 raise
             except (ImportError, SyntaxError) as e:
                 logger.warning("Failed to load %s: %s", py_file, e)
@@ -135,6 +151,29 @@ class BlueprintRegistry:
 
         self._blueprints[bp_name][version] = cls
         self._blueprint_locations[bp_name][version] = location
+
+    def _register_dag_args(
+        self, cls: type[BlueprintDagArgs], py_file: Path, base_dir: Path
+    ) -> None:
+        try:
+            location = str(py_file.relative_to(base_dir.parent.parent))
+        except ValueError:
+            location = str(py_file)
+
+        if self._dag_args is not None:
+            raise MultipleDagArgsError([self._dag_args_location or "", location])
+
+        self._dag_args = cls
+        self._dag_args_location = location
+
+    def get_dag_args(self) -> type[BlueprintDagArgs]:
+        """Get the DAG arguments template class.
+
+        Returns the user-defined BlueprintDagArgs subclass if one was discovered,
+        otherwise returns DefaultDagArgs.
+        """
+        self.discover()
+        return self._dag_args or DefaultDagArgs
 
     def get(self, name: str, version: int | None = None) -> type[Blueprint]:
         """Get a blueprint by name and optional version.
@@ -286,6 +325,8 @@ class BlueprintRegistry:
         """Clear the registry and force re-discovery on next access."""
         self._blueprints.clear()
         self._blueprint_locations.clear()
+        self._dag_args = None
+        self._dag_args_location = None
         self._discovered = False
         self._discovery_in_progress = False
 

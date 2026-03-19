@@ -1,6 +1,5 @@
 dag_id: customer_etl
 schedule: "@daily"
-tags: [etl, customers]
 
 steps:
   # Pinned to v1 -- uses Extract class, validated against ExtractConfig

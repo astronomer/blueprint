@@ -35,7 +35,7 @@ docker compose -f examples/airflow2/docker-compose.yaml up --build
 ### View the example DAGs
 
 - `customer_etl` -- Demonstrates versioning (v1 and v2 extract), dependencies, and both single-task and multi-task blueprints
-- `simple_pipeline` -- Minimal DAG inheriting defaults from `build_all()`
+- `simple_pipeline` -- Minimal DAG with a single step
 
 ## Directory Structure
 
@@ -123,7 +123,6 @@ class Load(Blueprint[LoadConfig]):
 # customer_etl.dag.yaml
 dag_id: customer_etl
 schedule: "@daily"
-tags: [etl, customers]
 
 steps:
   extract_legacy:

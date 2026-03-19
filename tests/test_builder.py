@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from blueprint.builder import Builder, DAGConfig, StepConfig
 from blueprint.core import Blueprint, TaskOrGroup
@@ -118,21 +118,6 @@ def builder(test_registry):
     return Builder(bp_registry=test_registry)
 
 
-@pytest.fixture
-def builder_with_defaults(test_registry):
-    return Builder(
-        bp_registry=test_registry,
-        dag_defaults={
-            "schedule": "@daily",
-            "tags": ["managed"],
-            "default_args": {
-                "owner": "data-team",
-                "retries": 2,
-            },
-        },
-    )
-
-
 # --- StepConfig tests ---
 
 
@@ -165,22 +150,18 @@ class TestDAGConfig:
             steps={"s1": StepConfig(blueprint="extract", source_table="raw.data")},
         )
         assert config.dag_id == "test_dag"
-        assert config.schedule is None
-        assert config.catchup is False
+        assert config.get_extra_fields() == {}
 
-    def test_full_dag_config(self):
+    def test_dag_config_with_extras(self):
         config = DAGConfig(
             dag_id="test_dag",
             schedule="@daily",
-            tags=["etl"],
-            catchup=True,
-            default_args={"owner": "me"},
+            description="A test",
             steps={"s1": StepConfig(blueprint="extract", source_table="raw.data")},
         )
-        assert config.schedule == "@daily"
-        assert config.tags == ["etl"]
-        assert config.catchup is True
-        assert config.default_args == {"owner": "me"}
+        extras = config.get_extra_fields()
+        assert extras["schedule"] == "@daily"
+        assert extras["description"] == "A test"
 
     def test_empty_steps_rejected(self):
         with pytest.raises(ValueError, match="at least one step"):
@@ -408,63 +389,7 @@ class TestBuilder:
             assert "blueprint_step_code" in task.template_fields
 
 
-class TestBuilderStartDateAndRetry:
-    def test_retry_delay_seconds_converted(self, builder):
-        config = DAGConfig(
-            dag_id="retry_dag",
-            default_args={"retry_delay_seconds": 300},
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        dag = builder.build(config)
-        from datetime import timedelta
-
-        assert dag.default_args["retry_delay"] == timedelta(seconds=300)
-        assert "retry_delay_seconds" not in dag.default_args
-
-    def test_retry_delay_seconds_string_coerced(self, builder):
-        config = DAGConfig(
-            dag_id="retry_str_dag",
-            default_args={"retry_delay_seconds": "120"},
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        dag = builder.build(config)
-        from datetime import timedelta
-
-        assert dag.default_args["retry_delay"] == timedelta(seconds=120)
-
-    def test_retry_delay_seconds_invalid_raises(self, builder):
-        from blueprint.errors import ConfigurationError
-
-        config = DAGConfig(
-            dag_id="retry_bad_dag",
-            default_args={"retry_delay_seconds": "not_a_number"},
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        with pytest.raises(ConfigurationError, match="retry_delay_seconds must be a number"):
-            builder.build(config)
-
-    def test_start_date_iso_with_tz(self, builder):
-        config = DAGConfig(
-            dag_id="tz_dag",
-            start_date="2025-06-01T00:00:00+00:00",
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        dag = builder.build(config)
-        from datetime import datetime, timezone
-
-        assert dag.start_date == datetime(2025, 6, 1, tzinfo=timezone.utc)
-
-    def test_start_date_naive_gets_utc(self, builder):
-        config = DAGConfig(
-            dag_id="naive_dag",
-            start_date="2025-06-01",
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        dag = builder.build(config)
-
-        assert dag.start_date.tzinfo is not None
-        assert dag.start_date.utcoffset().total_seconds() == 0
-
+class TestBuilderDefaultDagArgs:
     def test_description_passed_to_dag(self, builder):
         config = DAGConfig(
             dag_id="desc_dag",
@@ -474,65 +399,130 @@ class TestBuilderStartDateAndRetry:
         dag = builder.build(config)
         assert dag.description == "A test DAG"
 
-
-class TestBuilderDefaults:
-    def test_defaults_applied(self, builder_with_defaults):
+    def test_schedule_passed_to_dag(self, builder):
         config = DAGConfig(
-            dag_id="defaulted",
-            steps={"s": StepConfig(blueprint="load", target_table="out")},
-        )
-        dag = builder_with_defaults.build(config)
-        assert dag.schedule == "@daily"
-        tags = set(dag.tags) if dag.tags else set()
-        assert "managed" in tags
-
-    def test_yaml_overrides_defaults(self, builder_with_defaults):
-        config = DAGConfig(
-            dag_id="overridden",
+            dag_id="sched_dag",
             schedule="@hourly",
-            tags=["custom"],
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        dag = builder_with_defaults.build(config)
+        dag = builder.build(config)
         assert dag.schedule == "@hourly"
-        assert "custom" in dag.tags
 
-    def test_default_args_deep_merged(self, builder_with_defaults):
+    def test_default_start_date_injected(self, builder):
+        from datetime import datetime, timezone
+
         config = DAGConfig(
-            dag_id="merged_args",
-            default_args={"retries": 5, "email": "me@test.com"},
+            dag_id="start_dag",
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        dag = builder_with_defaults.build(config)
-        assert dag.default_args["owner"] == "data-team"
-        assert dag.default_args["retries"] == 5
-        assert dag.default_args["email"] == "me@test.com"
+        dag = builder.build(config)
+        assert dag.start_date == datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-    def test_explicit_null_schedule_preserved(self, builder_with_defaults):
+    def test_default_catchup_false(self, builder):
         config = DAGConfig(
-            dag_id="unscheduled",
-            schedule=None,
+            dag_id="catchup_dag",
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        raw_yaml = {
-            "dag_id": "unscheduled",
-            "schedule": None,
-            "steps": {"s": {"blueprint": "load", "target_table": "out"}},
+        dag = builder.build(config)
+        assert dag.catchup is False
+
+    def test_unknown_extra_field_rejected(self, builder):
+        from pydantic import ValidationError
+
+        config = DAGConfig(
+            dag_id="bad_dag",
+            unknown_field="oops",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        with pytest.raises(ValidationError):
+            builder.build(config)
+
+
+class TestBuilderCustomDagArgs:
+    @pytest.fixture
+    def custom_dag_args_registry(self):
+        from typing import Any
+
+        from blueprint.core import BlueprintDagArgs
+
+        class CustomConfig(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            schedule: str | None = None
+            owner: str = "data-team"
+            retries: int = 2
+
+        class CustomDagArgs(BlueprintDagArgs[CustomConfig]):
+            def render(self, config: CustomConfig) -> dict[str, Any]:
+                kwargs: dict[str, Any] = {
+                    "default_args": {
+                        "owner": config.owner,
+                        "retries": config.retries,
+                    },
+                }
+                if config.schedule is not None:
+                    kwargs["schedule"] = config.schedule
+                return kwargs
+
+        reg = BlueprintRegistry()
+        reg._blueprints = {
+            "load": {1: Load},
         }
-        dag = builder_with_defaults.build(config, raw_yaml=raw_yaml)
-        assert dag.schedule is None
+        reg._blueprint_locations = {
+            "load": {1: "test.py"},
+        }
+        reg._dag_args = CustomDagArgs
+        reg._dag_args_location = "test.py"
+        reg._discovered = True
+        return reg
 
-    def test_absent_schedule_gets_default(self, builder_with_defaults):
+    def test_custom_dag_args_applied(self, custom_dag_args_registry):
+        builder = Builder(bp_registry=custom_dag_args_registry)
         config = DAGConfig(
-            dag_id="defaulted_schedule",
+            dag_id="custom_dag",
+            schedule="@daily",
+            owner="analytics-team",
+            retries=5,
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        raw_yaml = {
-            "dag_id": "defaulted_schedule",
-            "steps": {"s": {"blueprint": "load", "target_table": "out"}},
-        }
-        dag = builder_with_defaults.build(config, raw_yaml=raw_yaml)
+        dag = builder.build(config)
         assert dag.schedule == "@daily"
+        assert dag.default_args["owner"] == "analytics-team"
+        assert dag.default_args["retries"] == 5
+
+    def test_custom_dag_args_defaults(self, custom_dag_args_registry):
+        builder = Builder(bp_registry=custom_dag_args_registry)
+        config = DAGConfig(
+            dag_id="default_custom",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        dag = builder.build(config)
+        assert dag.default_args["owner"] == "data-team"
+        assert dag.default_args["retries"] == 2
+
+    def test_custom_dag_args_rejects_unknown_fields(self, custom_dag_args_registry):
+        from pydantic import ValidationError
+
+        builder = Builder(bp_registry=custom_dag_args_registry)
+        config = DAGConfig(
+            dag_id="bad_dag",
+            tags=["oops"],
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        with pytest.raises(ValidationError):
+            builder.build(config)
+
+    def test_custom_dag_args_start_date_default(self, custom_dag_args_registry):
+        from datetime import datetime, timezone
+
+        builder = Builder(bp_registry=custom_dag_args_registry)
+        config = DAGConfig(
+            dag_id="sd_dag",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        dag = builder.build(config)
+        assert dag.start_date == datetime(2024, 1, 1, tzinfo=timezone.utc)
+        assert dag.catchup is False
 
 
 class TestBuildFromYaml:
@@ -630,13 +620,14 @@ steps:
         assert dags[0].dag_id == "build_all_test"
         assert "build_all_test" in globals_dict
 
-    def test_build_all_with_defaults(self, tmp_path):
+    def test_build_all_with_custom_dag_args(self, tmp_path):
         from blueprint.builder import build_all
 
         bp_file = tmp_path / "blueprints.py"
         bp_file.write_text("""
+from typing import Any
 from pydantic import BaseModel
-from blueprint.core import Blueprint
+from blueprint.core import Blueprint, BlueprintDagArgs
 
 class StubConfig(BaseModel):
     x: int = 1
@@ -645,11 +636,24 @@ class Stub(Blueprint[StubConfig]):
     def render(self, config):
         from airflow.operators.bash import BashOperator
         return BashOperator(task_id=self.step_id, bash_command="echo ok")
+
+class MyDagArgsConfig(BaseModel):
+    schedule: str | None = None
+    team: str = "default-team"
+
+class MyDagArgs(BlueprintDagArgs[MyDagArgsConfig]):
+    def render(self, config: MyDagArgsConfig) -> dict[str, Any]:
+        kwargs = {"default_args": {"owner": config.team}}
+        if config.schedule is not None:
+            kwargs["schedule"] = config.schedule
+        return kwargs
 """)
 
         yaml_file = tmp_path / "test.dag.yaml"
         yaml_file.write_text("""
-dag_id: defaults_test
+dag_id: dagargs_test
+schedule: "@weekly"
+team: analytics
 steps:
   s1:
     blueprint: stub
@@ -658,13 +662,12 @@ steps:
         globals_dict = {}
         dags = build_all(
             search_path=tmp_path,
-            dag_defaults={"schedule": "@weekly", "tags": ["auto"]},
             register_globals=globals_dict,
             render_templates=False,
         )
         assert len(dags) == 1
         assert dags[0].schedule == "@weekly"
-        assert "auto" in dags[0].tags
+        assert dags[0].default_args["owner"] == "analytics"
 
     def test_build_all_no_yamls(self, tmp_path):
         from blueprint.builder import build_all

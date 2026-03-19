@@ -295,6 +295,63 @@ class Bar(Blueprint[BarConfig]):
         assert '"version"' in result.output
         assert '"blueprint"' in result.output
 
+    def test_schema_dag_args_default(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "--dag-args", "--template-dir", str(template_dir)])
+        assert result.exit_code == 0
+        assert "dag_id" in result.output
+        assert "steps" in result.output
+        assert "schedule" in result.output
+        assert "description" in result.output
+        assert '"DAG"' in result.output
+
+    def test_schema_dag_args_custom(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "args.py").write_text("""
+from pydantic import BaseModel, ConfigDict
+from blueprint.core import BlueprintDagArgs
+
+class CustomConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    owner: str = "team"
+    retries: int = 3
+
+class CustomArgs(BlueprintDagArgs[CustomConfig]):
+    pass
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "--dag-args", "--template-dir", str(template_dir)])
+        assert result.exit_code == 0
+        assert "dag_id" in result.output
+        assert "steps" in result.output
+        assert "owner" in result.output
+        assert "retries" in result.output
+
+    def test_schema_dag_args_with_blueprint_name_errors(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["schema", "foo", "--dag-args", "--template-dir", str(template_dir)]
+        )
+        assert result.exit_code == 1
+        assert "Cannot use --dag-args with a blueprint name" in result.output
+
+    def test_schema_no_args_errors(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "--template-dir", str(template_dir)])
+        assert result.exit_code == 1
+        assert "Provide a blueprint name or use --dag-args" in result.output
+
     def test_schema_command_base_name_title(self, tmp_path):
         template_dir = tmp_path / "dags"
         template_dir.mkdir()

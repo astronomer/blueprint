@@ -301,3 +301,65 @@ class Stub(Blueprint[StubConfig]):
 
         with pytest.raises(CyclicDependencyError):
             validate_yaml(str(yaml_file), template_dir=str(template_dir))
+
+    def test_valid_dag_args_extra_fields(self, tmp_path):
+        """Extra YAML fields that match the DagArgs config should pass validation."""
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from typing import Any
+from pydantic import BaseModel, ConfigDict
+from blueprint.core import Blueprint, BlueprintDagArgs
+
+class MyArgsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    team: str = "platform"
+
+class MyArgs(BlueprintDagArgs[MyArgsConfig]):
+    def render(self, config: MyArgsConfig) -> dict[str, Any]:
+        return {"tags": [config.team]}
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        yaml_file = tmp_path / "valid.dag.yaml"
+        yaml_file.write_text("dag_id: test\nteam: data-eng\nsteps:\n  s:\n    blueprint: stub\n")
+
+        result = validate_yaml(str(yaml_file), template_dir=str(template_dir))
+        assert result["dag_id"] == "test"
+
+    def test_invalid_dag_args_extra_fields(self, tmp_path):
+        """Extra YAML fields not in the DagArgs config should fail validation."""
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from typing import Any
+from pydantic import BaseModel, ConfigDict
+from blueprint.core import Blueprint, BlueprintDagArgs
+
+class MyArgsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    team: str = "platform"
+
+class MyArgs(BlueprintDagArgs[MyArgsConfig]):
+    def render(self, config: MyArgsConfig) -> dict[str, Any]:
+        return {"tags": [config.team]}
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        yaml_file = tmp_path / "bad.dag.yaml"
+        yaml_file.write_text("dag_id: test\ncatchup: true\nsteps:\n  s:\n    blueprint: stub\n")
+
+        with pytest.raises(Exception, match="catchup"):
+            validate_yaml(str(yaml_file), template_dir=str(template_dir))

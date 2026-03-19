@@ -271,6 +271,22 @@ class InvalidDependencyError(BlueprintError):
         super().__init__(message)
 
 
+class MultipleDagArgsError(BlueprintError):
+    """Error when multiple BlueprintDagArgs templates are found."""
+
+    def __init__(self, locations: list[str]):
+        self.locations = locations
+
+        message = "Multiple BlueprintDagArgs templates found. Only one is allowed per project:"
+        for loc in locations:
+            message += f"\n  • {loc}"
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Remove all but one BlueprintDagArgs subclass"
+
+        super().__init__(message)
+
+
 class InvalidVersionError(BlueprintError):
     """Error when a requested blueprint version does not exist."""
 

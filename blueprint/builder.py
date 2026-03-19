@@ -3,7 +3,7 @@
 import inspect
 import logging
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,15 +45,9 @@ class StepConfig(BaseModel):
 class DAGConfig(BaseModel):
     """Top-level DAG configuration parsed from YAML."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     dag_id: str
-    schedule: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    default_args: dict[str, Any] = Field(default_factory=dict)
-    catchup: bool = False
-    start_date: str | None = None
-    description: str | None = None
     steps: dict[str, StepConfig]
 
     @model_validator(mode="after")
@@ -62,6 +56,10 @@ class DAGConfig(BaseModel):
             msg = "DAG must have at least one step"
             raise ValueError(msg)
         return self
+
+    def get_extra_fields(self) -> dict[str, Any]:
+        """Get all fields beyond dag_id and steps (dag args config values)."""
+        return dict(self.model_extra or {})
 
 
 class Builder:
@@ -75,70 +73,56 @@ class Builder:
     def __init__(
         self,
         bp_registry: BlueprintRegistry | None = None,
-        dag_defaults: dict[str, Any] | None = None,
     ) -> None:
         self._registry = bp_registry or registry
-        self._dag_defaults = dag_defaults or {}
 
-    def build(self, config: DAGConfig, raw_yaml: dict[str, Any] | None = None) -> "DAG":
+    def build(self, config: DAGConfig) -> "DAG":
         """Build a DAG from a DAGConfig.
 
         Args:
             config: The parsed and validated DAG configuration
-            raw_yaml: The original YAML dict (pre-Pydantic), used to distinguish
-                absent fields from fields explicitly set to null during default merging.
 
         Returns:
             A fully wired Airflow DAG
         """
         from airflow import DAG
 
-        merged = self._merge_defaults(config, raw_yaml=raw_yaml)
+        self.validate_dependencies(config)
 
-        self.validate_dependencies(merged)
+        dag_args_cls = self._registry.get_dag_args()
+        config_type = dag_args_cls.get_config_type()
+        extra = config.get_extra_fields()
+        validated_dag_args = config_type(**extra)
 
-        default_args = dict(merged.default_args)
-        if "retry_delay_seconds" in default_args:
-            delay = default_args.pop("retry_delay_seconds")
+        instance = dag_args_cls()
+        dag_kwargs = instance.render(validated_dag_args)
+
+        dag_kwargs["dag_id"] = config.dag_id
+        if "start_date" not in dag_kwargs:
+            dag_kwargs["start_date"] = DEFAULT_START_DATE
+        elif isinstance(dag_kwargs["start_date"], str):
+            from blueprint.errors import ConfigurationError
+
             try:
-                default_args["retry_delay"] = timedelta(seconds=float(delay))
-            except (TypeError, ValueError) as e:
-                msg = f"retry_delay_seconds must be a number, got {delay!r}"
-                raise ConfigurationError(msg) from e
-
-        start_date = DEFAULT_START_DATE
-        if merged.start_date:
-            try:
-                start_date = datetime.fromisoformat(merged.start_date)
+                parsed = datetime.fromisoformat(dag_kwargs["start_date"])
             except ValueError as e:
-                msg = f"Invalid start_date format: {merged.start_date!r}"
+                msg = f"Invalid start_date format: {dag_kwargs['start_date']!r}"
                 raise ConfigurationError(msg) from e
-            if start_date.tzinfo is None:
-                start_date = start_date.replace(tzinfo=timezone.utc)
-
-        dag_kwargs: dict[str, Any] = {
-            "dag_id": merged.dag_id,
-            "start_date": start_date,
-            "catchup": merged.catchup,
-        }
-        if merged.schedule is not None:
-            dag_kwargs["schedule"] = merged.schedule
-        if merged.tags:
-            dag_kwargs["tags"] = merged.tags
-        if default_args:
-            dag_kwargs["default_args"] = default_args
-        if merged.description:
-            dag_kwargs["description"] = merged.description
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            dag_kwargs["start_date"] = parsed
+        if "catchup" not in dag_kwargs:
+            dag_kwargs["catchup"] = False
 
         dag = DAG(**dag_kwargs)
 
         rendered: dict[str, TaskOrGroup] = {}
 
         with dag:
-            for step_name, step_config in merged.steps.items():
+            for step_name, step_config in config.steps.items():
                 rendered[step_name] = self._render_step(step_name, step_config)
 
-            for step_name, step_config in merged.steps.items():
+            for step_name, step_config in config.steps.items():
                 for dep_name in step_config.depends_on:
                     rendered[dep_name] >> rendered[step_name]
 
@@ -173,36 +157,7 @@ class Builder:
             raw_config = yaml.safe_load(raw_content)
 
         dag_config = DAGConfig.model_validate(raw_config)
-        return self.build(dag_config, raw_yaml=raw_config)
-
-    def _merge_defaults(
-        self, config: DAGConfig, raw_yaml: dict[str, Any] | None = None
-    ) -> DAGConfig:
-        """Merge dag_defaults into the config. YAML values take precedence.
-
-        Args:
-            config: The validated DAGConfig
-            raw_yaml: The raw YAML dict before Pydantic parsing, used to
-                distinguish "field absent" from "field explicitly set to null".
-                When not provided, falls back to treating None as absent.
-        """
-        if not self._dag_defaults:
-            return config
-
-        yaml_keys = set(raw_yaml.keys()) if raw_yaml else set()
-        merged_data = config.model_dump()
-
-        for key, default_value in self._dag_defaults.items():
-            if key == "default_args":
-                merged_args = dict(default_value)
-                merged_args.update(merged_data.get("default_args", {}))
-                merged_data["default_args"] = merged_args
-            elif (key == "tags" and not config.tags and key not in yaml_keys) or (
-                key not in yaml_keys and (key not in merged_data or merged_data[key] is None)
-            ):
-                merged_data[key] = default_value
-
-        return DAGConfig.model_validate(merged_data)
+        return self.build(dag_config)
 
     def validate_dependencies(self, config: DAGConfig) -> None:
         """Validate that all dependency references exist and detect cycles."""
@@ -404,7 +359,6 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
 
 def build_all(
     search_path: str | Path | None = None,
-    dag_defaults: dict[str, Any] | None = None,
     register_globals: dict | None = None,
     pattern: str = "*.dag.yaml",
     render_templates: bool = True,
@@ -419,8 +373,6 @@ def build_all(
     Args:
         search_path: Directory to search for YAML files. Defaults to dags/
             or the directory containing the calling file.
-        dag_defaults: Default DAG properties applied to all DAGs. YAML values
-            take precedence. Dict fields like default_args are deep-merged.
         register_globals: Dict to register DAGs in. If not provided,
             automatically uses the caller's globals().
         pattern: Glob pattern for YAML discovery (default: *.dag.yaml)
@@ -437,12 +389,7 @@ def build_all(
         # In dags/loader.py
         from blueprint import build_all
 
-        build_all(
-            dag_defaults={
-                "default_args": {"owner": "data-team", "retries": 2},
-                "tags": ["managed"],
-            }
-        )
+        build_all()
         ```
     """
     from blueprint.loaders import render_yaml_template
@@ -459,7 +406,7 @@ def build_all(
         bp_registry = BlueprintRegistry(template_dirs=[resolved_path], exclude_files=exclude)
         bp_registry.discover(force=True)
 
-    builder = Builder(bp_registry=bp_registry, dag_defaults=dag_defaults)
+    builder = Builder(bp_registry=bp_registry)
 
     logger.info("Discovering DAGs in %s (pattern: %s)", resolved_path, pattern)
 
@@ -486,7 +433,7 @@ def build_all(
 
         dag_config = DAGConfig.model_validate(raw_config)
         _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-        dag = builder.build(dag_config, raw_yaml=raw_config)
+        dag = builder.build(dag_config)
 
         dag_id_to_file[dag.dag_id] = yaml_path
         register_globals[dag.dag_id] = dag

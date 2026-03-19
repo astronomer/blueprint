@@ -3,7 +3,7 @@
 __version__ = "0.1.1"
 
 from .builder import Builder, DAGConfig, StepConfig, build_all
-from .core import Blueprint, TaskOrGroup
+from .core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup
 from .errors import (
     BlueprintError,
     BlueprintNotFoundError,
@@ -13,6 +13,7 @@ from .errors import (
     DuplicateDAGIdError,
     InvalidDependencyError,
     InvalidVersionError,
+    MultipleDagArgsError,
     YAMLParseError,
 )
 from .errors import (
@@ -43,6 +44,7 @@ __all__ = [
     "Any",
     "BaseModel",
     "Blueprint",
+    "BlueprintDagArgs",
     "BlueprintError",
     "BlueprintNotFoundError",
     "BlueprintRegistry",
@@ -52,6 +54,7 @@ __all__ = [
     "ConfigurationError",
     "CyclicDependencyError",
     "DAGConfig",
+    "DefaultDagArgs",
     "Dict",
     "DuplicateBlueprintError",
     "DuplicateDAGIdError",
@@ -59,6 +62,7 @@ __all__ = [
     "InvalidDependencyError",
     "InvalidVersionError",
     "List",
+    "MultipleDagArgsError",
     "Optional",
     "StepConfig",
     "TaskOrGroup",

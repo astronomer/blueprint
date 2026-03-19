@@ -1,5 +1,5 @@
 dag_id: simple_pipeline
-tags: [integration-test]
+team: data-eng
 steps:
   process:
     blueprint: transform
