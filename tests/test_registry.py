@@ -4,7 +4,12 @@ import pytest
 from pydantic import BaseModel
 
 from blueprint.core import Blueprint, DefaultDagArgs
-from blueprint.errors import BlueprintNotFoundError, InvalidVersionError, MultipleDagArgsError
+from blueprint.errors import (
+    BlueprintNotFoundError,
+    InvalidVersionError,
+    MultipleDagArgsError,
+    NonContiguousVersionError,
+)
 from blueprint.registry import BlueprintRegistry
 
 
@@ -279,6 +284,150 @@ class Dup(Blueprint[DupConfig2]):
 
         with pytest.raises(BlueprintNotFoundError):
             reg.get_all_versions_info("nonexistent")
+
+    def test_discover_explicit_name_blueprint(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "custom.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class MyConfig(BaseModel):
+    x: int = 1
+
+class MyCustomExtractor(Blueprint[MyConfig]):
+    name = "extract"
+    version = 1
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        cls = reg.get("extract")
+        assert cls.__name__ == "MyCustomExtractor"
+
+    def test_explicit_name_duplicate_detection(self, tmp_path):
+        from blueprint.errors import DuplicateBlueprintError
+
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "aaa_first.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class Cfg1(BaseModel):
+    x: int = 1
+
+class Extract(Blueprint[Cfg1]):
+    def render(self, config):
+        pass
+""")
+
+        (template_dir / "zzz_second.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class Cfg2(BaseModel):
+    y: str = "hi"
+
+class CustomExtractor(Blueprint[Cfg2]):
+    name = "extract"
+    version = 1
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        with pytest.raises(DuplicateBlueprintError, match="extract"):
+            reg.discover(force=True)
+
+    def test_non_contiguous_versions_raises(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "blueprints.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class Cfg1(BaseModel):
+    x: int = 1
+
+class Extract(Blueprint[Cfg1]):
+    def render(self, config):
+        pass
+
+class Cfg3(BaseModel):
+    z: str = "hi"
+
+class ExtractV3(Blueprint[Cfg3]):
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        with pytest.raises(NonContiguousVersionError, match="Missing versions: 2"):
+            reg.discover(force=True)
+
+    def test_versions_not_starting_at_one_raises(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "blueprints.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class Cfg(BaseModel):
+    x: int = 1
+
+class MyExtractor(Blueprint[Cfg]):
+    name = "extract"
+    version = 2
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        with pytest.raises(NonContiguousVersionError, match="extract"):
+            reg.discover(force=True)
+
+    def test_get_all_versions_info_explicit_name(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "blueprints.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class Cfg1(BaseModel):
+    x: int = 1
+
+class MyExtractorV1(Blueprint[Cfg1]):
+    name = "extract"
+    version = 1
+    def render(self, config):
+        pass
+
+class Cfg2(BaseModel):
+    y: str = "hi"
+
+class MyExtractorV2(Blueprint[Cfg2]):
+    name = "extract"
+    version = 2
+    def render(self, config):
+        pass
+""")
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        versions = reg.get_all_versions_info("extract")
+        assert len(versions) == 2
+        assert versions[0]["base_name"] == "MyExtractorV1"
+        assert versions[1]["base_name"] == "MyExtractorV2"
 
 
 class TestDagArgsDiscovery:

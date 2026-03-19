@@ -164,6 +164,110 @@ class TestParseNameAndVersion:
         assert name == "my_complex_blueprint"
         assert version == 1
 
+    def test_explicit_name_and_version(self):
+        class MyCustomExtractor(Blueprint[SimpleConfig]):
+            name = "extract"
+            version = 3
+
+            def render(self, config):
+                pass
+
+        name, version = MyCustomExtractor.parse_name_and_version()
+        assert name == "extract"
+        assert version == 3
+
+    def test_explicit_name_only(self):
+        class MyCustomExtractor(Blueprint[SimpleConfig]):
+            name = "extract"
+
+            def render(self, config):
+                pass
+
+        name, version = MyCustomExtractor.parse_name_and_version()
+        assert name == "extract"
+        assert version == 1
+
+    def test_explicit_version_only(self):
+        class MyExtract(Blueprint[SimpleConfig]):
+            version = 5
+
+            def render(self, config):
+                pass
+
+        name, version = MyExtract.parse_name_and_version()
+        assert name == "my_extract"
+        assert version == 5
+
+    def test_explicit_name_on_versioned_class(self):
+        class FooV3(Blueprint[SimpleConfig]):
+            name = "bar"
+
+            def render(self, config):
+                pass
+
+        name, version = FooV3.parse_name_and_version()
+        assert name == "bar"
+        assert version == 3
+
+    def test_explicit_overrides_not_inherited(self):
+        class Parent(Blueprint[SimpleConfig]):
+            name = "parent"
+            version = 2
+
+            def render(self, config):
+                pass
+
+        class Child(Parent):
+            pass
+
+        name, version = Child.parse_name_and_version()
+        assert name == "child"
+        assert version == 1
+
+    def test_invalid_name_not_snake_case(self):
+        with pytest.raises(ValueError, match="snake_case"):
+
+            class Bad(Blueprint[SimpleConfig]):
+                name = "MyExtract"
+
+                def render(self, config):
+                    pass
+
+            Bad.parse_name_and_version()
+
+    def test_invalid_name_empty_string(self):
+        with pytest.raises(ValueError, match="non-empty string"):
+
+            class Bad(Blueprint[SimpleConfig]):
+                name = ""
+
+                def render(self, config):
+                    pass
+
+            Bad.parse_name_and_version()
+
+    def test_invalid_version_zero(self):
+        with pytest.raises(ValueError, match="integer >= 1"):
+
+            class Bad(Blueprint[SimpleConfig]):
+                version = 0
+
+                def render(self, config):
+                    pass
+
+            Bad.parse_name_and_version()
+
+    def test_invalid_version_negative(self):
+        with pytest.raises(ValueError, match="integer >= 1"):
+
+            class Bad(Blueprint[SimpleConfig]):
+                version = -1
+
+                def render(self, config):
+                    pass
+
+            Bad.parse_name_and_version()
+
 
 class TestYamlTypeValidation:
     """Test that Blueprint config models are validated for YAML-compatible types."""

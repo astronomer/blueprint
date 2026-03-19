@@ -304,6 +304,27 @@ class InvalidVersionError(BlueprintError):
         super().__init__(message)
 
 
+class NonContiguousVersionError(BlueprintError):
+    """Error when a blueprint's versions don't form a contiguous 1..N sequence."""
+
+    def __init__(self, blueprint_name: str, found_versions: list[int]):
+        self.blueprint_name = blueprint_name
+        self.found_versions = sorted(found_versions)
+
+        expected = set(range(1, max(self.found_versions) + 1))
+        missing = sorted(expected - set(self.found_versions))
+
+        versions_str = ", ".join(str(v) for v in self.found_versions)
+        missing_str = ", ".join(str(v) for v in missing)
+
+        message = (
+            f"Blueprint '{blueprint_name}' has non-contiguous versions: [{versions_str}]"
+            f"\n  Missing versions: {missing_str}"
+            f"\n  Versions must form a strict sequence from 1 to N"
+        )
+        super().__init__(message)
+
+
 def suggest_valid_values(invalid_value: str, valid_values: list[str], field_name: str) -> list[str]:
     """Generate suggestions for invalid values.
 

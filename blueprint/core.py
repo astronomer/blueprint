@@ -163,6 +163,8 @@ class Blueprint(Generic[T]):
 
     _config_type: type[BaseModel]
     step_id: str
+    name: str | None = None
+    version: int | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Extract config type from Generic[T] parameter when subclass is defined."""
@@ -247,25 +249,61 @@ class Blueprint(Generic[T]):
 
     @classmethod
     def parse_name_and_version(cls) -> tuple[str, int]:
-        """Extract blueprint name and version from the class name.
+        """Extract blueprint name and version.
+
+        Checks for explicit ``name`` and ``version`` class attributes first,
+        then falls back to inferring from the class name:
 
         - 'Extract' -> ('extract', 1)
         - 'ExtractV2' -> ('extract', 2)
         - 'MultiSourceETLV3' -> ('multi_source_etl', 3)
-        """
-        class_name = cls.__name__
 
+        Explicit attributes can be set on the class body:
+
+        - class MyExtractor(Blueprint[Cfg]):
+              name = "extract"
+              version = 3
+        """
+        explicit_name = cls.__dict__.get("name")
+        explicit_version = cls.__dict__.get("version")
+
+        if explicit_name is not None:
+            if not isinstance(explicit_name, str) or not explicit_name:
+                msg = f"{cls.__name__}: 'name' must be a non-empty string, got {explicit_name!r}"
+                raise ValueError(msg)
+            if not re.match(r"^[a-z][a-z0-9_]*$", explicit_name):
+                msg = (
+                    f"{cls.__name__}: 'name' must be snake_case "
+                    f"(matching ^[a-z][a-z0-9_]*$), got {explicit_name!r}"
+                )
+                raise ValueError(msg)
+
+        if explicit_version is not None and (
+            not isinstance(explicit_version, int) or explicit_version < 1
+        ):
+            msg = f"{cls.__name__}: 'version' must be an integer >= 1, got {explicit_version!r}"
+            raise ValueError(msg)
+
+        if explicit_name is not None and explicit_version is not None:
+            return explicit_name, explicit_version
+
+        class_name = cls.__name__
         version_match = re.match(r"^(.+?)V(\d+)$", class_name)
         if version_match:
             base_name = version_match.group(1)
-            version = int(version_match.group(2))
+            inferred_version = int(version_match.group(2))
         else:
             base_name = class_name
-            version = 1
+            inferred_version = 1
 
         snake_name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", base_name)
         snake_name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", snake_name)
-        return snake_name.lower(), version
+        inferred_name = snake_name.lower()
+
+        return (
+            explicit_name if explicit_name is not None else inferred_name,
+            explicit_version if explicit_version is not None else inferred_version,
+        )
 
 
 class BlueprintDagArgs(Generic[T]):

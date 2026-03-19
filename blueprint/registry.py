@@ -14,6 +14,7 @@ from blueprint.errors import (
     DuplicateBlueprintError,
     InvalidVersionError,
     MultipleDagArgsError,
+    NonContiguousVersionError,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ class BlueprintRegistry:
         finally:
             self._discovery_in_progress = False
 
+        self._validate_version_sequences()
         self._discovered = True
 
     def _discover_in_directory(self, directory: Path) -> None:
@@ -174,6 +176,14 @@ class BlueprintRegistry:
         """
         self.discover()
         return self._dag_args or DefaultDagArgs
+
+    def _validate_version_sequences(self) -> None:
+        """Validate that each blueprint's versions form a contiguous 1..N sequence."""
+        for bp_name, versions in self._blueprints.items():
+            version_nums = sorted(versions.keys())
+            expected = list(range(1, len(version_nums) + 1))
+            if version_nums != expected:
+                raise NonContiguousVersionError(bp_name, version_nums)
 
     def get(self, name: str, version: int | None = None) -> type[Blueprint]:
         """Get a blueprint by name and optional version.
@@ -303,12 +313,12 @@ class BlueprintRegistry:
         result = []
         for version in sorted(self._blueprints[name]):
             cls = self._blueprints[name][version]
-            bp_name, _ = cls.parse_name_and_version()
 
             base_class_name = cls.__name__
-            version_match = re.match(r"^(.+?)V\d+$", base_class_name)
-            if version_match:
-                base_class_name = version_match.group(1)
+            if "name" not in cls.__dict__:
+                version_match = re.match(r"^(.+?)V\d+$", base_class_name)
+                if version_match:
+                    base_class_name = version_match.group(1)
 
             result.append(
                 {

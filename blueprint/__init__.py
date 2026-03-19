@@ -14,6 +14,7 @@ from .errors import (
     InvalidDependencyError,
     InvalidVersionError,
     MultipleDagArgsError,
+    NonContiguousVersionError,
     YAMLParseError,
 )
 from .errors import (
@@ -63,6 +64,7 @@ __all__ = [
     "InvalidVersionError",
     "List",
     "MultipleDagArgsError",
+    "NonContiguousVersionError",
     "Optional",
     "StepConfig",
     "TaskOrGroup",
