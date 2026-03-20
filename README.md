@@ -280,6 +280,25 @@ config = DAGConfig(
 dag = Builder().build(config)
 ```
 
+## Post-Processing DAGs
+
+The `on_dag_built` callback lets you modify each DAG after it's built from YAML. It receives the DAG and the path to the source YAML file:
+
+```python
+# dags/loader.py
+from pathlib import Path
+from airflow import DAG
+from blueprint import build_all
+
+def post_process(dag: DAG, yaml_path: Path) -> None:
+    dag.tags = [*(dag.tags or []), "managed-by-blueprint"]
+    dag.access_control = {"data-team": {"can_read", "can_edit"}}
+
+build_all(on_dag_built=post_process)
+```
+
+This is useful for applying cross-cutting concerns like access controls, tags, or custom metadata that shouldn't live in individual YAML files. The callback runs once per DAG, after all steps are wired up.
+
 ## Type Safety and Validation
 
 Blueprint uses Pydantic for robust validation:
