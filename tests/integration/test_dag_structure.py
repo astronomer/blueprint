@@ -307,3 +307,19 @@ class TestDagArgsDefaults:
                     f"{dag_id}/{task['task_id']} owner={task.get('owner')!r}, "
                     f"expected {expected_owner!r}"
                 )
+
+
+class TestOnDagBuiltCallback:
+    """Verify that the on_dag_built callback in the loader post-processed every DAG.
+
+    The loader appends a "callback-verified" tag to each DAG via on_dag_built.
+    """
+
+    @pytest.mark.parametrize("dag_id", EXPECTED_DAG_IDS)
+    def test_callback_tag_present(self, api_client: AirflowAPI, dag_id: str):
+        resp = api_client.get(f"/dags/{dag_id}")
+        assert resp.status_code == 200
+        tags = api_client.get_tags(resp.json())
+        assert "callback-verified" in tags, (
+            f"DAG '{dag_id}' missing 'callback-verified' tag — on_dag_built callback did not run"
+        )

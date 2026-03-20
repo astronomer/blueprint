@@ -769,3 +769,96 @@ class Stub(Blueprint[StubConfig]):
                 register_globals=globals_dict,
                 render_templates=False,
             )
+
+
+class TestOnDagBuilt:
+    def test_build_all_on_dag_built_called(self, tmp_path):
+        from blueprint.builder import build_all
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
+
+        yaml_file = tmp_path / "test.dag.yaml"
+        yaml_file.write_text("dag_id: cb_test\nsteps:\n  s1:\n    blueprint: stub\n")
+
+        calls = []
+
+        def callback(dag, yaml_path):
+            calls.append((dag.dag_id, yaml_path))
+
+        globals_dict = {}
+        build_all(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+            on_dag_built=callback,
+        )
+        assert len(calls) == 1
+        assert calls[0][0] == "cb_test"
+        assert calls[0][1] == yaml_file
+
+    def test_build_all_on_dag_built_mutates_dag(self, tmp_path):
+        from blueprint.builder import build_all
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
+
+        yaml_file = tmp_path / "test.dag.yaml"
+        yaml_file.write_text("dag_id: mutate_test\nsteps:\n  s1:\n    blueprint: stub\n")
+
+        def add_tag(dag, _yaml_path):
+            dag.tags = [*(dag.tags or []), "post-processed"]
+
+        globals_dict = {}
+        dags = build_all(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+            on_dag_built=add_tag,
+        )
+        assert "post-processed" in dags[0].tags
+
+    def test_build_from_yaml_on_dag_built_called(self, tmp_path, test_registry):
+        yaml_content = """
+dag_id: yaml_cb_dag
+steps:
+  my_load:
+    blueprint: load
+    target_table: out
+"""
+        yaml_file = tmp_path / "test.dag.yaml"
+        yaml_file.write_text(yaml_content)
+
+        calls = []
+
+        def callback(dag, yaml_path):
+            calls.append((dag.dag_id, yaml_path))
+
+        cb_builder = Builder(bp_registry=test_registry, on_dag_built=callback)
+        dag = cb_builder.build_from_yaml(yaml_file, render_template=False)
+        assert dag.dag_id == "yaml_cb_dag"
+        assert len(calls) == 1
+        assert calls[0][0] == "yaml_cb_dag"
+        assert calls[0][1] == yaml_file

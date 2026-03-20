@@ -3,6 +3,7 @@
 import inspect
 import logging
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from airflow import DAG
 
 logger = logging.getLogger(__name__)
+
+OnDagBuilt = Callable[["DAG", Path], None]
 
 DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
@@ -73,8 +76,10 @@ class Builder:
     def __init__(
         self,
         bp_registry: BlueprintRegistry | None = None,
+        on_dag_built: OnDagBuilt | None = None,
     ) -> None:
         self._registry = bp_registry or registry
+        self._on_dag_built = on_dag_built
 
     def build(self, config: DAGConfig) -> "DAG":
         """Build a DAG from a DAGConfig.
@@ -157,7 +162,12 @@ class Builder:
             raw_config = yaml.safe_load(raw_content)
 
         dag_config = DAGConfig.model_validate(raw_config)
-        return self.build(dag_config)
+        dag = self.build(dag_config)
+
+        if self._on_dag_built:
+            self._on_dag_built(dag, yaml_path)
+
+        return dag
 
     def validate_dependencies(self, config: DAGConfig) -> None:
         """Validate that all dependency references exist and detect cycles."""
@@ -364,6 +374,7 @@ def build_all(
     render_templates: bool = True,
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
+    on_dag_built: OnDagBuilt | None = None,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -380,6 +391,9 @@ def build_all(
         template_context: Additional context variables for template rendering
         bp_registry: Custom BlueprintRegistry to use. If not provided,
             auto-discovers blueprints from the search path.
+        on_dag_built: Optional callback invoked after each DAG is built.
+            Receives the DAG and the Path to the source YAML file.
+            Use this to apply post-processing such as access controls or tags.
 
     Returns:
         List of built DAGs
@@ -434,6 +448,9 @@ def build_all(
         dag_config = DAGConfig.model_validate(raw_config)
         _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
         dag = builder.build(dag_config)
+
+        if on_dag_built:
+            on_dag_built(dag, yaml_path)
 
         dag_id_to_file[dag.dag_id] = yaml_path
         register_globals[dag.dag_id] = dag

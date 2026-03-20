@@ -2,7 +2,7 @@
 
 __version__ = "0.1.1"
 
-from .builder import Builder, DAGConfig, StepConfig, build_all
+from .builder import Builder, DAGConfig, OnDagBuilt, StepConfig, build_all
 from .core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup
 from .errors import (
     BlueprintError,
@@ -65,6 +65,7 @@ __all__ = [
     "List",
     "MultipleDagArgsError",
     "NonContiguousVersionError",
+    "OnDagBuilt",
     "Optional",
     "StepConfig",
     "TaskOrGroup",
