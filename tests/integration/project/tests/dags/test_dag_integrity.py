@@ -44,7 +44,13 @@ def get_dags():
     return [(k, v, strip_path_prefix(v.fileloc)) for k, v in dag_bag.dags.items()]
 
 
-EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test", "explicit_naming"}
+EXPECTED_DAG_IDS = {
+    "simple_pipeline",
+    "versioned_etl",
+    "dag_args_test",
+    "explicit_naming",
+    "params_test",
+}
 
 
 @pytest.mark.parametrize(

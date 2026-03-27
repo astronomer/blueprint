@@ -165,6 +165,7 @@ class Blueprint(Generic[T]):
     step_id: str
     name: str | None = None
     version: int | None = None
+    supports_params: bool = False
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Extract config type from Generic[T] parameter when subclass is defined."""
@@ -196,6 +197,54 @@ class Blueprint(Generic[T]):
         """
         msg = f"{self.__class__.__name__} must implement the render() method"
         raise NotImplementedError(msg)
+
+    def param(self, field: str) -> str:
+        """Return a Jinja2 template string for a runtime-overridable config field.
+
+        Use in operator template fields (e.g. ``bash_command``, ``configuration``)
+        so Airflow renders the value at execution time from DAG params.
+
+        Args:
+            field: Name of a field on this blueprint's config model.
+
+        Returns:
+            A Jinja2 template string like ``{{ params.step__field }}``.
+
+        Raises:
+            ValueError: If the field does not exist on the config model.
+        """
+        config_type = self.get_config_type()
+        if field not in config_type.model_fields:
+            msg = (
+                f"Unknown field '{field}' for {config_type.__name__}. "
+                f"Available: {sorted(config_type.model_fields)}"
+            )
+            raise ValueError(msg)
+        return "{{ params." + self.step_id + "__" + field + " }}"
+
+    def resolve_config(self, config: T, context: dict[str, Any]) -> T:
+        """Merge runtime params into config, returning a new validated instance.
+
+        Use inside ``@task`` or ``PythonOperator`` callables to get config with
+        runtime parameter overrides applied. The merged dict is re-validated
+        through Pydantic, so invalid overrides raise ``ValidationError``.
+
+        Args:
+            config: The original validated config from render().
+            context: The Airflow task execution context (``**context``).
+
+        Returns:
+            A new config instance with param overrides applied.
+        """
+        config_dict = config.model_dump()
+        params = context.get("params", {})
+        prefix = self.step_id + "__"
+        for key, value in params.items():
+            if key.startswith(prefix):
+                field_name = key[len(prefix) :]
+                if field_name in config_dict:
+                    config_dict[field_name] = value
+        return type(config).model_validate(config_dict)
 
     @classmethod
     def _validate_yaml_compatible_fields(cls) -> None:

@@ -1,12 +1,13 @@
 """Tests for the DAG builder: DAGConfig, StepConfig, Builder, build_all."""
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from blueprint.builder import Builder, DAGConfig, StepConfig
+from blueprint.builder import Builder, DAGConfig, StepConfig, _config_to_params
 from blueprint.core import Blueprint, TaskOrGroup
 from blueprint.errors import (
     CyclicDependencyError,
@@ -525,6 +526,36 @@ class TestBuilderCustomDagArgs:
         assert dag.catchup is False
 
 
+class TestDagArgsRejectsParams:
+    def test_dag_args_returning_params_raises(self):
+        from typing import Any
+
+        from blueprint.core import BlueprintDagArgs
+        from blueprint.errors import ConfigurationError
+
+        class ParamsConfig(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        class ParamsDagArgs(BlueprintDagArgs[ParamsConfig]):
+            def render(self, config: ParamsConfig) -> dict[str, Any]:  # noqa: ARG002
+                return {"params": {"custom_param": "value"}}
+
+        reg = BlueprintRegistry()
+        reg._blueprints = {"load": {1: Load}}
+        reg._blueprint_locations = {"load": {1: "test.py"}}
+        reg._dag_args = ParamsDagArgs
+        reg._dag_args_location = "test.py"
+        reg._discovered = True
+
+        builder = Builder(bp_registry=reg)
+        config = DAGConfig(
+            dag_id="bad_params_dag",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        with pytest.raises(ConfigurationError, match="must not return 'params'"):
+            builder.build(config)
+
+
 class TestBuildFromYaml:
     def test_build_from_yaml_file(self, builder, tmp_path):
         yaml_content = """
@@ -862,3 +893,238 @@ steps:
         assert len(calls) == 1
         assert calls[0][0] == "yaml_cb_dag"
         assert calls[0][1] == yaml_file
+
+
+# --- Param-related test blueprints ---
+
+
+class ParamBlueprintConfig(BaseModel):
+    message: str = Field(description="Greeting message")
+    count: int = Field(default=1, ge=1)
+    mode: Literal["fast", "slow"] = "fast"
+
+
+class ParamBlueprint(Blueprint[ParamBlueprintConfig]):
+    supports_params = True
+
+    def render(self, config: ParamBlueprintConfig) -> TaskOrGroup:  # noqa: ARG002
+        from airflow.operators.bash import BashOperator
+
+        return BashOperator(
+            task_id=self.step_id,
+            bash_command=f"echo '{self.param('message')}' mode={self.param('mode')}",
+        )
+
+
+@pytest.fixture
+def param_registry():
+    reg = BlueprintRegistry()
+    reg._blueprints = {
+        "extract": {1: Extract},
+        "param_bp": {1: ParamBlueprint},
+    }
+    reg._blueprint_locations = {
+        "extract": {1: "test.py"},
+        "param_bp": {1: "test.py"},
+    }
+    reg._discovered = True
+    return reg
+
+
+@pytest.fixture
+def param_builder(param_registry):
+    return Builder(bp_registry=param_registry)
+
+
+# --- _config_to_params tests ---
+
+
+class TestConfigToParams:
+    def test_basic_scalar_fields(self):
+        params = _config_to_params(
+            ParamBlueprintConfig,
+            {"message": "hello", "count": 5, "mode": "fast"},
+            "greet",
+        )
+        assert "greet__message" in params
+        assert "greet__count" in params
+        assert "greet__mode" in params
+
+        assert params["greet__message"].value == "hello"
+        assert params["greet__count"].value == 5
+
+    def test_literal_to_enum(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi", "mode": "fast"}, "step")
+        mode_schema = params["step__mode"].schema
+        assert "enum" in mode_schema
+        assert set(mode_schema["enum"]) == {"fast", "slow"}
+
+    def test_field_descriptions(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi"}, "step")
+        assert params["step__message"].description == "Greeting message"
+
+    def test_yaml_values_override_model_defaults(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi", "count": 99}, "step")
+        assert params["step__count"].value == 99
+
+    def test_model_default_used_when_no_yaml_value(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi"}, "step")
+        assert params["step__count"].value == 1
+
+    def test_namespacing(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi"}, "my_step")
+        assert all(k.startswith("my_step__") for k in params)
+
+    def test_section_set(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi"}, "greet")
+        for p in params.values():
+            assert p.schema.get("section") == "greet"
+
+    def test_field_constraints(self):
+        params = _config_to_params(ParamBlueprintConfig, {"message": "hi", "count": 1}, "step")
+        count_schema = params["step__count"].schema
+        assert count_schema.get("minimum") == 1
+
+
+# --- Builder params integration tests ---
+
+
+class TestBuilderParams:
+    def test_dag_has_params(self, param_builder):
+        from airflow import DAG
+
+        config = DAGConfig.model_validate(
+            {
+                "dag_id": "params_dag",
+                "steps": {
+                    "greet": {
+                        "blueprint": "param_bp",
+                        "message": "hello",
+                        "count": 3,
+                    }
+                },
+            }
+        )
+        dag = param_builder.build(config)
+        assert isinstance(dag, DAG)
+        assert "greet__message" in dag.params
+        assert "greet__count" in dag.params
+        assert "greet__mode" in dag.params
+
+    def test_multiple_steps_params(self, param_builder):
+        config = DAGConfig.model_validate(
+            {
+                "dag_id": "multi_params",
+                "steps": {
+                    "greet1": {
+                        "blueprint": "param_bp",
+                        "message": "hello",
+                    },
+                    "greet2": {
+                        "blueprint": "param_bp",
+                        "message": "world",
+                    },
+                },
+            }
+        )
+        dag = param_builder.build(config)
+        assert "greet1__message" in dag.params
+        assert "greet2__message" in dag.params
+
+    def test_param_defaults_from_yaml(self, param_builder):
+        config = DAGConfig.model_validate(
+            {
+                "dag_id": "yaml_defaults",
+                "steps": {
+                    "greet": {
+                        "blueprint": "param_bp",
+                        "message": "from-yaml",
+                        "count": 42,
+                    }
+                },
+            }
+        )
+        dag = param_builder.build(config)
+        assert dag.params["greet__message"] == "from-yaml"
+        assert dag.params["greet__count"] == 42
+
+    def test_no_params_for_unsupported_blueprint(self, param_builder):
+        config = DAGConfig.model_validate(
+            {
+                "dag_id": "mixed_dag",
+                "steps": {
+                    "e": {
+                        "blueprint": "extract",
+                        "source_table": "raw.data",
+                    },
+                    "greet": {
+                        "blueprint": "param_bp",
+                        "message": "hello",
+                    },
+                },
+            }
+        )
+        dag = param_builder.build(config)
+        assert "greet__message" in dag.params
+        assert "e__source_table" not in dag.params
+        assert "e__batch_size" not in dag.params
+
+
+# --- Blueprint.param() tests ---
+
+
+class TestBlueprintParam:
+    def test_param_returns_template_string(self):
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        assert bp.param("message") == "{{ params.greet__message }}"
+        assert bp.param("count") == "{{ params.greet__count }}"
+
+    def test_param_invalid_field_raises(self):
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        with pytest.raises(ValueError, match="Unknown field 'nonexistent'"):
+            bp.param("nonexistent")
+
+
+# --- Blueprint.resolve_config() tests ---
+
+
+class TestResolveConfig:
+    def test_resolve_with_overrides(self):
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        config = ParamBlueprintConfig(message="default", count=1, mode="fast")
+        context = {"params": {"greet__message": "overridden", "greet__count": 5}}
+        resolved = bp.resolve_config(config, context)
+        assert resolved.message == "overridden"
+        assert resolved.count == 5
+        assert resolved.mode == "fast"
+
+    def test_resolve_without_overrides(self):
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        config = ParamBlueprintConfig(message="original", count=3, mode="slow")
+        context = {"params": {}}
+        resolved = bp.resolve_config(config, context)
+        assert resolved.message == "original"
+        assert resolved.count == 3
+        assert resolved.mode == "slow"
+
+    def test_resolve_ignores_other_step_params(self):
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        config = ParamBlueprintConfig(message="mine", count=1, mode="fast")
+        context = {"params": {"other__message": "not mine"}}
+        resolved = bp.resolve_config(config, context)
+        assert resolved.message == "mine"
+
+    def test_resolve_validates(self):
+        from pydantic import ValidationError
+
+        bp = ParamBlueprint()
+        bp.step_id = "greet"
+        config = ParamBlueprintConfig(message="ok", count=1, mode="fast")
+        context = {"params": {"greet__count": -1}}
+        with pytest.raises(ValidationError):
+            bp.resolve_config(config, context)

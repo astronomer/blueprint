@@ -26,11 +26,18 @@ def _unpause_dag(api_client: AirflowAPI, dag_id: str) -> None:
     assert resp.status_code == 200, f"Failed to unpause {dag_id}: {resp.text}"
 
 
-def _trigger_dag(api_client: AirflowAPI, dag_id: str) -> str:
+def _trigger_dag(
+    api_client: AirflowAPI,
+    dag_id: str,
+    conf: dict | None = None,
+) -> str:
     logical_date = datetime.now(tz=timezone.utc).isoformat()
+    body: dict = {"logical_date": logical_date}
+    if conf is not None:
+        body["conf"] = conf
     resp = api_client.post(
         f"/dags/{dag_id}/dagRuns",
-        json={"logical_date": logical_date},
+        json=body,
     )
     assert resp.status_code in {200, 201}, f"Failed to trigger {dag_id}: {resp.text}"
     return resp.json()["dag_run_id"]
@@ -119,6 +126,45 @@ class TestExplicitNamingExecution:
         run_id = _trigger_dag(api_client, dag_id)
         result = _wait_for_dag_run(api_client, dag_id, run_id)
         assert result["state"] == "success"
+
+        resp = api_client.get(f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances")
+        assert resp.status_code == 200
+        task_instances = resp.json().get("task_instances", [])
+        failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
+        assert not failed, f"Tasks did not succeed: {failed}"
+
+
+class TestParamsExecution:
+    """Execute the params_test DAG with default and overridden params.
+
+    Validates both param access patterns end-to-end:
+    - Template access (BashOperator with {{ params.x }})
+    - Variable access (resolve_config inside @task)
+    """
+
+    def test_default_params_execution(self, api_client: AirflowAPI):
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(api_client, dag_id)
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
+
+        resp = api_client.get(f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances")
+        assert resp.status_code == 200
+        task_instances = resp.json().get("task_instances", [])
+        failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
+        assert not failed, f"Tasks did not succeed: {failed}"
+
+    def test_overridden_params_execution(self, api_client: AirflowAPI):
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(
+            api_client,
+            dag_id,
+            conf={"greet__message": "overridden-hello", "greet__repeat": 3},
+        )
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
 
         resp = api_client.get(f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances")
         assert resp.status_code == 200
