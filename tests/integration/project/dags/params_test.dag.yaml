@@ -1,0 +1,8 @@
+dag_id: params_test
+team: platform
+
+steps:
+  greet:
+    blueprint: greet
+    message: default-hello
+    repeat: 2

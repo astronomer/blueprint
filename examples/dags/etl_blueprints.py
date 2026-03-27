@@ -4,13 +4,14 @@ Demonstrates:
 - Single-task blueprints (Load)
 - Multi-task blueprints (Extract, Transform)
 - Versioning with breaking changes (Extract v1 -> ExtractV2)
+- Runtime params via self.param() and self.resolve_config() (Load)
 """
 
+from airflow.decorators import task
 from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
 
 from blueprint import BaseModel, Blueprint, Field
-
 
 # --- Extract v1: single source table as a string ---
 
@@ -32,8 +33,7 @@ class Extract(Blueprint[ExtractConfig]):
             BashOperator(
                 task_id="extract",
                 bash_command=(
-                    f"echo 'Extracting {config.source_table} "
-                    f"batch_size={config.batch_size}'"
+                    f"echo 'Extracting {config.source_table} batch_size={config.batch_size}'"
                 ),
             )
         return group
@@ -88,19 +88,40 @@ class Transform(Blueprint[TransformConfig]):
         return group
 
 
-# --- Load (single-task blueprint, no versioning) ---
+# --- Load (runtime params demo, no versioning) ---
+#
+# Demonstrates both param access patterns:
+#   - Template access: self.param() in operator template fields
+#   - Variable access: self.resolve_config() inside @task
 
 
 class LoadConfig(BaseModel):
-    target_table: str
+    target_table: str = Field(description="Destination table")
     mode: str = Field(default="append", pattern="^(append|overwrite)$")
 
 
 class Load(Blueprint[LoadConfig]):
-    """Load data to target table."""
+    """Load data to target table.
 
-    def render(self, config: LoadConfig) -> BashOperator:
-        return BashOperator(
-            task_id=self.step_id,
-            bash_command=f"echo 'Loading to {config.target_table} ({config.mode})'",
-        )
+    Config fields are automatically registered as Airflow params, so they
+    can be overridden via the trigger form or ``dag_run.conf``.
+    """
+
+    supports_params = True
+
+    def render(self, config: LoadConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            run_load = BashOperator(
+                task_id="run_load",
+                bash_command=(
+                    f"echo 'Loading to {self.param('target_table')} mode={self.param('mode')}'"
+                ),
+            )
+
+            @task(task_id="verify_load")
+            def verify_load(**context):
+                cfg = self.resolve_config(config, context)
+                print(f"Verifying {cfg.target_table} ({cfg.mode})")
+
+            run_load >> verify_load()
+        return group

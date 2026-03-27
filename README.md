@@ -247,6 +247,60 @@ Every task instance gets two extra fields visible in Airflow's "Rendered Templat
 
 This makes it easy to understand what generated each task instance without leaving the Airflow UI.
 
+## Runtime Parameter Overrides
+
+Blueprints that set `supports_params = True` have their config fields registered as Airflow [DAG params](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/params.html), namespaced as `{step}__{field}`. When you trigger a DAG from the Airflow UI, the trigger form shows those fields pre-filled with YAML defaults — users can override any value before running.
+
+Only blueprints that use `self.param()` or `self.resolve_config()` in their `render()` method should opt in — otherwise params would appear in the trigger form but have no effect.
+
+### Template access — `self.param()`
+
+Returns a Jinja2 template string for use in operator template fields (e.g. `bash_command`, `configuration`). Airflow renders the actual value at execution time.
+
+```python
+class Load(Blueprint[LoadConfig]):
+    supports_params = True
+
+    def render(self, config: LoadConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            BashOperator(
+                task_id="run_load",
+                bash_command=f"echo 'Loading to {self.param('target_table')} mode={self.param('mode')}'",
+            )
+        return group
+```
+
+### Variable access — `self.resolve_config()`
+
+Merges runtime params into the Pydantic config inside a `@task` or `PythonOperator` callable. Returns a new validated config instance.
+
+```python
+from airflow.decorators import task
+
+class Load(Blueprint[LoadConfig]):
+    supports_params = True
+
+    def render(self, config: LoadConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            @task(task_id="run_load")
+            def run_load(**context):
+                cfg = self.resolve_config(config, context)
+                print(f"Loading to {cfg.target_table} ({cfg.mode})")
+            run_load()
+        return group
+```
+
+Both patterns can be combined in the same blueprint. Use `self.param()` for operators with template fields (BigQuery, CloudSQL, Bash, etc.) and `self.resolve_config()` for Python logic in `@task` functions.
+
+### Triggering with overrides
+
+Override params via the Airflow UI trigger form, or via the API using `conf`:
+
+```bash
+curl -X POST /api/v2/dags/customer_pipeline/dagRuns \
+  -d '{"conf": {"load__target_table": "staging.customers", "load__mode": "append"}}'
+```
+
 ## Jinja2 Templating in YAML
 
 YAML files support Jinja2 templates with Airflow context:

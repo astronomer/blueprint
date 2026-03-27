@@ -26,7 +26,13 @@ HEALTH_CHECK_INTERVAL = 2
 DAG_PARSE_TIMEOUT = 60
 ASTRO_START_TIMEOUT = 600
 
-EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test", "explicit_naming"}
+EXPECTED_DAG_IDS = {
+    "simple_pipeline",
+    "versioned_etl",
+    "dag_args_test",
+    "explicit_naming",
+    "params_test",
+}
 
 
 # ---------------------------------------------------------------------------

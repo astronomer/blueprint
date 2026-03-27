@@ -7,6 +7,7 @@ and a custom BlueprintDagArgs template for DAG-level arguments.
 from datetime import timedelta
 from typing import Any, Literal
 
+from airflow.decorators import task
 from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
 from pydantic import ConfigDict
@@ -176,3 +177,40 @@ class Load(Blueprint[LoadConfig]):
             task_id=self.step_id,
             bash_command=f"echo 'Loading to {config.target_table} ({config.mode})'",
         )
+
+
+# --- Greet (runtime params integration test) ---
+
+
+class GreetConfig(BaseModel):
+    message: str = Field(default="hello", description="Greeting message")
+    repeat: int = Field(default=1, ge=1, description="Times to repeat")
+
+
+class Greet(Blueprint[GreetConfig]):
+    """Integration test blueprint covering both param access patterns.
+
+    - Template access: self.param() in BashOperator template fields
+    - Variable access: self.resolve_config() inside @task
+    """
+
+    supports_params = True
+
+    def render(self, config: GreetConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            template_task = BashOperator(
+                task_id="template_greet",
+                bash_command=(
+                    f"echo 'message={self.param('message')}' "
+                    f"&& echo 'repeat={self.param('repeat')}'"
+                ),
+            )
+
+            @task(task_id="resolved_greet")
+            def resolved_greet(**context):
+                cfg = self.resolve_config(config, context)
+                for i in range(cfg.repeat):
+                    print(f"Resolved: {cfg.message} ({i + 1}/{cfg.repeat})")
+
+            template_task >> resolved_greet()
+        return group

@@ -309,6 +309,48 @@ class TestDagArgsDefaults:
                 )
 
 
+class TestParamsTest:
+    """Verify that params_test DAG has runtime params correctly configured."""
+
+    def test_dag_loaded(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/params_test")
+        assert resp.status_code == 200
+
+    def test_dag_has_params(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/params_test/details")
+        assert resp.status_code == 200
+        data = resp.json()
+        params = data.get("params") or {}
+        assert "greet__message" in params, f"Missing greet__message in {list(params)}"
+        assert "greet__repeat" in params, f"Missing greet__repeat in {list(params)}"
+
+    def test_param_defaults(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/params_test/details")
+        data = resp.json()
+        params = data.get("params") or {}
+        msg_param = params["greet__message"]
+        repeat_param = params["greet__repeat"]
+        msg_value = msg_param.get("value") if isinstance(msg_param, dict) else msg_param
+        repeat_value = repeat_param.get("value") if isinstance(repeat_param, dict) else repeat_param
+        assert msg_value == "default-hello"
+        assert repeat_value == 2
+
+    def test_tags(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/params_test")
+        assert resp.status_code == 200
+        tags = api_client.get_tags(resp.json())
+        assert "team:platform" in tags
+        assert "standard" in tags
+        assert "callback-verified" in tags
+
+    def test_tasks(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/params_test/tasks")
+        assert resp.status_code == 200
+        task_ids = {t["task_id"] for t in resp.json()["tasks"]}
+        assert "greet.template_greet" in task_ids
+        assert "greet.resolved_greet" in task_ids
+
+
 class TestOnDagBuiltCallback:
     """Verify that the on_dag_built callback in the loader post-processed every DAG.
 

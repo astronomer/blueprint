@@ -29,6 +29,77 @@ OnDagBuilt = Callable[["DAG", Path], None]
 
 DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
+_PARAM_SCHEMA_KEYS = frozenset(
+    {
+        "type",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "items",
+        "minItems",
+        "maxItems",
+        "properties",
+        "required",
+        "additionalProperties",
+        "anyOf",
+    }
+)
+
+
+def _config_to_params(
+    config_type: type[BaseModel],
+    config_values: dict[str, Any],
+    step_name: str,
+) -> dict[str, Any]:
+    """Convert a Pydantic config model and YAML values to Airflow Param objects.
+
+    Generates one Param per config field, namespaced as ``{step_name}__{field}``.
+    YAML values are used as defaults; JSON Schema properties from the Pydantic
+    model drive type validation and Airflow trigger form rendering.
+
+    Args:
+        config_type: The Pydantic config model class.
+        config_values: The YAML-provided values for this step.
+        step_name: The step name used for param namespacing and UI sections.
+
+    Returns:
+        Dict mapping ``{step_name}__{field_name}`` to Airflow Param objects.
+    """
+    from airflow.models.param import Param
+
+    from blueprint.core import _resolve_refs
+
+    schema = _resolve_refs(config_type.model_json_schema())
+    properties = schema.get("properties", {})
+    params: dict[str, Any] = {}
+
+    for field_name, field_schema in properties.items():
+        default = config_values.get(field_name, field_schema.get("default"))
+
+        description = field_schema.get("description") or field_schema.get("title")
+
+        param_kwargs: dict[str, Any] = {}
+        for key in _PARAM_SCHEMA_KEYS:
+            if key in field_schema:
+                param_kwargs[key] = field_schema[key]
+
+        param_kwargs["section"] = step_name
+
+        param_key = f"{step_name}__{field_name}"
+        params[param_key] = Param(
+            default=default,
+            description=description,
+            **param_kwargs,
+        )
+
+    return params
+
 
 class StepConfig(BaseModel):
     """Configuration for a single step in a DAG."""
@@ -102,12 +173,17 @@ class Builder:
         instance = dag_args_cls()
         dag_kwargs = instance.render(validated_dag_args)
 
+        if "params" in dag_kwargs:
+            msg = (
+                "BlueprintDagArgs must not return 'params' — "
+                "DAG params are auto-generated from blueprint step configs"
+            )
+            raise ConfigurationError(msg)
+
         dag_kwargs["dag_id"] = config.dag_id
         if "start_date" not in dag_kwargs:
             dag_kwargs["start_date"] = DEFAULT_START_DATE
         elif isinstance(dag_kwargs["start_date"], str):
-            from blueprint.errors import ConfigurationError
-
             try:
                 parsed = datetime.fromisoformat(dag_kwargs["start_date"])
             except ValueError as e:
@@ -118,6 +194,16 @@ class Builder:
             dag_kwargs["start_date"] = parsed
         if "catchup" not in dag_kwargs:
             dag_kwargs["catchup"] = False
+
+        dag_params: dict[str, Any] = {}
+        for step_name, step_config in config.steps.items():
+            bp_class = self._registry.get(step_config.blueprint, step_config.version)
+            if not bp_class.supports_params:
+                continue
+            ct = bp_class.get_config_type()
+            dag_params.update(_config_to_params(ct, step_config.get_blueprint_config(), step_name))
+        if dag_params:
+            dag_kwargs["params"] = dag_params
 
         dag = DAG(**dag_kwargs)
 
