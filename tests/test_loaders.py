@@ -10,6 +10,7 @@ from blueprint.errors import (
     InvalidDependencyError,
 )
 from blueprint.loaders import (
+    _ContextProxy,
     discover_blueprints,
     get_blueprint_info,
     load_blueprint,
@@ -363,3 +364,75 @@ class Stub(Blueprint[StubConfig]):
 
         with pytest.raises(Exception, match="catchup"):
             validate_yaml(str(yaml_file), template_dir=str(template_dir))
+
+
+class TestContextProxy:
+    """Test the _ContextProxy for Airflow runtime template generation."""
+
+    def test_simple_attribute(self):
+        assert str(_ContextProxy().ds_nodash) == "{{ ds_nodash }}"
+
+    def test_chained_attribute(self):
+        assert str(_ContextProxy().ti.xcom_pull) == "{{ ti.xcom_pull }}"
+
+    def test_function_call(self):
+        assert str(_ContextProxy().ti.xcom_pull("extract")) == "{{ ti.xcom_pull('extract') }}"
+
+    def test_function_call_with_kwargs(self):
+        result = str(_ContextProxy().ti.xcom_pull("extract", key="result"))
+        assert result == "{{ ti.xcom_pull('extract', key='result') }}"
+
+    def test_item_access(self):
+        assert str(_ContextProxy().params["my_key"]) == "{{ params['my_key'] }}"
+
+    def test_repr(self):
+        assert repr(_ContextProxy().ds) == "_ContextProxy('ds')"
+
+    def test_bool_is_true(self):
+        assert bool(_ContextProxy())
+        assert bool(_ContextProxy().ds)
+
+    def test_in_yaml_template(self, tmp_path):
+        yaml_file = tmp_path / "ctx.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  s:\n    blueprint: x\n"
+            '    date_partition: "{{ context.ds_nodash }}"\n'
+        )
+        config, _ = render_yaml_template(yaml_file, use_airflow_context=False)
+        assert config["steps"]["s"]["date_partition"] == "{{ ds_nodash }}"
+
+    def test_mixed_with_literal(self, tmp_path):
+        yaml_file = tmp_path / "mixed.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  s:\n    blueprint: x\n"
+            '    output_path: "s3://bucket/{{ context.ds }}/data.parquet"\n'
+        )
+        config, _ = render_yaml_template(yaml_file, use_airflow_context=False)
+        assert config["steps"]["s"]["output_path"] == "s3://bucket/{{ ds }}/data.parquet"
+
+    def test_xcom_pull_in_yaml(self, tmp_path):
+        yaml_file = tmp_path / "xcom.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  s:\n    blueprint: x\n"
+            "    prev_result: \"{{ context.ti.xcom_pull('extract_step') }}\"\n"
+        )
+        config, _ = render_yaml_template(yaml_file, use_airflow_context=False)
+        assert config["steps"]["s"]["prev_result"] == "{{ ti.xcom_pull('extract_step') }}"
+
+    def test_available_without_airflow_context(self, tmp_path):
+        yaml_file = tmp_path / "lint.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  s:\n    blueprint: x\n"
+            '    partition: "{{ context.ds_nodash }}"\n'
+        )
+        config, _ = render_yaml_template(yaml_file, use_airflow_context=False)
+        assert config["steps"]["s"]["partition"] == "{{ ds_nodash }}"
+
+    def test_available_with_airflow_context(self, tmp_path):
+        yaml_file = tmp_path / "airflow.yaml"
+        yaml_file.write_text(
+            "dag_id: test\nsteps:\n  s:\n    blueprint: x\n"
+            '    partition: "{{ context.ds_nodash }}"\n'
+        )
+        config, _ = render_yaml_template(yaml_file, use_airflow_context=True)
+        assert config["steps"]["s"]["partition"] == "{{ ds_nodash }}"

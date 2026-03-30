@@ -13,6 +13,42 @@ from blueprint.registry import BlueprintRegistry, registry
 logger = logging.getLogger(__name__)
 
 
+class _ContextProxy:
+    """Proxy that generates Airflow runtime template expressions.
+
+    Attribute access, item access, and function calls build up an expression
+    string. When Jinja2 converts the result to a string, it produces
+    ``{{ expression }}`` — a literal Airflow template macro that Airflow
+    resolves at task execution time.
+    """
+
+    def __init__(self, expr: str = "") -> None:
+        object.__setattr__(self, "_expr", expr)
+
+    def __getattr__(self, name: str) -> "_ContextProxy":
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        new_expr = f"{self._expr}.{name}" if self._expr else name
+        return _ContextProxy(new_expr)
+
+    def __getitem__(self, key: object) -> "_ContextProxy":
+        return _ContextProxy(f"{self._expr}[{key!r}]")
+
+    def __call__(self, *args: object, **kwargs: object) -> "_ContextProxy":
+        parts = [repr(a) for a in args]
+        parts.extend(f"{k}={v!r}" for k, v in kwargs.items())
+        return _ContextProxy(f"{self._expr}({', '.join(parts)})")
+
+    def __str__(self) -> str:
+        return "{{ " + self._expr + " }}"
+
+    def __repr__(self) -> str:
+        return f"_ContextProxy({self._expr!r})"
+
+    def __bool__(self) -> bool:
+        return True
+
+
 def render_yaml_template(
     path: Path,
     context: dict[str, Any] | None = None,
@@ -41,7 +77,7 @@ def render_yaml_template(
         try:
             import jinja2
 
-            template_context: dict[str, Any] = {}
+            template_context: dict[str, Any] = {"context": _ContextProxy()}
             if use_airflow_context:
                 template_context.update(_get_airflow_context())
             if context:

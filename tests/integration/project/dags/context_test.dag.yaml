@@ -1,0 +1,8 @@
+dag_id: context_test
+team: platform
+
+steps:
+  ctx:
+    blueprint: context_test
+    date_partition: "{{ context.ds_nodash }}"
+    output_path: "s3://bucket/{{ context.ds }}/data.parquet"

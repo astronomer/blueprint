@@ -134,6 +134,63 @@ class TestExplicitNamingExecution:
         assert not failed, f"Tasks did not succeed: {failed}"
 
 
+class TestContextProxyExecution:
+    """Execute the context_test DAG using {{ context.* }} expressions in YAML.
+
+    Verifies that context proxy values (e.g. {{ context.ds_nodash }}) pass through
+    as literal Airflow template strings and are rendered to real values at task
+    execution time (not left as raw {{ ds_nodash }} literals).
+    """
+
+    DAG_ID = "context_test"
+
+    def _run_dag(self, api_client: AirflowAPI) -> str:
+        _unpause_dag(api_client, self.DAG_ID)
+        run_id = _trigger_dag(api_client, self.DAG_ID)
+        result = _wait_for_dag_run(api_client, self.DAG_ID, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
+        return run_id
+
+    def _get_rendered_fields(self, api_client: AirflowAPI, run_id: str, task_id: str) -> dict:
+        resp = api_client.get(f"/dags/{self.DAG_ID}/dagRuns/{run_id}/taskInstances/{task_id}")
+        assert resp.status_code == 200, resp.text
+        return resp.json().get("rendered_fields", {})
+
+    def test_all_tasks_succeed(self, api_client: AirflowAPI):
+        run_id = self._run_dag(api_client)
+
+        resp = api_client.get(f"/dags/{self.DAG_ID}/dagRuns/{run_id}/taskInstances")
+        assert resp.status_code == 200
+        task_instances = resp.json().get("task_instances", [])
+        failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
+        assert not failed, f"Tasks did not succeed: {failed}"
+
+    def test_ds_nodash_rendered(self, api_client: AirflowAPI):
+        """Verify {{ context.ds_nodash }} was rendered to a real YYYYMMDD date."""
+        run_id = self._run_dag(api_client)
+        rendered = self._get_rendered_fields(api_client, run_id, "ctx.echo_partition")
+        bash_cmd = rendered.get("bash_command", "")
+        assert "partition=" in bash_cmd, f"Unexpected bash_command: {bash_cmd}"
+        partition_value = bash_cmd.split("partition=")[1].strip().rstrip("'")
+        assert partition_value.isdigit() and len(partition_value) == 8, (
+            f"Expected YYYYMMDD date, got {partition_value!r} in: {bash_cmd}"
+        )
+
+    def test_ds_rendered_in_path(self, api_client: AirflowAPI):
+        """Verify {{ context.ds }} was rendered to a YYYY-MM-DD date inside the path."""
+        run_id = self._run_dag(api_client)
+        rendered = self._get_rendered_fields(api_client, run_id, "ctx.echo_path")
+        bash_cmd = rendered.get("bash_command", "")
+        assert "s3://bucket/" in bash_cmd, f"Unexpected bash_command: {bash_cmd}"
+        assert "/data.parquet" in bash_cmd, f"Unexpected bash_command: {bash_cmd}"
+        # Extract the date between s3://bucket/ and /data.parquet
+        path_part = bash_cmd.split("s3://bucket/")[1].split("/data.parquet")[0]
+        parts = path_part.split("-")
+        assert len(parts) == 3 and all(p.isdigit() for p in parts), (
+            f"Expected YYYY-MM-DD date in path, got {path_part!r} in: {bash_cmd}"
+        )
+
+
 class TestParamsExecution:
     """Execute the params_test DAG with default and overridden params.
 
