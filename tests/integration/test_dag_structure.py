@@ -17,7 +17,13 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.integration, pytest.mark.needs_airflow]
 
-EXPECTED_DAG_IDS = {"simple_pipeline", "versioned_etl", "dag_args_test", "explicit_naming"}
+EXPECTED_DAG_IDS = {
+    "simple_pipeline",
+    "versioned_etl",
+    "dag_args_test",
+    "explicit_naming",
+    "context_test",
+}
 
 
 class TestDagsLoaded:
@@ -349,6 +355,29 @@ class TestParamsTest:
         task_ids = {t["task_id"] for t in resp.json()["tasks"]}
         assert "greet.template_greet" in task_ids
         assert "greet.resolved_greet" in task_ids
+
+
+class TestContextProxy:
+    """Verify the context_test DAG using {{ context.* }} expressions in YAML."""
+
+    DAG_ID = "context_test"
+
+    def test_dag_loaded(self, api_client: AirflowAPI):
+        resp = api_client.get(f"/dags/{self.DAG_ID}")
+        assert resp.status_code == 200
+
+    def test_has_expected_tasks(self, api_client: AirflowAPI):
+        resp = api_client.get(f"/dags/{self.DAG_ID}/tasks")
+        assert resp.status_code == 200
+        task_ids = {t["task_id"] for t in resp.json()["tasks"]}
+        assert task_ids == {"ctx.echo_partition", "ctx.echo_path"}
+
+    def test_tags(self, api_client: AirflowAPI):
+        resp = api_client.get(f"/dags/{self.DAG_ID}")
+        assert resp.status_code == 200
+        tags = api_client.get_tags(resp.json())
+        assert "team:platform" in tags
+        assert "callback-verified" in tags
 
 
 class TestOnDagBuiltCallback:

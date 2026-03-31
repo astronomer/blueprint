@@ -315,6 +315,30 @@ steps:
     source_table: "{{ var.value.source_schema }}.customers"
 ```
 
+### Airflow Runtime Context
+
+Use the `context` accessor to pass through Airflow runtime macros that resolve at task execution time:
+
+```yaml
+steps:
+  extract:
+    blueprint: extract
+    date_partition: "{{ context.ds_nodash }}"
+    output_path: "s3://bucket/{{ context.ds }}/data.parquet"
+```
+
+This renders at DAG parse time to literal Airflow template strings (e.g. `{{ ds_nodash }}`), which Airflow then resolves at task execution time. Chained access and function calls are supported:
+
+```yaml
+steps:
+  load:
+    blueprint: load
+    prev_result: "{{ context.ti.xcom_pull('extract') }}"
+```
+
+> **Note:** Parse-time Jinja2 filters and arithmetic on `context` values are not supported.
+> For complex expressions, use `{% raw %}{{ ds | some_filter }}{% endraw %}` instead.
+
 ## Programmatic Building
 
 For advanced use cases, build DAGs programmatically:

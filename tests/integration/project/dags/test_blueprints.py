@@ -214,3 +214,27 @@ class Greet(Blueprint[GreetConfig]):
 
             template_task >> resolved_greet()
         return group
+
+
+# --- ContextProxy (runtime template passthrough integration test) ---
+
+
+class ContextTestConfig(BaseModel):
+    date_partition: str = Field(description="Date partition value (supports Airflow templates)")
+    output_path: str = Field(description="Output path (supports Airflow templates)")
+
+
+class ContextTest(Blueprint[ContextTestConfig]):
+    """Integration test for context proxy: YAML values with context.* expressions."""
+
+    def render(self, config: ContextTestConfig) -> TaskGroup:
+        with TaskGroup(group_id=self.step_id) as group:
+            BashOperator(
+                task_id="echo_partition",
+                bash_command=f"echo 'partition={config.date_partition}'",
+            )
+            BashOperator(
+                task_id="echo_path",
+                bash_command=f"echo 'path={config.output_path}'",
+            )
+        return group

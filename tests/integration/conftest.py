@@ -32,6 +32,7 @@ EXPECTED_DAG_IDS = {
     "dag_args_test",
     "explicit_naming",
     "params_test",
+    "context_test",
 }
 
 
