@@ -100,10 +100,13 @@ PASS customer_pipeline.dag.yaml (dag_id=customer_pipeline)
 
 ## Try It Out
 
-The [`examples/`](examples/) directory contains working Airflow environments (both Airflow 2 and 3) with Blueprint DAGs you can run locally using Docker and [Tilt](https://tilt.dev/):
+The [`examples/`](examples/) directory contains two working Airflow environments you can run locally using Docker and [Tilt](https://tilt.dev/):
+
+- **[Simple](examples/simple/)** -- one DAG, two blueprints, zero advanced features
+- **[Advanced](examples/advanced/)** -- space-themed, demonstrates many features
 
 ```bash
-cd examples/airflow3   # or examples/airflow2
+cd examples/simple/airflow3   # or airflow2
 tilt up
 ```
 

@@ -133,7 +133,7 @@ def _get_airflow_context() -> dict[str, Any]:
             def get(self, key: str, default: str | None = None) -> str | None:
                 try:
                     return Variable.get(key)
-                except KeyError:
+                except Exception:
                     return default
 
         ctx["var"] = VarAccessor()

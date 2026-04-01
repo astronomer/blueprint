@@ -1,11 +1,11 @@
 ---
 x-airflow-common: &airflow-common
-  image: blueprint-airflow
+  image: blueprint-simple-airflow3
   build:
-    context: ../..
-    dockerfile: examples/airflow3/Dockerfile
+    context: ../../..
+    dockerfile: examples/simple/airflow3/Dockerfile
   env_file:
-    - path: ../.env
+    - path: ../../.env
       required: false
   networks:
     - airflow

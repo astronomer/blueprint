@@ -1,0 +1,48 @@
+dag_id: deep_space_survey
+schedule: "@daily"
+description: "{{ agency }} survey for observation window {{ context.ds_nodash }}"
+priority: critical
+
+steps:
+  scan_alpha_centauri:
+    blueprint: scan
+    version: 1
+    target: alpha_centauri
+    band: radio
+
+  scan_proxima:
+    blueprint: scan
+    version: 1
+    target: proxima_centauri
+    band: infrared
+
+  scan_barnard:
+    blueprint: scan
+    version: 2
+    target: barnards_star
+    bands:
+      - name: radio
+        ghz: 1.42
+      - name: microwave
+        ghz: 22.0
+
+  analyze_results:
+    blueprint: analyze
+    depends_on: [scan_alpha_centauri, scan_proxima, scan_barnard]
+    algorithms: [fft, wavelet, bayesian]
+
+  adjust_orbit:
+    blueprint: orbit
+    depends_on: [analyze_results]
+    satellite_id: SAT-100
+    params:
+      altitude_km: 800.0
+      inclination_deg: 98.7
+    maneuver: adjust
+
+  transmit_findings:
+    blueprint: transmit
+    depends_on: [analyze_results]
+    destination: mission_control
+    protocol: udp
+    compression: true

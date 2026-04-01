@@ -1,0 +1,15 @@
+dag_id: simple_pipeline
+
+steps:
+  extract_customers:
+    blueprint: extract
+    source: customers
+
+  extract_orders:
+    blueprint: extract
+    source: orders
+
+  load:
+    blueprint: load
+    depends_on: [extract_customers, extract_orders]
+    target: warehouse

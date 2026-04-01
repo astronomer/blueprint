@@ -72,8 +72,9 @@ jobs:
           # Allow limited tools for checking project context
           allowed_tools: |
             Bash(uv run blueprint --help),
-            Bash(cd examples && uv run blueprint list),
-            Bash(ls examples/dags/)
+            Bash(cd examples/simple && uv run blueprint list),
+            Bash(cd examples/advanced && uv run blueprint list),
+            Bash(ls examples/simple/dags/ examples/advanced/dags/)
 
           # Use sticky comment so Claude updates the same comment if issue is edited
           use_sticky_comment: true

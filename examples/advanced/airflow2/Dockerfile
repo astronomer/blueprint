@@ -1,10 +1,10 @@
-FROM astrocrpublic.azurecr.io/runtime:3.1-13-base
+FROM quay.io/astronomer/astro-runtime:13.4.0-base
 
 USER root
 
 RUN pip install -U uv
 
-COPY ./examples/requirements.txt ${AIRFLOW_HOME}/requirements.txt
+COPY ./examples/advanced/requirements.txt ${AIRFLOW_HOME}/requirements.txt
 COPY ./pyproject.toml ${AIRFLOW_HOME}/blueprint/pyproject.toml
 COPY ./README.md ${AIRFLOW_HOME}/blueprint/README.md
 COPY ./blueprint ${AIRFLOW_HOME}/blueprint/blueprint

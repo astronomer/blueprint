@@ -61,7 +61,8 @@ jobs:
             Bash(uv run ty check blueprint/),
             Bash(uv run pytest tests/ -v),
             Bash(uv run blueprint --help),
-            Bash(cd examples && uv run blueprint list)
+            Bash(cd examples/simple && uv run blueprint list),
+            Bash(cd examples/advanced && uv run blueprint list)
 
           # Optional: Skip review for certain conditions
           # if: |

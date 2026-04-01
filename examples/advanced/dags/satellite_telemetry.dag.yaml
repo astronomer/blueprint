@@ -1,0 +1,29 @@
+dag_id: satellite_telemetry
+schedule: "@hourly"
+description: "Telemetry pipeline for {{ env.SATELLITE_ID | default('SAT-001') }}"
+priority: high
+
+steps:
+  scan_signals:
+    blueprint: scan
+    version: 2
+    target: "{{ env.SATELLITE_ID | default('SAT-001') }}_{{ context.ds_nodash }}"
+    bands:
+      - name: uhf
+        ghz: 0.4
+      - name: s_band
+        ghz: 2.2
+      - name: x_band
+        ghz: 8.4
+
+  analyze_signals:
+    blueprint: analyze
+    depends_on: [scan_signals]
+    algorithms: [fft, matched_filter]
+    confidence_threshold: 0.9
+
+  transmit_results:
+    blueprint: transmit
+    depends_on: [analyze_signals]
+    destination: "{{ var.get('ground_station', 'DSN-Goldstone') }}"
+    protocol: tcp

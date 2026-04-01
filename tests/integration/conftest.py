@@ -7,6 +7,7 @@ and provides an authenticated API client for test interactions.
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -19,7 +20,6 @@ ASTRO_CLI = os.environ.get("ASTRO_CLI", "astro")
 INTEGRATION_DIR = Path(__file__).parent
 PROJECT_DIR = INTEGRATION_DIR / "project"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-AIRFLOW_PORT = "18080"
 
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 2
@@ -94,6 +94,13 @@ class AirflowAPI:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _find_free_port() -> int:
+    """Bind to port 0 to let the OS assign an available port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
 
 
 def _clean_env() -> dict[str, str]:
@@ -176,6 +183,8 @@ def _wait_for_dags(api: AirflowAPI) -> None:
 @pytest.fixture(scope="session")
 def airflow_env():
     """Start a fresh Airflow standalone instance, yield an AirflowAPI, kill on teardown."""
+    port = str(_find_free_port())
+
     req_file = PROJECT_DIR / "requirements.txt"
     req_file.write_text(f"-e {REPO_ROOT}\n")
 
@@ -187,7 +196,7 @@ def airflow_env():
         "--no-proxy",
         "--no-browser",
         "-p",
-        AIRFLOW_PORT,
+        port,
         check=False,
         timeout=ASTRO_START_TIMEOUT,
     )
@@ -198,7 +207,7 @@ def airflow_env():
         )
         raise RuntimeError(msg)
 
-    base_url = f"http://localhost:{AIRFLOW_PORT}"
+    base_url = f"http://localhost:{port}"
     _wait_for_health(base_url)
 
     api = AirflowAPI(base_url=base_url)
