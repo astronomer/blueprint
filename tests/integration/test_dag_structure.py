@@ -356,6 +356,31 @@ class TestParamsTest:
         assert "greet.template_greet" in task_ids
         assert "greet.resolved_greet" in task_ids
 
+    def test_param_schema_has_minimum(self, api_client: AirflowAPI):
+        """Field(ge=1) should produce minimum: 1 in the Airflow Param schema."""
+        resp = api_client.get("/dags/params_test/details")
+        assert resp.status_code == 200
+        params = resp.json().get("params") or {}
+        repeat_param = params["greet__repeat"]
+        schema = repeat_param.get("schema", repeat_param) if isinstance(repeat_param, dict) else {}
+        assert schema.get("minimum") == 1, f"Expected minimum=1 in schema, got {schema}"
+
+    def test_param_schema_has_type(self, api_client: AirflowAPI):
+        """Param types should reflect the Pydantic field types."""
+        resp = api_client.get("/dags/params_test/details")
+        assert resp.status_code == 200
+        params = resp.json().get("params") or {}
+
+        repeat_param = params["greet__repeat"]
+        repeat_schema = (
+            repeat_param.get("schema", repeat_param) if isinstance(repeat_param, dict) else {}
+        )
+        assert repeat_schema.get("type") == "integer", f"Expected integer, got {repeat_schema}"
+
+        msg_param = params["greet__message"]
+        msg_schema = msg_param.get("schema", msg_param) if isinstance(msg_param, dict) else {}
+        assert msg_schema.get("type") == "string", f"Expected string, got {msg_schema}"
+
 
 class TestContextProxy:
     """Verify the context_test DAG using {{ context.* }} expressions in YAML."""
