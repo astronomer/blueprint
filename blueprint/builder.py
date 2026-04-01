@@ -48,6 +48,10 @@ _PARAM_SCHEMA_KEYS = frozenset(
         "required",
         "additionalProperties",
         "anyOf",
+        "format",
+        "examples",
+        "values_display",
+        "description_md",
     }
 )
 

@@ -985,6 +985,49 @@ class TestConfigToParams:
         count_schema = params["step__count"].schema
         assert count_schema.get("minimum") == 1
 
+    def test_format_passthrough(self):
+        class FormatConfig(BaseModel):
+            query: str = Field(default="SELECT 1", json_schema_extra={"format": "multiline"})
+
+        params = _config_to_params(FormatConfig, {"query": "SELECT 1"}, "step")
+        assert params["step__query"].schema.get("format") == "multiline"
+
+    def test_examples_passthrough(self):
+        class ExamplesConfig(BaseModel):
+            env: str = Field(
+                default="staging",
+                json_schema_extra={"examples": ["dev", "staging", "prod"]},
+            )
+
+        params = _config_to_params(ExamplesConfig, {"env": "staging"}, "step")
+        assert params["step__env"].schema.get("examples") == ["dev", "staging", "prod"]
+
+    def test_values_display_passthrough(self):
+        class DisplayConfig(BaseModel):
+            env: str = Field(
+                default="staging",
+                json_schema_extra={
+                    "examples": ["dev", "staging", "prod"],
+                    "values_display": {"dev": "Development", "staging": "Staging"},
+                },
+            )
+
+        params = _config_to_params(DisplayConfig, {"env": "staging"}, "step")
+        assert params["step__env"].schema.get("values_display") == {
+            "dev": "Development",
+            "staging": "Staging",
+        }
+
+    def test_description_md_passthrough(self):
+        class MdConfig(BaseModel):
+            name: str = Field(
+                default="x",
+                json_schema_extra={"description_md": "**Bold** description"},
+            )
+
+        params = _config_to_params(MdConfig, {"name": "x"}, "step")
+        assert params["step__name"].schema.get("description_md") == "**Bold** description"
+
 
 # --- Builder params integration tests ---
 

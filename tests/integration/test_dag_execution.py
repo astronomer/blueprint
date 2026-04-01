@@ -228,3 +228,17 @@ class TestParamsExecution:
         task_instances = resp.json().get("task_instances", [])
         failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
         assert not failed, f"Tasks did not succeed: {failed}"
+
+    def test_invalid_param_rejected(self, api_client: AirflowAPI):
+        """Trigger with repeat=-1 should be rejected: Field(ge=1) produces minimum=1 in Param schema."""
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        logical_date = datetime.now(tz=timezone.utc).isoformat()
+        resp = api_client.post(
+            f"/dags/{dag_id}/dagRuns",
+            json={"logical_date": logical_date, "conf": {"greet__repeat": -1}},
+        )
+        assert resp.status_code == 400, (
+            f"Expected 400 for invalid param, got {resp.status_code}: {resp.text}"
+        )
+        assert "minimum" in resp.text.lower()

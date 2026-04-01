@@ -292,6 +292,50 @@ class Load(Blueprint[LoadConfig]):
 
 Both patterns can be combined in the same blueprint. Use `self.param()` for operators with template fields (BigQuery, CloudSQL, Bash, etc.) and `self.resolve_config()` for Python logic in `@task` functions.
 
+### Trigger form customization
+
+Airflow's trigger form renders each param based on its JSON Schema. Blueprint passes schema metadata from your Pydantic fields through to Airflow, so you can control the form rendering using `json_schema_extra`:
+
+```python
+class LoadConfig(BaseModel):
+    query: str = Field(
+        description="SQL to execute",
+        json_schema_extra={"format": "multiline"},
+    )
+    schedule_date: str = Field(
+        default="2024-01-01",
+        json_schema_extra={"format": "date"},
+    )
+```
+
+Supported `format` values include `"multiline"` (textarea), `"date"`, `"date-time"`, and `"time"` (pickers). You can also use `examples` (dropdown with free text), `values_display` (human-readable labels for enum/example values), and `description_md` (Markdown-formatted descriptions). See the [Airflow params documentation](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/params.html) for the full list of supported schema keys.
+
+### Validation behavior
+
+Pydantic Field constraints that map to JSON Schema (`ge`, `le`, `pattern`, `min_length`, `max_length`, `Literal` enums) are enforced everywhere — at build time, in the Airflow trigger form, and in `resolve_config()`.
+
+Custom `@field_validator` and `@model_validator` logic does **not** map to JSON Schema and is therefore **not** enforced by the trigger form. These validators run at build time and in `resolve_config()` only.
+
+| Validation | Build time | Trigger form | `resolve_config()` |
+|---|---|---|---|
+| `Field(ge=1)` | Yes | Yes | Yes |
+| `Field(pattern=...)` | Yes | Yes | Yes |
+| `Literal["a", "b"]` | Yes | Yes | Yes |
+| `@field_validator` | Yes | No | Yes |
+| `@model_validator` | Yes | No | Yes |
+
+If your config uses custom validators that enforce important constraints, use `self.resolve_config()` in `@task` functions to ensure those validators run on overridden values.
+
+### Complex config types
+
+Scalar fields (`str`, `int`, `float`, `bool`) and `Literal` types render as native form controls in the trigger UI (text inputs, number inputs, dropdowns). Complex types work but render as JSON text inputs:
+
+- Nested `BaseModel` fields → JSON object input
+- `Union` types → JSON input with `anyOf` validation
+- `list[...]` fields → JSON array input
+
+For the best trigger form experience, prefer scalar fields for params that users will override frequently.
+
 ### Triggering with overrides
 
 Override params via the Airflow UI trigger form, or via the API using `conf`:
