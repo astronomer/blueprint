@@ -58,7 +58,8 @@ jobs:
             Bash(uv run ruff format:*),
             Bash(uv run ty check:*),
             Bash(uv build),
-            Bash(cd examples && uv run blueprint:*)
+            Bash(cd examples/simple && uv run blueprint:*),
+            Bash(cd examples/advanced && uv run blueprint:*)
 
           # Optional: Custom environment variables for Claude
           # claude_env: |
