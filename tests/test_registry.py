@@ -261,7 +261,6 @@ class Dup(Blueprint[DupConfig2]):
         assert len(versions) == 1
         assert versions[0]["version"] == 1
         assert versions[0]["class"] == "Load"
-        assert versions[0]["base_name"] == "Load"
         assert "properties" in versions[0]["schema"]
         assert "$defs" not in versions[0]["schema"]
 
@@ -273,10 +272,8 @@ class Dup(Blueprint[DupConfig2]):
         assert len(versions) == 2
         assert versions[0]["version"] == 1
         assert versions[0]["class"] == "Extract"
-        assert versions[0]["base_name"] == "Extract"
         assert versions[1]["version"] == 2
         assert versions[1]["class"] == "ExtractV2"
-        assert versions[1]["base_name"] == "Extract"
 
     def test_get_all_versions_info_not_found(self, reg, temp_blueprints, monkeypatch):
         monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
@@ -426,8 +423,8 @@ class MyExtractorV2(Blueprint[Cfg2]):
 
         versions = reg.get_all_versions_info("extract")
         assert len(versions) == 2
-        assert versions[0]["base_name"] == "MyExtractorV1"
-        assert versions[1]["base_name"] == "MyExtractorV2"
+        assert versions[0]["class"] == "MyExtractorV1"
+        assert versions[1]["class"] == "MyExtractorV2"
 
 
 class TestDagArgsDiscovery:

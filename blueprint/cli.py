@@ -213,7 +213,6 @@ def _get_registry(template_dir: str | None) -> BlueprintRegistry:
 def _build_version_schema(
     blueprint_name: str,
     version: int,
-    base_name: str,
     raw_schema: dict,
 ) -> dict:
     """Build a schema variant for a single version of a blueprint."""
@@ -239,7 +238,7 @@ def _build_version_schema(
     if "version" not in schema_data["required"]:
         schema_data["required"].insert(1, "version")
 
-    schema_data["title"] = base_name
+    schema_data["title"] = blueprint_name
     schema_data.pop("$schema", None)
 
     return schema_data
@@ -311,7 +310,6 @@ def schema(
             _build_version_schema(
                 blueprint_name,
                 vi["version"],
-                vi["base_name"],
                 vi["schema"],
             )
             for vi in versions_info

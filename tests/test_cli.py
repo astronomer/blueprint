@@ -1,5 +1,7 @@
 """Tests for the Blueprint CLI."""
 
+import json
+
 from click.testing import CliRunner
 
 from blueprint.cli import cli
@@ -378,6 +380,33 @@ class ExtV2(Blueprint[ExtV2Config]):
         result = runner.invoke(cli, ["schema", "ext", "--template-dir", str(template_dir)])
         assert result.exit_code == 0
         assert "oneOf" in result.output
-        output_lines = result.output.strip()
-        assert '"Ext"' in output_lines
-        assert '"ExtV2"' not in output_lines
+        schema = json.loads(result.output)
+        assert schema["title"] == "ext"
+        for variant in schema["oneOf"]:
+            assert variant["title"] == "ext"
+
+    def test_schema_title_with_explicit_name(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class MyCustomConfig(BaseModel):
+    x: int = 1
+
+class MyCustomClass(Blueprint[MyCustomConfig]):
+    name = "weather_ingest"
+
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["schema", "weather_ingest", "--template-dir", str(template_dir)]
+        )
+        assert result.exit_code == 0
+        schema = json.loads(result.output)
+        assert schema["title"] == "weather_ingest"
+        assert "MyCustomClass" not in result.output
