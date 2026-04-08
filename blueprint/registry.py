@@ -3,7 +3,6 @@
 import importlib.util
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -302,7 +301,7 @@ class BlueprintRegistry:
 
         Returns:
             List of dicts sorted by version, each with version, class name,
-            base_name (class name without V{N} suffix), and schema.
+            and schema.
         """
         self.discover()
 
@@ -314,17 +313,10 @@ class BlueprintRegistry:
         for version in sorted(self._blueprints[name]):
             cls = self._blueprints[name][version]
 
-            base_class_name = cls.__name__
-            if "name" not in cls.__dict__:
-                version_match = re.match(r"^(.+?)V\d+$", base_class_name)
-                if version_match:
-                    base_class_name = version_match.group(1)
-
             result.append(
                 {
                     "version": version,
                     "class": cls.__name__,
-                    "base_name": base_class_name,
                     "schema": cls.get_schema(),
                 }
             )
