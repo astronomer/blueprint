@@ -145,6 +145,14 @@ class TestVersionedETL:
                 f"Task {task_id} retries={task.get('retries')}, expected 3 (critical tier)"
             )
 
+    def test_load_warehouse_trigger_rule(self, api_client: AirflowAPI):
+        tasks = self._get_tasks(api_client)
+        assert tasks["load_warehouse"]["trigger_rule"] == "one_success"
+
+    def test_default_trigger_rule(self, api_client: AirflowAPI):
+        tasks = self._get_tasks(api_client)
+        assert tasks["transform.dedupe"]["trigger_rule"] == "all_success"
+
 
 class TestExplicitNaming:
     """Verify the explicit_naming DAG using blueprints with explicit name/version attrs.

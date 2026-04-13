@@ -28,5 +28,6 @@ steps:
   load_warehouse:
     blueprint: load
     depends_on: [transform]
+    trigger_rule: one_success
     target_table: analytics.customer_360
     mode: overwrite

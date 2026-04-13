@@ -49,6 +49,24 @@ class _ContextProxy:
         return True
 
 
+class _StubVarAccessor:
+    """Stub Variable accessor for use outside Airflow (e.g. lint).
+
+    ``var.get(key, default)`` always returns the default.
+    ``var.value.key`` returns a placeholder string.
+    """
+
+    @property
+    def value(self) -> "_StubVarAccessor":
+        return self
+
+    def __getattr__(self, name: str) -> str:
+        return f"<{name}>"
+
+    def get(self, key: str, default: str | None = None) -> str | None:  # noqa: ARG002
+        return default
+
+
 def render_yaml_template(
     path: Path,
     context: dict[str, Any] | None = None,
@@ -75,9 +93,15 @@ def render_yaml_template(
 
     if has_jinja:
         try:
+            import os
+
             import jinja2
 
-            template_context: dict[str, Any] = {"context": _ContextProxy()}
+            template_context: dict[str, Any] = {
+                "context": _ContextProxy(),
+                "env": os.environ,
+                "var": _StubVarAccessor(),
+            }
             if use_airflow_context:
                 template_context.update(_get_airflow_context())
             if context:

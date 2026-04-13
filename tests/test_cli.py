@@ -410,3 +410,52 @@ class MyCustomClass(Blueprint[MyCustomConfig]):
         schema = json.loads(result.output)
         assert schema["title"] == "weather_ingest"
         assert "MyCustomClass" not in result.output
+
+    def test_schema_includes_trigger_rule(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "stub", "--template-dir", str(template_dir)])
+        assert result.exit_code == 0
+        schema = json.loads(result.output)
+        assert "trigger_rule" in schema["properties"]
+        tr_prop = schema["properties"]["trigger_rule"]
+        assert tr_prop["type"] == "string"
+        assert "enum" in tr_prop
+        assert "all_success" in tr_prop["enum"]
+        assert "one_success" in tr_prop["enum"]
+
+    def test_schema_includes_depends_on(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "stub", "--template-dir", str(template_dir)])
+        assert result.exit_code == 0
+        schema = json.loads(result.output)
+        assert "depends_on" in schema["properties"]
+        dep_prop = schema["properties"]["depends_on"]
+        assert dep_prop["type"] == "array"

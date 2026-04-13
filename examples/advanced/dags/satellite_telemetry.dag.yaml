@@ -25,5 +25,6 @@ steps:
   transmit_results:
     blueprint: transmit
     depends_on: [analyze_signals]
+    trigger_rule: all_done
     destination: "{{ var.get('ground_station', 'DSN-Goldstone') }}"
     protocol: tcp

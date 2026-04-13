@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blueprint.core import TaskOrGroup
 from blueprint.errors import (
@@ -113,6 +113,20 @@ class StepConfig(BaseModel):
     blueprint: str
     depends_on: list[str] = Field(default_factory=list)
     version: int | None = None
+    trigger_rule: str | None = None
+
+    @field_validator("trigger_rule")
+    @classmethod
+    def validate_trigger_rule(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from airflow.utils.trigger_rule import TriggerRule
+
+        if not TriggerRule.is_valid(v):
+            valid = sorted(str(r.value) for r in TriggerRule)
+            msg = f"Invalid trigger rule '{v}'. Valid values: {', '.join(valid)}"
+            raise ValueError(msg)
+        return v
 
     def get_blueprint_config(self) -> dict[str, Any]:
         """Get the blueprint-specific config (everything except reserved keys)."""
@@ -156,6 +170,21 @@ class Builder:
         self._registry = bp_registry or registry
         self._on_dag_built = on_dag_built
 
+    @staticmethod
+    def _ensure_start_date(dag_kwargs: dict[str, Any]) -> None:
+        """Set a default start_date or parse a string start_date."""
+        if "start_date" not in dag_kwargs:
+            dag_kwargs["start_date"] = DEFAULT_START_DATE
+        elif isinstance(dag_kwargs["start_date"], str):
+            try:
+                parsed = datetime.fromisoformat(dag_kwargs["start_date"])
+            except ValueError as e:
+                msg = f"Invalid start_date format: {dag_kwargs['start_date']!r}"
+                raise ConfigurationError(msg) from e
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            dag_kwargs["start_date"] = parsed
+
     def build(self, config: DAGConfig) -> "DAG":
         """Build a DAG from a DAGConfig.
 
@@ -185,17 +214,7 @@ class Builder:
             raise ConfigurationError(msg)
 
         dag_kwargs["dag_id"] = config.dag_id
-        if "start_date" not in dag_kwargs:
-            dag_kwargs["start_date"] = DEFAULT_START_DATE
-        elif isinstance(dag_kwargs["start_date"], str):
-            try:
-                parsed = datetime.fromisoformat(dag_kwargs["start_date"])
-            except ValueError as e:
-                msg = f"Invalid start_date format: {dag_kwargs['start_date']!r}"
-                raise ConfigurationError(msg) from e
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            dag_kwargs["start_date"] = parsed
+        self._ensure_start_date(dag_kwargs)
         if "catchup" not in dag_kwargs:
             dag_kwargs["catchup"] = False
 
@@ -220,6 +239,8 @@ class Builder:
             for step_name, step_config in config.steps.items():
                 for dep_name in step_config.depends_on:
                     rendered[dep_name] >> rendered[step_name]
+                if step_config.trigger_rule is not None:
+                    self._apply_trigger_rule(rendered[step_name], step_config.trigger_rule)
 
         return dag
 
@@ -449,6 +470,22 @@ class Builder:
                 "blueprint_step_config": "yaml",
                 "blueprint_step_code": "py",
             }
+
+    def _apply_trigger_rule(self, rendered: TaskOrGroup, trigger_rule: str) -> None:
+        """Apply a trigger rule to the entry points of a rendered step.
+
+        For a single BaseOperator, sets trigger_rule directly.
+        For a TaskGroup, sets trigger_rule only on root tasks (tasks with no
+        internal upstream dependencies) so that internal group wiring is preserved.
+        """
+        from airflow.models import BaseOperator
+        from airflow.utils.task_group import TaskGroup
+
+        if isinstance(rendered, BaseOperator):
+            rendered.trigger_rule = trigger_rule
+        elif isinstance(rendered, TaskGroup):
+            for task in rendered.get_roots():
+                task.trigger_rule = trigger_rule
 
 
 def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[str, Path]) -> None:
