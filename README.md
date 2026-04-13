@@ -78,7 +78,7 @@ steps:
     mode: overwrite
 ```
 
-Step config is flat -- `blueprint:`, `depends_on:`, and `version:` are reserved keys; everything else is passed to the blueprint's config model. Steps with no `depends_on` run in parallel.
+Step config is flat -- `blueprint:`, `depends_on:`, `version:`, and `trigger_rule:` are reserved keys; everything else is passed to the blueprint's config model. Steps with no `depends_on` run in parallel. Set `trigger_rule:` to control when a step runs relative to its upstream dependencies (e.g. `one_success`, `all_done`). The default is `all_success`. Valid values are determined by the installed Airflow version.
 
 The `blueprint:` value is the snake_case form of the class name. `Extract` becomes `extract`, `MultiSourceETL` becomes `multi_source_etl`. See [Template Versioning](#template-versioning) for details on how names and versions are determined.
 

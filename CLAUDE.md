@@ -31,9 +31,11 @@ Reusable task group templates composed into Airflow DAGs via YAML.
 - **Create DAG interactively**: `uv run blueprint new`
 
 ## Testing
-- Run all tests: `uv run pytest tests/`
+- Run unit tests: `uv run pytest tests/ --ignore=tests/integration -v`
 - Run specific test: `uv run pytest tests/test_<module>.py`
 - Run with coverage: `uv run pytest --cov=blueprint tests/`
+- Run integration tests locally: `uv run pytest tests/integration/ -v` (requires Astro CLI — `astro version` to verify; starts a local Airflow instance via `astro dev start --standalone`, runs tests against the REST API, then tears down)
+- New features must include integration test coverage (`tests/integration/`) and be demonstrated in the advanced example (`examples/advanced/`)
 
 ## Code Style Guidelines
 - Follow Ruff configuration in `pyproject.toml`

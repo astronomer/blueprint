@@ -94,6 +94,27 @@ class Nested(Blueprint[NestedConfig]):
         return outer
 
 
+class ChainedConfig(BaseModel):
+    operations: list[str] = Field(default_factory=lambda: ["first", "second"])
+
+
+class Chained(Blueprint[ChainedConfig]):
+    """Blueprint with internally chained tasks for trigger_rule testing."""
+
+    def render(self, config: ChainedConfig) -> TaskOrGroup:
+        from airflow.operators.bash import BashOperator
+        from airflow.utils.task_group import TaskGroup
+
+        with TaskGroup(group_id=self.step_id) as group:
+            prev = None
+            for op in config.operations:
+                t = BashOperator(task_id=op, bash_command=f"echo '{op}'")
+                if prev:
+                    prev >> t
+                prev = t
+        return group
+
+
 # --- Fixtures ---
 
 
@@ -104,11 +125,13 @@ def test_registry():
         "extract": {1: Extract, 2: ExtractV2},
         "load": {1: Load},
         "nested": {1: Nested},
+        "chained": {1: Chained},
     }
     reg._blueprint_locations = {
         "extract": {1: "test.py", 2: "test.py"},
         "load": {1: "test.py"},
         "nested": {1: "test.py"},
+        "chained": {1: "test.py"},
     }
     reg._discovered = True
     return reg
@@ -139,6 +162,21 @@ class TestStepConfig:
         step = StepConfig(blueprint="extract", version=2, sources=["a", "b"])
         assert step.version == 2
         assert step.get_blueprint_config() == {"sources": ["a", "b"]}
+
+    def test_step_with_trigger_rule(self):
+        step = StepConfig(blueprint="load", trigger_rule="one_success", target_table="out")
+        assert step.trigger_rule == "one_success"
+        assert "trigger_rule" not in step.get_blueprint_config()
+
+    def test_step_trigger_rule_default_none(self):
+        step = StepConfig(blueprint="load", target_table="out")
+        assert step.trigger_rule is None
+
+    def test_step_invalid_trigger_rule(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid trigger rule"):
+            StepConfig(blueprint="load", trigger_rule="bogus", target_table="out")
 
 
 # --- DAGConfig tests ---
@@ -389,6 +427,68 @@ class TestBuilder:
             assert "blueprint_step_config" in task.template_fields
             assert "blueprint_step_code" in task.template_fields
 
+    def test_trigger_rule_single_task(self, builder):
+        config = DAGConfig(
+            dag_id="tr_single",
+            steps={
+                "my_extract": StepConfig(blueprint="extract", version=1, source_table="raw.data"),
+                "my_load": StepConfig(
+                    blueprint="load",
+                    depends_on=["my_extract"],
+                    trigger_rule="one_success",
+                    target_table="out",
+                ),
+            },
+        )
+        dag = builder.build(config)
+        task = dag.task_dict["my_load"]
+        assert str(task.trigger_rule) == "one_success"
+
+    def test_trigger_rule_task_group_root_only(self, builder):
+        config = DAGConfig(
+            dag_id="tr_group",
+            steps={
+                "my_load": StepConfig(blueprint="load", target_table="out"),
+                "my_chained": StepConfig(
+                    blueprint="chained",
+                    depends_on=["my_load"],
+                    trigger_rule="all_done",
+                    operations=["first", "second"],
+                ),
+            },
+        )
+        dag = builder.build(config)
+        first = dag.task_dict["my_chained.first"]
+        second = dag.task_dict["my_chained.second"]
+        assert str(first.trigger_rule) == "all_done"
+        assert str(second.trigger_rule) == "all_success"
+
+    def test_trigger_rule_none_preserves_default(self, builder):
+        config = DAGConfig(
+            dag_id="tr_default",
+            steps={
+                "my_load": StepConfig(blueprint="load", target_table="out"),
+            },
+        )
+        dag = builder.build(config)
+        task = dag.task_dict["my_load"]
+        assert str(task.trigger_rule) == "all_success"
+
+    def test_trigger_rule_without_depends_on(self, builder):
+        config = DAGConfig(
+            dag_id="tr_no_deps",
+            steps={
+                "my_load": StepConfig(
+                    blueprint="load",
+                    trigger_rule="always",
+                    target_table="out",
+                ),
+            },
+        )
+        dag = builder.build(config)
+        task = dag.task_dict["my_load"]
+        assert str(task.trigger_rule) == "always"
+
 
 class TestBuilderDefaultDagArgs:
     def test_description_passed_to_dag(self, builder):
@@ -583,6 +683,27 @@ steps:
         upstream_ids = {t.task_id for t in load_task.upstream_list}
         upstream_group_ids = {t.group_id for t in load_task.upstream_list if hasattr(t, "group_id")}
         assert upstream_ids or upstream_group_ids, "my_load should depend on my_extract"
+
+    def test_build_from_yaml_with_trigger_rule(self, builder, tmp_path):
+        yaml_content = """
+dag_id: yaml_tr_dag
+steps:
+  my_extract:
+    blueprint: extract
+    version: 1
+    source_table: raw.data
+  my_load:
+    blueprint: load
+    depends_on: [my_extract]
+    trigger_rule: one_success
+    target_table: out
+"""
+        yaml_file = tmp_path / "tr.dag.yaml"
+        yaml_file.write_text(yaml_content)
+
+        dag = builder.build_from_yaml(yaml_file, render_template=False)
+        task = dag.task_dict["my_load"]
+        assert str(task.trigger_rule) == "one_success"
 
 
 class TestBuildFromYamlJinja:

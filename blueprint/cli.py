@@ -210,10 +210,24 @@ def _get_registry(template_dir: str | None) -> BlueprintRegistry:
     return get_registry(template_dir)
 
 
+def _get_trigger_rule_values() -> list[str]:
+    """Get valid trigger rule values from the installed Airflow version."""
+    import contextlib
+    import io
+    import warnings
+
+    with warnings.catch_warnings(), contextlib.redirect_stderr(io.StringIO()):
+        warnings.simplefilter("ignore")
+        from airflow.utils.trigger_rule import TriggerRule
+
+    return sorted(str(r.value) for r in TriggerRule)
+
+
 def _build_version_schema(
     blueprint_name: str,
     version: int,
     raw_schema: dict,
+    trigger_rule_values: list[str],
 ) -> dict:
     """Build a schema variant for a single version of a blueprint."""
     schema_data = copy.deepcopy(raw_schema)
@@ -230,6 +244,17 @@ def _build_version_schema(
         "type": "integer",
         "const": version,
         "description": "The blueprint version",
+    }
+    schema_data["properties"]["depends_on"] = {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Steps that must complete before this step runs",
+        "default": [],
+    }
+    schema_data["properties"]["trigger_rule"] = {
+        "type": "string",
+        "enum": trigger_rule_values,
+        "description": "Trigger rule for this step (default: all_success)",
     }
 
     if "required" not in schema_data:
@@ -306,11 +331,13 @@ def schema(
             console.print(f"[red]Error:[/red] {e}")
             sys.exit(1)
 
+        trigger_rule_values = _get_trigger_rule_values()
         variants = [
             _build_version_schema(
                 blueprint_name,
                 vi["version"],
                 vi["schema"],
+                trigger_rule_values,
             )
             for vi in versions_info
         ]
