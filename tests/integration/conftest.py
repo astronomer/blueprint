@@ -186,7 +186,7 @@ def airflow_env():
     port = str(_find_free_port())
 
     req_file = PROJECT_DIR / "requirements.txt"
-    req_file.write_text(f"-e {REPO_ROOT}\n")
+    req_file.write_text(f"-e {REPO_ROOT}\napache-airflow-providers-ftp\n")
 
     _run_astro("dev", "kill", "--standalone", check=False)
     result = _run_astro(

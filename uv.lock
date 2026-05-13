@@ -2,7 +2,8 @@ version = 1
 revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
-    "python_full_version >= '3.13'",
+    "python_full_version >= '3.14'",
+    "python_full_version == '3.13.*'",
     "python_full_version == '3.12.*'",
     "python_full_version < '3.12'",
 ]
@@ -44,6 +45,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "apache-airflow-providers-ftp" },
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "playwright" },
@@ -66,6 +68,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "apache-airflow-providers-ftp", specifier = ">=3.0.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "hypothesis", specifier = ">=6.113.0" },
     { name = "playwright", specifier = ">=1.58.0" },
@@ -144,7 +147,8 @@ dependencies = [
     { name = "apache-airflow-providers-standard" },
     { name = "apache-airflow-task-sdk" },
     { name = "argcomplete" },
-    { name = "asgiref" },
+    { name = "asgiref", version = "3.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "asgiref", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "attrs" },
     { name = "cadwyn" },
     { name = "colorlog" },
@@ -201,14 +205,16 @@ wheels = [
 
 [[package]]
 name = "apache-airflow-providers-common-compat"
-version = "1.7.2"
+version = "1.14.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apache-airflow" },
+    { name = "asgiref", version = "3.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "asgiref", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/4b/d921ee6eb6850e1e4fb649fd120d231d9efbf2e38b84a9a86710d1246a43/apache_airflow_providers_common_compat-1.7.2.tar.gz", hash = "sha256:797450468766cbc00752060625b5e2690ffc5f40d8890f4f30951d56cf3d94be", size = 20831, upload-time = "2025-07-06T08:38:53.572Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/99/3852e08d1eecf36e152f57ce69d46fea95a903748b5d4d200b915efcb574/apache_airflow_providers_common_compat-1.14.3.tar.gz", hash = "sha256:1ecba0c30b4ac2c40983e9aa627927576f49e8d466fcabdf464d1f7c6e8c54f7", size = 39892, upload-time = "2026-04-13T23:21:11.702Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/06/5705308c34a368f1146f4920945f620f3b69ba82fa52ea34464e3a9f74ab/apache_airflow_providers_common_compat-1.7.2-py3-none-any.whl", hash = "sha256:b57398bb26f0afe0c80c8ffe4d0f36496ac367cdbda14ff0312a95f09a6f936c", size = 30051, upload-time = "2025-07-06T08:36:57.778Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/59/eea9f8d9e66597842e0739854b7c841423a2589c2a3aeaec5f83151aded8/apache_airflow_providers_common_compat-1.14.3-py3-none-any.whl", hash = "sha256:269f48d21ff275d02c7db617d9e477aee6ad8eab39690f18b7342f1f3eba073b", size = 42396, upload-time = "2026-04-13T23:21:04.302Z" },
 ]
 
 [[package]]
@@ -236,6 +242,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/c7/88d7a6e7757b52b90ed923a9ad9de7308b9aee4037ff5baeac704c37e7d6/apache_airflow_providers_common_sql-1.27.3.tar.gz", hash = "sha256:5efd7706ea6392eac564cac1652b905d9262c4c39ccc6867ac45831fa0fb98f4", size = 101641, upload-time = "2025-07-06T08:38:55.978Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/07/5dc81b135b000620bde3466734e21f7a2c2ad9e8f4f0a559de8879f21334/apache_airflow_providers_common_sql-1.27.3-py3-none-any.whl", hash = "sha256:9e796b6a2f932a24c8ad23d8d357a8533365bed333cde5f8fd07d709ab2762ca", size = 65710, upload-time = "2025-07-06T08:37:01.291Z" },
+]
+
+[[package]]
+name = "apache-airflow-providers-ftp"
+version = "3.14.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "apache-airflow" },
+    { name = "apache-airflow-providers-common-compat" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0b/7a/176e6f4d24b22e8852ec921db695e676d9b9deaa7eb69e20a54f59682d0f/apache_airflow_providers_ftp-3.14.3.tar.gz", hash = "sha256:1025416571fe3252504e18b45a1a41e01f6668b504775ff14e8caac318f1d336", size = 68519, upload-time = "2026-04-12T14:22:03.079Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/31/6b4997fc78eec0d38d84725220e8f660f02ce3bfce14e3cd7b1221e2f1ee/apache_airflow_providers_ftp-3.14.3-py3-none-any.whl", hash = "sha256:3e76b60d8b2750faa061ca73438cb7c6597bb5db6b00ebee83cea0d413ce7b20", size = 20226, upload-time = "2026-04-12T14:20:18.376Z" },
 ]
 
 [[package]]
@@ -299,12 +318,29 @@ wheels = [
 name = "asgiref"
 version = "3.9.1"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.13.*'",
+    "python_full_version == '3.12.*'",
+    "python_full_version < '3.12'",
+]
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/90/61/0aa957eec22ff70b830b22ff91f825e70e1ef732c06666a805730f28b36b/asgiref-3.9.1.tar.gz", hash = "sha256:a5ab6582236218e5ef1648f242fd9f10626cfd4de8dc377db215d5d5098e3142", size = 36870, upload-time = "2025-07-08T09:07:43.344Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/3c/0464dcada90d5da0e71018c04a140ad6349558afb30b3051b4264cc5b965/asgiref-3.9.1-py3-none-any.whl", hash = "sha256:f3bba7092a48005b5f5bacd747d36ee4a5a61f4a269a6df590b43144355ebd2c", size = 23790, upload-time = "2025-07-08T09:07:41.548Z" },
+]
+
+[[package]]
+name = "asgiref"
+version = "3.11.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/63/40/f03da1264ae8f7cfdbf9146542e5e7e8100a4c66ab48e791df9a03d3f6c0/asgiref-3.11.1.tar.gz", hash = "sha256:5f184dc43b7e763efe848065441eac62229c9f7b0475f41f80e207a114eda4ce", size = 38550, upload-time = "2026-02-03T13:30:14.33Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/0a/a72d10ed65068e115044937873362e6e32fab1b7dce0046aeb224682c989/asgiref-3.11.1-py3-none-any.whl", hash = "sha256:e8667a091e69529631969fd45dc268fa79b99c92c5fcdda727757e52146ec133", size = 24345, upload-time = "2026-02-03T13:30:13.039Z" },
 ]
 
 [[package]]

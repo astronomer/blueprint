@@ -7,6 +7,7 @@ and a custom BlueprintDagArgs template for DAG-level arguments.
 from datetime import timedelta
 from typing import Any, Literal
 
+import airflow.providers.ftp  # noqa: F401  # load-bearing: CLI tests must `--with apache-airflow-providers-ftp` (not a transitive dep of apache-airflow)
 from airflow.decorators import task
 from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
