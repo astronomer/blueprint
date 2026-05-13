@@ -76,12 +76,16 @@ def _is_yaml_compatible(annotation: Any, seen: set[int] | None = None) -> str | 
     args = get_args(annotation)
 
     if origin is Union or isinstance(annotation, types.UnionType):
-        for arg in args or get_args(annotation):
-            if arg is type(None):
-                continue
-            error = _is_yaml_compatible(arg, seen)
-            if error:
-                return error
+        all_args = args or get_args(annotation)
+        non_none_args = [a for a in all_args if a is not type(None)]
+        if len(non_none_args) > 1:
+            names = ", ".join(getattr(a, "__name__", repr(a)) for a in non_none_args)
+            return (
+                f"union types are not allowed (got {names}); "
+                f"use a single type (Optional[X] / X | None is allowed)"
+            )
+        if non_none_args:
+            return _is_yaml_compatible(non_none_args[0], seen)
         return None
 
     if origin is Literal:

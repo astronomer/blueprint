@@ -5,7 +5,7 @@ import enum
 import uuid
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional, Union
 
 import pytest
 from pydantic import BaseModel, Field
@@ -363,15 +363,88 @@ class TestYamlTypeValidation:
 
         assert LitMixedBp.get_config_type() is LitMixedConfig
 
-    def test_valid_union(self):
+    def test_invalid_union_two_types(self):
         class UnionConfig(BaseModel):
             value: str | int
 
-        class UnionBp(Blueprint[UnionConfig]):
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class UnionBp(Blueprint[UnionConfig]):
+                def render(self, config):
+                    pass
+
+    def test_invalid_typing_union(self):
+        class UnionConfig(BaseModel):
+            value: Union[str, int]  # noqa: UP007
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class UnionBp(Blueprint[UnionConfig]):
+                def render(self, config):
+                    pass
+
+    def test_invalid_union_three_types(self):
+        class UnionConfig(BaseModel):
+            value: str | int | bool
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class UnionBp(Blueprint[UnionConfig]):
+                def render(self, config):
+                    pass
+
+    def test_valid_optional_pipe(self):
+        class OptConfig(BaseModel):
+            value: str | None = None
+
+        class OptBp(Blueprint[OptConfig]):
             def render(self, config):
                 pass
 
-        assert UnionBp.get_config_type() is UnionConfig
+        assert OptBp.get_config_type() is OptConfig
+
+    def test_valid_optional_typing(self):
+        class OptConfig(BaseModel):
+            value: Optional[str] = None  # noqa: UP045
+
+        class OptBp(Blueprint[OptConfig]):
+            def render(self, config):
+                pass
+
+        assert OptBp.get_config_type() is OptConfig
+
+    def test_invalid_union_in_list(self):
+        class ListUnionConfig(BaseModel):
+            items: list[str | int]
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class ListUnionBp(Blueprint[ListUnionConfig]):
+                def render(self, config):
+                    pass
+
+    def test_invalid_union_in_dict_value(self):
+        class DictUnionConfig(BaseModel):
+            mapping: dict[str, str | int]
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class DictUnionBp(Blueprint[DictUnionConfig]):
+                def render(self, config):
+                    pass
+
+    def test_invalid_union_in_nested_model(self):
+        class Inner(BaseModel):
+            x: str | int
+
+        class OuterConfig(BaseModel):
+            inner: Inner
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class OuterBp(Blueprint[OuterConfig]):
+                def render(self, config):
+                    pass
 
     def test_invalid_enum(self):
         class Color(enum.Enum):
@@ -764,6 +837,16 @@ class TestBlueprintDagArgs:
         with pytest.raises(TypeError, match="non-YAML-compatible"):
 
             class BadDagArgs(BlueprintDagArgs[BadConfig]):
+                def render(self, _config):
+                    return {}
+
+    def test_dag_args_rejects_union(self):
+        class UnionConfig(BaseModel):
+            value: str | int
+
+        with pytest.raises(TypeError, match="non-YAML-compatible"):
+
+            class UnionDagArgs(BlueprintDagArgs[UnionConfig]):
                 def render(self, _config):
                     return {}
 
