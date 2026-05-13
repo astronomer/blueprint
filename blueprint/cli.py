@@ -499,8 +499,8 @@ def new(template_dir: str | None, output_dir: str):
 
     console.print(f"\n[green]Created {file_path}[/green]")
     console.print("\nTo load this DAG, add a loader.py to your dags/ directory:")
-    console.print("  from blueprint import build_all")
-    console.print("  build_all()")
+    console.print("  from blueprint import build_all_dags")
+    console.print("  build_all_dags()")
 
 
 def main():

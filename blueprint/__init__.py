@@ -2,7 +2,7 @@
 
 __version__ = "0.2.0"
 
-from .builder import Builder, DAGConfig, OnDagBuilt, StepConfig, build_all
+from .builder import Builder, DAGConfig, OnDagBuilt, StepConfig, build_all, build_all_dags
 from .core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup
 from .errors import (
     BlueprintError,
@@ -73,6 +73,7 @@ __all__ = [
     "ValidationError",
     "YAMLParseError",
     "build_all",
+    "build_all_dags",
     "discover_blueprints",
     "field_validator",
     "get_blueprint_info",

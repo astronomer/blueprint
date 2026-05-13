@@ -2,6 +2,7 @@
 
 import inspect
 import logging
+import warnings
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -494,7 +495,7 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
-def build_all(
+def build_all_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
     pattern: str = "*.dag.yaml",
@@ -528,9 +529,9 @@ def build_all(
     Example:
         ```python
         # In dags/loader.py
-        from blueprint import build_all
+        from blueprint import build_all_dags
 
-        build_all()
+        build_all_dags()
         ```
     """
     from blueprint.loaders import render_yaml_template
@@ -594,8 +595,43 @@ def build_all(
     return dags
 
 
+def build_all(
+    search_path: str | Path | None = None,
+    register_globals: dict | None = None,
+    pattern: str = "*.dag.yaml",
+    render_templates: bool = True,
+    template_context: dict[str, Any] | None = None,
+    bp_registry: BlueprintRegistry | None = None,
+    on_dag_built: OnDagBuilt | None = None,
+) -> list["DAG"]:
+    """Deprecated alias for ``build_all_dags``.
+
+    Renamed so a one-line loader ``from blueprint import build_all_dags;
+    build_all_dags()`` carries the substring ``dag`` and satisfies Airflow's
+    safe-mode DAG file scanner.
+    """
+    warnings.warn(
+        "blueprint.build_all is deprecated and will be removed in a future "
+        "release; use blueprint.build_all_dags instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    if register_globals is None:
+        frame = inspect.currentframe()
+        register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+    return build_all_dags(
+        search_path=search_path,
+        register_globals=register_globals,
+        pattern=pattern,
+        render_templates=render_templates,
+        template_context=template_context,
+        bp_registry=bp_registry,
+        on_dag_built=on_dag_built,
+    )
+
+
 def _get_caller_file() -> str | None:
-    """Return the __file__ of the module that called build_all().
+    """Return the __file__ of the module that called build_all_dags().
 
     Walks the call stack to find the first frame outside of the blueprint
     package, making this resilient to internal helper wrappers.
@@ -621,7 +657,7 @@ def _resolve_search_path(search_path: str | Path | None) -> Path:
 
     Resolution order:
     1. Explicit search_path argument
-    2. Directory of the file that called build_all()
+    2. Directory of the file that called build_all_dags()
     3. Current working directory
     """
     if search_path is not None:
