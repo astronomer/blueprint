@@ -358,9 +358,11 @@ def schema(
     if output:
         Path(output).write_text(json_output)
         console.print(f"[green]Schema written to {output}[/green]")
-    else:
+    elif sys.stdout.isatty():
         syntax = Syntax(json_output, "json", theme="monokai")
         console.print(syntax)
+    else:
+        click.echo(json_output)
 
 
 def _select_blueprint(blueprints: list[dict[str, Any]]) -> dict[str, Any]:
