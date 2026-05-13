@@ -45,3 +45,22 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 ### Loader (`dags/loader.py`)
 
 `build_all()` with `on_dag_built` callback and `template_context`.
+
+## Running the CLI
+
+From the repo root, list this example's blueprints via an isolated `uvx` environment:
+
+```bash
+# This example (empty requirements.txt — no extra deps):
+uvx --from airflow-blueprint \
+    --with apache-airflow-providers-standard \
+    blueprint list --template-dir examples/advanced/dags
+
+# In a real Astro project where requirements.txt has third-party libs or other providers:
+uvx --from airflow-blueprint \
+    --with apache-airflow-providers-standard \
+    --with-requirements requirements.txt \
+    blueprint list
+```
+
+This example's blueprints import `BashOperator` (`dags/blueprints.py:10`), which on Airflow 3+ comes from `apache-airflow-providers-standard` — hence the `--with`. See the top-level [README](../../README.md#running-the-cli) for the full pattern, including non-Astro invocation.

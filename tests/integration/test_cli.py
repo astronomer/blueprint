@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-from .conftest import INTEGRATION_DIR
+from .conftest import INTEGRATION_DIR, REPO_ROOT
 
 pytestmark = pytest.mark.integration
 
@@ -18,12 +18,28 @@ DAGS_DIR = str(INTEGRATION_DIR / "project" / "dags")
 
 
 def _run_blueprint(*args: str) -> subprocess.CompletedProcess:
-    """Run a blueprint CLI command against the test project's dags."""
+    """Run a blueprint CLI command via the documented uvx pattern.
+
+    Mirrors the Astro-project invocation in the README: spin up an isolated
+    uvx environment, pin airflow-blueprint to the local checkout, and pull in
+    apache-airflow-providers-standard (the operators the integration project's
+    blueprints import live there on Airflow 3+). This exercises the same path
+    real users hit when running the CLI outside their Airflow venv.
+    """
     return subprocess.run(
-        ["uv", "run", "blueprint", *args],
+        [
+            "uvx",
+            "--from",
+            str(REPO_ROOT),
+            "--with",
+            "apache-airflow-providers-standard",
+            "blueprint",
+            *args,
+        ],
         capture_output=True,
         text=True,
         check=False,
+        timeout=180,
     )
 
 

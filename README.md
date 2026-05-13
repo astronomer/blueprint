@@ -554,7 +554,42 @@ steps:
 uv add airflow-blueprint
 ```
 
+## Running the CLI
+
+The CLI imports your blueprint Python files, so every package they import — Airflow providers, third-party libraries, your own internal packages — must be available in the CLI environment. The recommended way to invoke the CLI is via `uvx`, which spins up an isolated environment on demand.
+
+### Inside an Astro project
+
+```bash
+uvx --from airflow-blueprint \
+    --with apache-airflow-providers-standard \
+    --with-requirements requirements.txt \
+    blueprint list
+```
+
+`apache-airflow-providers-standard` is bundled into the Astro Runtime image and by convention is not duplicated in your `requirements.txt`, so add it with `--with`. Everything else your blueprints import — other providers (`apache-airflow-providers-google`, `apache-airflow-providers-snowflake`, …), third-party libraries (`pandas`, `requests`, …), your own internal packages — is listed in `requirements.txt` because the runtime doesn't ship it. `--with-requirements requirements.txt` picks it all up.
+
+### Outside Astro
+
+There's no runtime bundling assumption — spell out everything your blueprints import:
+
+```bash
+uvx --from airflow-blueprint \
+    --with apache-airflow-providers-standard \
+    --with apache-airflow-providers-google \
+    --with pandas \
+    blueprint schema bigquery_extract
+```
+
+Or point at your own requirements file with `--with-requirements path/to/requirements.txt`.
+
+### Alternative: inside a project venv
+
+`uv run blueprint ...` works inside any project venv that already has Airflow and all of your blueprints' imports installed (e.g. after `uv sync` in a project that lists them).
+
 ## CLI Commands
+
+Prefix each of the following with the uvx invocation above (or run via `uv run blueprint` inside a project venv).
 
 ```bash
 # List available blueprints
@@ -570,7 +605,7 @@ blueprint describe extract -v 1
 blueprint lint pipeline.dag.yaml
 
 # Generate JSON schema for editor support
-blueprint schema extract > extract.schema.json
+blueprint schema extract --output extract.schema.json
 
 # Create new DAG interactively
 blueprint new
