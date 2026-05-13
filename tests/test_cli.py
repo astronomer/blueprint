@@ -459,3 +459,71 @@ class Stub(Blueprint[StubConfig]):
         assert "depends_on" in schema["properties"]
         dep_prop = schema["properties"]["depends_on"]
         assert dep_prop["type"] == "array"
+
+    def test_schema_piped_output_is_raw_json(self, tmp_path):
+        """When stdout is not a TTY, schema must emit raw JSON parseable by json.loads.
+
+        Regression: previously rendered via Rich Syntax which wrapped/padded lines and
+        dropped commas at line boundaries, producing output that looked like JSON but
+        failed to parse.
+        """
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel, Field
+from blueprint.core import Blueprint
+
+class WideConfig(BaseModel):
+    a_long_parameter_name_that_would_wrap: str = Field(description="x" * 80)
+    another_long_parameter_name: str = Field(description="y" * 80)
+    yet_another_one: int = 1
+
+class Wide(Blueprint[WideConfig]):
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "wide", "--template-dir", str(template_dir)])
+        assert result.exit_code == 0
+
+        schema = json.loads(result.output)
+        assert schema["title"] == "wide"
+        assert "a_long_parameter_name_that_would_wrap" in schema["properties"]
+
+        for line in result.output.splitlines():
+            assert line == line.rstrip(), f"line has trailing whitespace: {line!r}"
+        assert "\x1b[" not in result.output
+
+    def test_schema_output_file_writes_valid_json(self, tmp_path):
+        """The --output flag writes raw JSON to the file regardless of TTY state."""
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class OutConfig(BaseModel):
+    x: int = 1
+
+class Out(Blueprint[OutConfig]):
+    def render(self, config):
+        pass
+""")
+
+        out_file = tmp_path / "out.json"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "schema",
+                "out",
+                "--template-dir",
+                str(template_dir),
+                "--output",
+                str(out_file),
+            ],
+        )
+        assert result.exit_code == 0
+        schema = json.loads(out_file.read_text())
+        assert schema["title"] == "out"
