@@ -386,6 +386,45 @@ steps:
 > **Note:** Parse-time Jinja2 filters and arithmetic on `context` values are not supported.
 > For complex expressions, use `{% raw %}{{ ds | some_filter }}{% endraw %}` instead.
 
+## Using Blueprints in Hand-Written Python DAGs
+
+Blueprints aren't tied to the YAML composition flow. If you already have a regular Python DAG and just want to drop in a blueprint-rendered step amongst your existing tasks, you can instantiate the Blueprint class directly and call `render()` inside a `with DAG(...)` block:
+
+```python
+# dags/hybrid_dag.py
+from datetime import datetime
+
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+
+from dags.etl_blueprints import Extract, ExtractConfig, Load, LoadConfig
+
+
+with DAG(
+    dag_id="hybrid_python_dag",
+    start_date=datetime(2024, 1, 1),
+    schedule=None,
+    catchup=False,
+) as dag:
+    setup = BashOperator(task_id="setup", bash_command="echo 'setup'")
+
+    extract = Extract()
+    extract.step_id = "extract"
+    extract_group = extract.render(ExtractConfig(source_table="raw.events", batch_size=100))
+
+    load = Load()
+    load.step_id = "load"
+    load_task = load.render(LoadConfig(target_table="warehouse.events", mode="append"))
+
+    finalize = BashOperator(task_id="finalize", bash_command="echo 'done'")
+
+    setup >> extract_group >> load_task >> finalize
+```
+
+Set `step_id` on the instance (it determines the `task_id` / `group_id` the blueprint renders under), then call `render(config)` to get back a `BaseOperator` or `TaskGroup` you can wire into the rest of your DAG. This is useful for incrementally adopting blueprints in an existing Python-DAG codebase without rewriting everything in YAML.
+
+> **Why the `dags.` prefix?** Astro's runtime image puts `/usr/local/airflow` on `PYTHONPATH`, so `dags/` is importable as a namespace package. The prefixed form resolves identically in the live scheduler, in `astro deploy --parse`'s DagBag check, and in any `DagBag()`-based integrity test — no `sys.path` shim or conftest setup required. A flat `from etl_blueprints import …` would work in the scheduler but fail under bare `DagBag()` scans (including the default `astro deploy` parse gate), so prefer the prefixed form.
+
 ## Programmatic Building
 
 For advanced use cases, build DAGs programmatically:
