@@ -12,11 +12,12 @@ on:
 
 jobs:
   claude-review:
-    # Safety: Only run for trusted contributors (forks have read-only tokens)
+    # Safety: Only run for trusted contributors. COLLABORATOR is intentionally
+    # excluded — a single rogue/compromised collaborator could otherwise exfiltrate
+    # CLAUDE_CODE_OAUTH_TOKEN via the PR's pyproject.toml/uv.lock.
     if: |
       github.event.pull_request.author_association == 'OWNER' ||
-      github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR'
+      github.event.pull_request.author_association == 'MEMBER'
 
     runs-on: ubuntu-latest
     permissions:
@@ -26,22 +27,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@4481e6d3c7bbb88db2a928ca3444c536f589c7c1 # v1.0.131
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4.1)
-          # model: "claude-opus-4-1-20250805"
-
-          # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: |
+          # Prompt for automated review (no @claude mention needed)
+          prompt: |
             Please review this pull request and provide feedback on:
             - Code quality and best practices
             - Potential bugs or issues
@@ -54,15 +52,14 @@ jobs:
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
           # use_sticky_comment: true
 
-          # Allow Claude to run validation and testing commands
-          allowed_tools: |
-            Bash(uv run ruff check blueprint/ tests/),
-            Bash(uv run ruff format --check blueprint/ tests/),
-            Bash(uv run ty check blueprint/),
-            Bash(uv run pytest tests/ -v),
-            Bash(uv run blueprint --help),
-            Bash(cd examples/simple && uv run blueprint list),
-            Bash(cd examples/advanced && uv run blueprint list)
+          # Security: this workflow runs against attacker-controllable PR code.
+          # We do NOT grant any Bash/test-execution tools — `uv run` would install
+          # from the PR's pyproject.toml/uv.lock and could exfiltrate the OAuth
+          # token via a malicious build backend. CI runs the same checks already.
+          # We also explicitly disallow the action's default write-capable tools
+          # (Edit/Write/git Bash) so an injected prompt cannot modify the PR.
+          # Pass `--model` via claude_args to change the model.
+          claude_args: --disallowedTools "Edit,MultiEdit,Write,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git rm:*)"
 
           # Optional: Skip review for certain conditions
           # if: |

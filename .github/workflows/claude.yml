@@ -12,11 +12,28 @@ on:
 
 jobs:
   claude:
+    # Safety: Only run for trusted contributors to prevent abuse and prompt injection
+    # from arbitrary commenters. Mirrors the gate used in claude-code-review.yml.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') &&
+          (github.event.review.author_association == 'OWNER' ||
+           github.event.review.author_association == 'MEMBER' ||
+           github.event.review.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'issues' &&
+          (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+          (github.event.issue.author_association == 'OWNER' ||
+           github.event.issue.author_association == 'MEMBER' ||
+           github.event.issue.author_association == 'COLLABORATOR'))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,13 +43,13 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@4481e6d3c7bbb88db2a928ca3444c536f589c7c1 # v1.0.131
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -40,27 +57,12 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4.1)
-          # model: "claude-opus-4-1-20250805"
-
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
 
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
 
-          # Allow Claude to run project-specific commands
-          allowed_tools: |
-            Bash(uv sync:*),
-            Bash(uv run blueprint:*),
-            Bash(uv run pytest:*),
-            Bash(uv run ruff check:*),
-            Bash(uv run ruff format:*),
-            Bash(uv run ty check:*),
-            Bash(uv build),
-            Bash(cd examples/simple && uv run blueprint:*),
-            Bash(cd examples/advanced && uv run blueprint:*)
-
-          # Optional: Custom environment variables for Claude
-          # claude_env: |
-          #   NODE_ENV: test
+          # Allow Claude to run project-specific commands.
+          # Pass `--model "claude-opus-4-1-20250805"` (etc.) in claude_args to change the model.
+          claude_args: --allowedTools "Bash(uv sync:*),Bash(uv run blueprint:*),Bash(uv run pytest:*),Bash(uv run ruff check:*),Bash(uv run ruff format:*),Bash(uv run ty check:*),Bash(uv build),Bash(cd examples/simple && uv run blueprint:*),Bash(cd examples/advanced && uv run blueprint:*)"

@@ -21,20 +21,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
 
       - name: Review New Issue
         id: claude-issue-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@4481e6d3c7bbb88db2a928ca3444c536f589c7c1 # v1.0.131
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Optional: Use Claude Opus for more thorough analysis
-          # model: "claude-opus-4-1-20250805"
+          # Pass `--model "claude-opus-4-1-20250805"` (etc.) in claude_args below to change the model.
 
-          direct_prompt: |
+          prompt: |
             Please review this new issue and provide helpful feedback:
 
             1. **Categorization**: Suggest appropriate labels based on content:
@@ -70,11 +69,7 @@ jobs:
             Be constructive, helpful, and welcoming in your response.
 
           # Allow limited tools for checking project context
-          allowed_tools: |
-            Bash(uv run blueprint --help),
-            Bash(cd examples/simple && uv run blueprint list),
-            Bash(cd examples/advanced && uv run blueprint list),
-            Bash(ls examples/simple/dags/ examples/advanced/dags/)
+          claude_args: --allowedTools "Bash(uv run blueprint --help),Bash(cd examples/simple && uv run blueprint list),Bash(cd examples/advanced && uv run blueprint list),Bash(ls examples/simple/dags/ examples/advanced/dags/)"
 
           # Use sticky comment so Claude updates the same comment if issue is edited
           use_sticky_comment: true
