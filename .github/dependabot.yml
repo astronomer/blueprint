@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keep pinned GitHub Action SHAs up to date. Without this, SHA pinning means
+  # we stop receiving upstream security/bug fixes silently. Dependabot opens a
+  # PR with the new SHA + release notes whenever any pinned action publishes.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
