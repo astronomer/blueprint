@@ -423,8 +423,6 @@ with DAG(
 
 Set `step_id` on the instance (it determines the `task_id` / `group_id` the blueprint renders under), then call `render(config)` to get back a `BaseOperator` or `TaskGroup` you can wire into the rest of your DAG. This is useful for incrementally adopting blueprints in an existing Python-DAG codebase without rewriting everything in YAML.
 
-> **Why the `dags.` prefix?** Astro's runtime image puts `/usr/local/airflow` on `PYTHONPATH`, so `dags/` is importable as a namespace package. The prefixed form resolves identically in the live scheduler, in `astro deploy --parse`'s DagBag check, and in any `DagBag()`-based integrity test — no `sys.path` shim or conftest setup required. A flat `from etl_blueprints import …` would work in the scheduler but fail under bare `DagBag()` scans (including the default `astro deploy` parse gate), so prefer the prefixed form.
-
 ## Programmatic Building
 
 For advanced use cases, build DAGs programmatically:
