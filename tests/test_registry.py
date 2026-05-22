@@ -10,7 +10,7 @@ from blueprint.errors import (
     MultipleDagArgsError,
     NonContiguousVersionError,
 )
-from blueprint.registry import BlueprintRegistry
+from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass
 
 
 class SimpleConfig(BaseModel):
@@ -561,3 +561,115 @@ class MyDa(BlueprintDagArgs[DaConfig]):
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
         assert "my_bp" in bp_names
         assert "my_da" not in bp_names
+
+
+class TestNonBlueprintFileFiltering:
+    """Verify that non-blueprint .py files in the search path are not executed.
+
+    The registry previously exec'd every .py file to find Blueprint subclasses.
+    That meant Python DAG files, utility modules, and any other code that
+    happened to live alongside blueprint definitions had their top-level code
+    run as a side effect of discovery (e.g. creating DAG objects, opening
+    network sockets, etc.). The AST-based pre-filter avoids that.
+    """
+
+    def test_defines_blueprint_subclass_recognizes_subscripted_base(self, tmp_path):
+        py_file = tmp_path / "bp.py"
+        py_file.write_text(
+            "from blueprint.core import Blueprint\nclass X(Blueprint[object]):\n    pass\n"
+        )
+        assert _defines_blueprint_subclass(py_file) is True
+
+    def test_defines_blueprint_subclass_recognizes_bare_base(self, tmp_path):
+        py_file = tmp_path / "bp.py"
+        py_file.write_text("from blueprint.core import Blueprint\nclass X(Blueprint):\n    pass\n")
+        assert _defines_blueprint_subclass(py_file) is True
+
+    def test_defines_blueprint_subclass_recognizes_blueprint_dag_args(self, tmp_path):
+        py_file = tmp_path / "da.py"
+        py_file.write_text(
+            "from blueprint.core import BlueprintDagArgs\n"
+            "class X(BlueprintDagArgs[object]):\n"
+            "    pass\n"
+        )
+        assert _defines_blueprint_subclass(py_file) is True
+
+    def test_defines_blueprint_subclass_rejects_plain_module(self, tmp_path):
+        py_file = tmp_path / "utils.py"
+        py_file.write_text("def helper():\n    return 42\n")
+        assert _defines_blueprint_subclass(py_file) is False
+
+    def test_defines_blueprint_subclass_rejects_unrelated_class(self, tmp_path):
+        py_file = tmp_path / "other.py"
+        py_file.write_text("class Foo:\n    pass\nclass Bar(Foo):\n    pass\n")
+        assert _defines_blueprint_subclass(py_file) is False
+
+    def test_defines_blueprint_subclass_rejects_syntax_error(self, tmp_path):
+        py_file = tmp_path / "broken.py"
+        py_file.write_text("def (\n")
+        assert _defines_blueprint_subclass(py_file) is False
+
+    def test_defines_blueprint_subclass_misses_aliased_import(self, tmp_path):
+        """Documented limitation: aliased imports aren't matched by the AST scan."""
+        py_file = tmp_path / "aliased.py"
+        py_file.write_text(
+            "from blueprint.core import Blueprint as B\nclass X(B[object]):\n    pass\n"
+        )
+        assert _defines_blueprint_subclass(py_file) is False
+
+    def test_non_blueprint_file_is_not_executed(self, tmp_path):
+        """A side-effecting non-blueprint file is left alone during discovery.
+
+        If the registry exec'd this file, the sentinel marker file would appear.
+        The blueprint registry must not run user Python that does not declare
+        a Blueprint subclass.
+        """
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        sentinel = tmp_path / "side_effect_ran"
+        side_effect_file = template_dir / "hybrid_dag.py"
+        side_effect_file.write_text(
+            f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('triggered')\n"
+        )
+
+        # Provide a real blueprint so discovery has something to find.
+        (template_dir / "blueprints.py").write_text(
+            "from pydantic import BaseModel\n"
+            "from blueprint.core import Blueprint\n"
+            "class Cfg(BaseModel):\n"
+            "    x: str = 'a'\n"
+            "class Real(Blueprint[Cfg]):\n"
+            "    def render(self, config):\n"
+            "        pass\n"
+        )
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        bp_names = [bp["name"] for bp in reg.list_blueprints()]
+        assert "real" in bp_names, "Blueprint discovery should still find real blueprints"
+        assert not sentinel.exists(), (
+            "Registry exec'd a non-blueprint .py file — the AST pre-filter is not active"
+        )
+
+    def test_blueprint_file_is_still_executed(self, tmp_path):
+        """Files that declare a Blueprint subclass must still be imported and registered."""
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+
+        (template_dir / "etl.py").write_text(
+            "from pydantic import BaseModel\n"
+            "from blueprint.core import Blueprint\n"
+            "class Cfg(BaseModel):\n"
+            "    x: str = 'a'\n"
+            "class Etl(Blueprint[Cfg]):\n"
+            "    def render(self, config):\n"
+            "        pass\n"
+        )
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        bp_names = [bp["name"] for bp in reg.list_blueprints()]
+        assert "etl" in bp_names

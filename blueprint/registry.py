@@ -1,5 +1,6 @@
 """Global registry for Blueprint discovery and management with version tracking."""
 
+import ast
 import importlib.util
 import logging
 import os
@@ -17,6 +18,35 @@ from blueprint.errors import (
 )
 
 logger = logging.getLogger(__name__)
+
+_BLUEPRINT_BASE_NAMES = frozenset({"Blueprint", "BlueprintDagArgs"})
+
+
+def _defines_blueprint_subclass(py_file: Path) -> bool:
+    """Return True if the file's source defines a Blueprint or BlueprintDagArgs subclass.
+
+    Uses AST inspection rather than executing the file, so that Python DAG files and
+    other non-blueprint code in the search path are not run during discovery. Matches
+    bases written as `Blueprint`, `Blueprint[Config]`, `BlueprintDagArgs`, or
+    `BlueprintDagArgs[Config]`. Files that subclass via an alias (e.g. `import Blueprint
+    as B`) are not matched and should be opted-in via an explicit registry config.
+    """
+    try:
+        source = py_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    try:
+        tree = ast.parse(source, filename=str(py_file))
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for base in node.bases:
+            target = base.value if isinstance(base, ast.Subscript) else base
+            if isinstance(target, ast.Name) and target.id in _BLUEPRINT_BASE_NAMES:
+                return True
+    return False
 
 
 class BlueprintRegistry:
@@ -95,6 +125,8 @@ class BlueprintRegistry:
             if py_file.name.startswith("_"):
                 continue
             if py_file.resolve() in self._exclude_files:
+                continue
+            if not _defines_blueprint_subclass(py_file):
                 continue
 
             try:
