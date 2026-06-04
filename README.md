@@ -442,6 +442,8 @@ config = DAGConfig(
 dag = Builder().build(config)
 ```
 
+`DAGConfig` accepts the same fields you would write in YAML -- `dag_id`, `steps`, and any DAG-arg fields your `BlueprintDagArgs` consumes -- so this is handy when the set of DAGs is data-driven (one per region, tenant, or, in the example below, satellite). See [`examples/advanced/dags/programmatic_dags.py`](examples/advanced/dags/programmatic_dags.py), which builds one DAG per satellite in a loop and registers each in `globals()` for Airflow to discover.
+
 ## Post-Processing DAGs
 
 The `on_dag_built` callback lets you modify each DAG after it's built from YAML. It receives the DAG and the path to the source YAML file:

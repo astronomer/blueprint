@@ -1,6 +1,6 @@
 # Advanced Example
 
-Space-themed example demonstrating many Blueprint features across two DAGs and five blueprints.
+Space-themed example demonstrating many Blueprint features across two YAML DAGs, a set of programmatically-built DAGs, and five blueprints.
 
 ## Quick Start
 
@@ -45,3 +45,10 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 ### Loader (`dags/loader.py`)
 
 `build_all()` with `on_dag_built` callback and `template_context`.
+
+### Programmatic Building (`dags/programmatic_dags.py`)
+
+Builds DAGs in a loop with the `Builder` API instead of YAML. One telemetry DAG
+is generated per satellite from a plain Python list (`telemetry_sat_001`,
+`telemetry_sat_002`, `telemetry_sat_003`), reusing the same blueprints. Use this
+when the set of DAGs is data-driven -- one per satellite, region, or tenant.
