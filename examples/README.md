@@ -11,7 +11,7 @@ tilt up
 
 ## [Advanced](advanced/)
 
-Space-themed example demonstrating many Blueprint features: versioning, runtime params, custom DAG args, Jinja2 templating, `on_dag_built` callbacks, and more.
+Space-themed example demonstrating many Blueprint features: versioning, runtime params, custom DAG args, Jinja2 templating, `on_dag_built` callbacks, programmatic DAG building with the `Builder` API, and more.
 
 ```bash
 cd examples/advanced/airflow3
