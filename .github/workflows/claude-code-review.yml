@@ -42,6 +42,12 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+          # Post the review back to the PR. In automated/agent mode (a custom
+          # prompt with no @claude mention) the action posts nothing unless this
+          # is set — Claude's output would otherwise stay in the hidden action log.
+          # (use_sticky_comment does not work in agent mode for this version.)
+          track_progress: true
+
           # Prompt for automated review (no @claude mention needed)
           prompt: |
             Please review this pull request and provide feedback on:
