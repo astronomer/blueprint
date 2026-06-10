@@ -12,12 +12,16 @@ on:
 
 jobs:
   claude-review:
-    # Safety: Only run for trusted contributors. COLLABORATOR is intentionally
-    # excluded — a single rogue/compromised collaborator could otherwise exfiltrate
-    # CLAUDE_CODE_OAUTH_TOKEN via the PR's pyproject.toml/uv.lock.
+    # Safety: only run for contributors with write access to the repo
+    # (OWNER/MEMBER/COLLABORATOR). External and fork contributors come through as
+    # CONTRIBUTOR/NONE and are skipped — and `pull_request` from a fork gets no
+    # secrets anyway, so CLAUDE_CODE_OAUTH_TOKEN is never exposed to untrusted code.
+    # MEMBER alone is insufficient: it only surfaces for *publicized* org membership,
+    # so privately-membered org members appear as COLLABORATOR.
     if: |
       github.event.pull_request.author_association == 'OWNER' ||
-      github.event.pull_request.author_association == 'MEMBER'
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR'
 
     runs-on: ubuntu-latest
     permissions:
