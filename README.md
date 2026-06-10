@@ -609,6 +609,8 @@ blueprint describe extract -v 1
 blueprint lint pipeline.dag.yaml
 
 # Generate JSON schema for editor support
+# (each schema includes a top-level "templateType" field — "blueprint" for a
+# step template, or "dag_args" for DAG-level fields via `blueprint schema --dag-args`)
 blueprint schema extract > extract.schema.json
 
 # Create new DAG interactively

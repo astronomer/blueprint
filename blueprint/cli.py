@@ -264,6 +264,7 @@ def _build_version_schema(
         schema_data["required"].insert(1, "version")
 
     schema_data["title"] = blueprint_name
+    schema_data["templateType"] = "blueprint"
     schema_data.pop("$schema", None)
 
     return schema_data
@@ -273,6 +274,7 @@ def _build_dag_yaml_schema(dag_args_schema: dict) -> dict:
     schema = copy.deepcopy(dag_args_schema)
     schema["$schema"] = "http://json-schema.org/draft-07/schema#"
     schema["title"] = "DAG"
+    schema["templateType"] = "dag_args"
     props = schema.setdefault("properties", {})
     props["dag_id"] = {"type": "string", "description": "Unique DAG identifier"}
     props["steps"] = {
@@ -349,6 +351,7 @@ def schema(
             schema_data = {
                 "$schema": "http://json-schema.org/draft-07/schema#",
                 "title": blueprint_name,
+                "templateType": "blueprint",
                 "oneOf": variants,
                 "discriminator": {"propertyName": "version"},
             }

@@ -243,6 +243,7 @@ class SchemaBlueprint(Blueprint[SchemaConfig]):
         assert "version" in result.output
         assert "$defs" not in result.output
         assert "$ref" not in result.output
+        assert json.loads(result.output)["templateType"] == "blueprint"
 
     def test_schema_command_multi_version(self, tmp_path):
         template_dir = tmp_path / "dags"
@@ -275,6 +276,9 @@ class FooV2(Blueprint[FooV2Config]):
         assert '"propertyName": "version"' in result.output
         assert "$defs" not in result.output
         assert "$ref" not in result.output
+        parsed = json.loads(result.output)
+        assert parsed["templateType"] == "blueprint"
+        assert all(variant["templateType"] == "blueprint" for variant in parsed["oneOf"])
 
     def test_schema_command_version_required(self, tmp_path):
         template_dir = tmp_path / "dags"
@@ -309,6 +313,7 @@ class Bar(Blueprint[BarConfig]):
         assert "schedule" in result.output
         assert "description" in result.output
         assert '"DAG"' in result.output
+        assert json.loads(result.output)["templateType"] == "dag_args"
 
     def test_schema_dag_args_custom(self, tmp_path):
         template_dir = tmp_path / "dags"
@@ -333,6 +338,7 @@ class CustomArgs(BlueprintDagArgs[CustomConfig]):
         assert "steps" in result.output
         assert "owner" in result.output
         assert "retries" in result.output
+        assert json.loads(result.output)["templateType"] == "dag_args"
 
     def test_schema_dag_args_with_blueprint_name_errors(self, tmp_path):
         template_dir = tmp_path / "dags"
