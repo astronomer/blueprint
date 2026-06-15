@@ -1,6 +1,6 @@
 """Blueprint - Reusable task templates composed into Airflow DAGs via YAML."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .builder import Builder, DAGConfig, OnDagBuilt, StepConfig, build_all, build_all_dags
 from .core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup
