@@ -19,8 +19,8 @@ from blueprint.registry import BlueprintRegistry
 console = Console()
 
 
-@click.group()
-@click.version_option(package_name="airflow-blueprint")
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(None, "-v", "--version", package_name="airflow-blueprint")
 def cli():
     """Blueprint - Reusable task templates composed into Airflow DAGs.
 
