@@ -86,9 +86,9 @@ The `blueprint:` value is the snake_case form of the class name. `Extract` becom
 
 ```python
 # dags/loader.py
-from blueprint import build_all_dags
+from blueprint import build_all_airflow_dags
 
-build_all_dags()
+build_all_airflow_dags()
 ```
 
 ### 4. Validate
@@ -452,13 +452,13 @@ The `on_dag_built` callback lets you modify each DAG after it's built from YAML.
 # dags/loader.py
 from pathlib import Path
 from airflow import DAG
-from blueprint import build_all_dags
+from blueprint import build_all_airflow_dags
 
 def post_process(dag: DAG, yaml_path: Path) -> None:
     dag.tags = [*(dag.tags or []), "managed-by-blueprint"]
     dag.access_control = {"data-team": {"can_read", "can_edit"}}
 
-build_all_dags(on_dag_built=post_process)
+build_all_airflow_dags(on_dag_built=post_process)
 ```
 
 This is useful for applying cross-cutting concerns like access controls, tags, or custom metadata that shouldn't live in individual YAML files. The callback runs once per DAG, after all steps are wired up.

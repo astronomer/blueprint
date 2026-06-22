@@ -2,7 +2,7 @@ from pathlib import Path
 
 from airflow import DAG
 
-from blueprint import build_all_dags
+from blueprint import build_all_airflow_dags
 
 
 def post_process(dag: DAG, yaml_path: Path) -> None:
@@ -10,4 +10,4 @@ def post_process(dag: DAG, yaml_path: Path) -> None:
     dag.tags = [*(dag.tags or []), "callback-verified"]
 
 
-build_all_dags(on_dag_built=post_process)
+build_all_airflow_dags(on_dag_built=post_process)

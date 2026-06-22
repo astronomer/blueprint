@@ -1,4 +1,4 @@
-"""Tests for the DAG builder: DAGConfig, StepConfig, Builder, build_all_dags."""
+"""Tests for the DAG builder: DAGConfig, StepConfig, Builder, build_all_airflow_dags."""
 
 from pathlib import Path
 from typing import Literal
@@ -738,7 +738,7 @@ class TestResolveSearchPath:
 
 class TestBuildAll:
     def test_build_all_discovers_yamls(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
 
         bp_file = tmp_path / "blueprints.py"
         bp_file.write_text("""
@@ -763,7 +763,7 @@ steps:
 """)
 
         globals_dict = {}
-        dags = build_all_dags(
+        dags = build_all_airflow_dags(
             search_path=tmp_path,
             register_globals=globals_dict,
             render_templates=False,
@@ -798,7 +798,7 @@ steps:
 """)
 
         globals_dict: dict = {}
-        with pytest.warns(DeprecationWarning, match="build_all_dags"):
+        with pytest.warns(DeprecationWarning, match="build_all_airflow_dags"):
             dags = build_all(
                 search_path=tmp_path,
                 register_globals=globals_dict,
@@ -808,8 +808,44 @@ steps:
         assert dags[0].dag_id == "deprecated_alias_test"
         assert "deprecated_alias_test" in globals_dict
 
-    def test_build_all_with_custom_dag_args(self, tmp_path):
+    def test_build_all_dags_deprecated_alias_warns_and_forwards(self, tmp_path):
         from blueprint.builder import build_all_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class ProcConfig(BaseModel):
+    cmd: str = "echo hello"
+
+class Proc(Blueprint[ProcConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command=config.cmd)
+""")
+
+        yaml_file = tmp_path / "pipeline.dag.yaml"
+        yaml_file.write_text("""
+dag_id: deprecated_dags_alias_test
+steps:
+  step1:
+    blueprint: proc
+""")
+
+        globals_dict: dict = {}
+        with pytest.warns(DeprecationWarning, match="build_all_airflow_dags"):
+            dags = build_all_dags(
+                search_path=tmp_path,
+                register_globals=globals_dict,
+                render_templates=False,
+            )
+        assert len(dags) == 1
+        assert dags[0].dag_id == "deprecated_dags_alias_test"
+        assert "deprecated_dags_alias_test" in globals_dict
+
+    def test_build_all_with_custom_dag_args(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
 
         bp_file = tmp_path / "blueprints.py"
         bp_file.write_text("""
@@ -848,7 +884,7 @@ steps:
 """)
 
         globals_dict = {}
-        dags = build_all_dags(
+        dags = build_all_airflow_dags(
             search_path=tmp_path,
             register_globals=globals_dict,
             render_templates=False,
@@ -858,14 +894,14 @@ steps:
         assert dags[0].default_args["owner"] == "analytics"
 
     def test_build_all_no_yamls(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
 
         globals_dict = {}
-        dags = build_all_dags(search_path=tmp_path, register_globals=globals_dict)
+        dags = build_all_airflow_dags(search_path=tmp_path, register_globals=globals_dict)
         assert dags == []
 
     def test_build_all_duplicate_dag_id(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
         from blueprint.errors import DuplicateDAGIdError
 
         bp_file = tmp_path / "blueprints.py"
@@ -890,14 +926,14 @@ class Stub(Blueprint[StubConfig]):
 
         globals_dict = {}
         with pytest.raises(DuplicateDAGIdError, match="same_id"):
-            build_all_dags(
+            build_all_airflow_dags(
                 search_path=tmp_path,
                 register_globals=globals_dict,
                 render_templates=False,
             )
 
     def test_build_all_duplicate_dag_id_only_first_registered(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
         from blueprint.errors import DuplicateDAGIdError
 
         bp_file = tmp_path / "blueprints.py"
@@ -922,7 +958,7 @@ class Stub(Blueprint[StubConfig]):
 
         globals_dict = {}
         with pytest.raises(DuplicateDAGIdError):
-            build_all_dags(
+            build_all_airflow_dags(
                 search_path=tmp_path,
                 register_globals=globals_dict,
                 render_templates=False,
@@ -930,7 +966,7 @@ class Stub(Blueprint[StubConfig]):
         assert len(globals_dict) <= 1
 
     def test_build_all_raises_on_error(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
         from blueprint.errors import BlueprintNotFoundError
 
         bp_file = tmp_path / "blueprints.py"
@@ -952,7 +988,7 @@ class Stub(Blueprint[StubConfig]):
 
         globals_dict = {}
         with pytest.raises(BlueprintNotFoundError):
-            build_all_dags(
+            build_all_airflow_dags(
                 search_path=tmp_path,
                 register_globals=globals_dict,
                 render_templates=False,
@@ -961,7 +997,7 @@ class Stub(Blueprint[StubConfig]):
 
 class TestOnDagBuilt:
     def test_build_all_on_dag_built_called(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
 
         bp_file = tmp_path / "blueprints.py"
         bp_file.write_text("""
@@ -986,7 +1022,7 @@ class Stub(Blueprint[StubConfig]):
             calls.append((dag.dag_id, yaml_path))
 
         globals_dict = {}
-        build_all_dags(
+        build_all_airflow_dags(
             search_path=tmp_path,
             register_globals=globals_dict,
             render_templates=False,
@@ -997,7 +1033,7 @@ class Stub(Blueprint[StubConfig]):
         assert calls[0][1] == yaml_file
 
     def test_build_all_on_dag_built_mutates_dag(self, tmp_path):
-        from blueprint.builder import build_all_dags
+        from blueprint.builder import build_all_airflow_dags
 
         bp_file = tmp_path / "blueprints.py"
         bp_file.write_text("""
@@ -1020,7 +1056,7 @@ class Stub(Blueprint[StubConfig]):
             dag.tags = [*(dag.tags or []), "post-processed"]
 
         globals_dict = {}
-        dags = build_all_dags(
+        dags = build_all_airflow_dags(
             search_path=tmp_path,
             register_globals=globals_dict,
             render_templates=False,
