@@ -1,5 +1,7 @@
 """Tests for shared blueprint utilities."""
 
+from pathlib import Path
+
 from blueprint.utils import display_path
 
 
@@ -9,7 +11,9 @@ class TestDisplayPath:
     def test_path_under_cwd_is_relative(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         nested = tmp_path / "dags" / "bp.py"
-        assert display_path(nested) == "dags/bp.py"
+        nested.parent.mkdir()
+        nested.write_text("")
+        assert display_path(nested) == str(Path("dags") / "bp.py")
 
     def test_path_outside_cwd_is_absolute(self, tmp_path, monkeypatch):
         cwd = tmp_path / "project"
@@ -23,4 +27,4 @@ class TestDisplayPath:
         other.mkdir()
         monkeypatch.chdir(other)
         nested = tmp_path / "dags" / "bp.py"
-        assert display_path(nested, base=tmp_path) == "dags/bp.py"
+        assert display_path(nested, base=tmp_path) == str(Path("dags") / "bp.py")

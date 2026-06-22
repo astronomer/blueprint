@@ -16,8 +16,10 @@ def display_path(path: str | Path, base: Path | None = None) -> str:
 
     Returns:
         The path relative to ``base`` when it is below it, otherwise the
-        absolute path.
+        absolute path. A falsy ``path`` is returned unchanged.
     """
+    if not path:
+        return str(path)
     base = (base or Path.cwd()).resolve()
     resolved = Path(path).resolve()
     try:

@@ -209,7 +209,9 @@ class DuplicateBlueprintError(BlueprintError):
     def __init__(self, blueprint_name: str, locations: list[str]):
         self.blueprint_name = blueprint_name
         self.locations = locations
-        super().__init__()
+        # Pass raw args (not the rendered message) so repr() stays informative
+        # while __str__ renders cwd-relative paths lazily at display time.
+        super().__init__(blueprint_name, locations)
 
     def __str__(self) -> str:
         message = f"Duplicate blueprint name '{self.blueprint_name}' found in multiple locations:"
@@ -280,12 +282,14 @@ class MultipleDagArgsError(BlueprintError):
 
     def __init__(self, locations: list[str]):
         self.locations = locations
-        super().__init__()
+        super().__init__(locations)
 
     def __str__(self) -> str:
         message = "Multiple BlueprintDagArgs templates found. Only one is allowed per project:"
         for loc in self.locations:
-            message += f"\n  • {display_path(loc) if loc else loc}"
+            if not loc:
+                continue
+            message += f"\n  • {display_path(loc)}"
 
         message += "\n\n💡 Suggestions:"
         message += "\n  • Remove all but one BlueprintDagArgs subclass"
