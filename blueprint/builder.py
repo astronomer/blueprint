@@ -626,7 +626,10 @@ def build_all_dags(
     )
     if register_globals is None:
         frame = inspect.currentframe()
-        register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        try:
+            register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        finally:
+            del frame
     return build_all_airflow_dags(
         search_path=search_path,
         register_globals=register_globals,
@@ -656,7 +659,10 @@ def build_all(
     )
     if register_globals is None:
         frame = inspect.currentframe()
-        register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        try:
+            register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        finally:
+            del frame
     return build_all_airflow_dags(
         search_path=search_path,
         register_globals=register_globals,
