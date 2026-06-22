@@ -81,12 +81,13 @@ class FooV2(Blueprint[FooV2Config]):
         assert "1" in result.output
         assert "2" in result.output
 
-    def test_list_shows_location(self):
+    def test_list_location_is_relative_to_template_dir(self):
+        """When --template-dir is given, locations are shown relative to it."""
         runner = CliRunner()
         with runner.isolated_filesystem():
-            template_dir = Path("dags")
-            template_dir.mkdir()
-            (template_dir / "bp.py").write_text("""
+            nested = Path("dags") / "etl"
+            nested.mkdir(parents=True)
+            (nested / "bp.py").write_text("""
 from pydantic import BaseModel
 from blueprint.core import Blueprint
 
@@ -107,9 +108,10 @@ class Foo(Blueprint[FooConfig]):
 
         assert result.exit_code == 0
         assert "Location" in result.output
-        # display_path renders with the OS separator, so build the expected
-        # path the same way rather than hard-coding a POSIX separator.
-        assert str(Path("dags") / "bp.py") in result.output
+        # Relative to the template dir ("dags"), not cwd. display_path renders
+        # with the OS separator, so build the expected path the same way.
+        assert str(Path("etl") / "bp.py") in result.output
+        assert str(Path("dags") / "etl" / "bp.py") not in result.output
 
     def test_describe_command(self, tmp_path):
         template_dir = tmp_path / "dags"

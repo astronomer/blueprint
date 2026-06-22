@@ -137,12 +137,12 @@ def list_blueprints(template_dir: str | None):
     table.add_column("Class", style="dim", no_wrap=False)
     table.add_column("Location", style="dim", overflow="fold")
 
-    cwd = Path.cwd()
+    base = Path(template_dir).resolve() if template_dir else Path.cwd()
     for bp in blueprints:
         versions_str = ", ".join(str(v) for v in bp["versions"])
         desc = bp["description"].split("\n")[0] if bp["description"] else "-"
         location = bp["locations"].get(bp["latest_version"])
-        location_str = display_path(location, base=cwd) if location else "-"
+        location_str = display_path(location, base=base) if location else "-"
         table.add_row(bp["name"], versions_str, desc, bp["class"], location_str)
 
     console.print(table)
