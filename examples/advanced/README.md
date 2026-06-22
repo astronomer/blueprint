@@ -44,7 +44,7 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 
 ### Loader (`dags/loader.py`)
 
-`build_all()` with `on_dag_built` callback and `template_context`.
+`build_all_airflow_dags()` with `on_dag_built` callback and `template_context`.
 
 ### Programmatic Building (`dags/programmatic_dags.py`)
 

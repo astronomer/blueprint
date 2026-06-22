@@ -495,7 +495,7 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
-def build_all_dags(
+def build_all_airflow_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
     pattern: str = "*.dag.yaml",
@@ -508,6 +508,11 @@ def build_all_dags(
 
     This is the top-level convenience function meant to be called from a
     DAG loader file (e.g., loader.py in your dags/ directory).
+
+    The name intentionally contains both ``airflow`` and ``dag`` so that a
+    one-line loader of ``from blueprint import build_all_airflow_dags;
+    build_all_airflow_dags()`` satisfies Airflow's safe-mode DAG file scanner,
+    which only considers a file if its contents contain both substrings.
 
     Args:
         search_path: Directory to search for YAML files. Defaults to dags/
@@ -529,9 +534,9 @@ def build_all_dags(
     Example:
         ```python
         # In dags/loader.py
-        from blueprint import build_all_dags
+        from blueprint import build_all_airflow_dags
 
-        build_all_dags()
+        build_all_airflow_dags()
         ```
     """
     from blueprint.loaders import render_yaml_template
@@ -595,6 +600,47 @@ def build_all_dags(
     return dags
 
 
+def build_all_dags(
+    search_path: str | Path | None = None,
+    register_globals: dict | None = None,
+    pattern: str = "*.dag.yaml",
+    render_templates: bool = True,
+    template_context: dict[str, Any] | None = None,
+    bp_registry: BlueprintRegistry | None = None,
+    on_dag_built: OnDagBuilt | None = None,
+) -> list["DAG"]:
+    """Deprecated alias for ``build_all_airflow_dags``.
+
+    A loader of ``from blueprint import build_all_dags; build_all_dags()``
+    carries the substring ``dag`` but not ``airflow``, so Airflow's safe-mode
+    scanner skips the file. Use ``build_all_airflow_dags`` instead, whose name
+    carries both required substrings.
+    """
+    warnings.warn(
+        "blueprint.build_all_dags is deprecated and will be removed in a "
+        "future release; use blueprint.build_all_airflow_dags instead. Its "
+        "name carries both 'airflow' and 'dag' so a one-line loader satisfies "
+        "Airflow's safe-mode DAG file scanner.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    if register_globals is None:
+        frame = inspect.currentframe()
+        try:
+            register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        finally:
+            del frame
+    return build_all_airflow_dags(
+        search_path=search_path,
+        register_globals=register_globals,
+        pattern=pattern,
+        render_templates=render_templates,
+        template_context=template_context,
+        bp_registry=bp_registry,
+        on_dag_built=on_dag_built,
+    )
+
+
 def build_all(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
@@ -604,22 +650,20 @@ def build_all(
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
 ) -> list["DAG"]:
-    """Deprecated alias for ``build_all_dags``.
-
-    Renamed so a one-line loader ``from blueprint import build_all_dags;
-    build_all_dags()`` carries the substring ``dag`` and satisfies Airflow's
-    safe-mode DAG file scanner.
-    """
+    """Deprecated alias for ``build_all_airflow_dags``."""
     warnings.warn(
         "blueprint.build_all is deprecated and will be removed in a future "
-        "release; use blueprint.build_all_dags instead.",
+        "release; use blueprint.build_all_airflow_dags instead.",
         DeprecationWarning,
         stacklevel=2,
     )
     if register_globals is None:
         frame = inspect.currentframe()
-        register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
-    return build_all_dags(
+        try:
+            register_globals = frame.f_back.f_globals if frame and frame.f_back else {}
+        finally:
+            del frame
+    return build_all_airflow_dags(
         search_path=search_path,
         register_globals=register_globals,
         pattern=pattern,
@@ -631,7 +675,7 @@ def build_all(
 
 
 def _get_caller_file() -> str | None:
-    """Return the __file__ of the module that called build_all_dags().
+    """Return the __file__ of the module that called build_all_airflow_dags().
 
     Walks the call stack to find the first frame outside of the blueprint
     package, making this resilient to internal helper wrappers.
@@ -657,7 +701,7 @@ def _resolve_search_path(search_path: str | Path | None) -> Path:
 
     Resolution order:
     1. Explicit search_path argument
-    2. Directory of the file that called build_all_dags()
+    2. Directory of the file that called build_all_airflow_dags()
     3. Current working directory
     """
     if search_path is not None:

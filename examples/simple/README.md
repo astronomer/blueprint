@@ -1,6 +1,6 @@
 # Simple Example
 
-One DAG with two concurrent extract steps followed by a load step. Demonstrates the basics: defining blueprints, composing them via YAML, and loading with `build_all()`.
+One DAG with two concurrent extract steps followed by a load step. Demonstrates the basics: defining blueprints, composing them via YAML, and loading with `build_all_airflow_dags()`.
 
 ## Quick Start
 

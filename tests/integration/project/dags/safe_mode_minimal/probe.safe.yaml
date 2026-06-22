@@ -1,0 +1,5 @@
+dag_id: safe_mode_minimal_probe
+steps:
+  probe:
+    blueprint: safe_mode_probe
+    message: "discovered via build_all_airflow_dags"
