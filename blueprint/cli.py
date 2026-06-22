@@ -14,7 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from blueprint.loaders import discover_blueprints, get_blueprint_info, validate_yaml
-from blueprint.registry import BlueprintRegistry
+from blueprint.registry import BlueprintRegistry, display_path
 
 console = Console()
 
@@ -134,11 +134,14 @@ def list_blueprints(template_dir: str | None):
     table.add_column("Versions", style="green", no_wrap=True)
     table.add_column("Description", overflow="fold")
     table.add_column("Class", style="dim", no_wrap=False)
+    table.add_column("Location", style="dim", overflow="fold")
 
     for bp in blueprints:
         versions_str = ", ".join(str(v) for v in bp["versions"])
         desc = bp["description"].split("\n")[0] if bp["description"] else "-"
-        table.add_row(bp["name"], versions_str, desc, bp["class"])
+        location = bp["locations"].get(bp["latest_version"])
+        location_str = display_path(location) if location else "-"
+        table.add_row(bp["name"], versions_str, desc, bp["class"], location_str)
 
     console.print(table)
 

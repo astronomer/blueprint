@@ -1,5 +1,7 @@
 """Tests for the version-aware Blueprint registry."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel
 
@@ -10,7 +12,7 @@ from blueprint.errors import (
     MultipleDagArgsError,
     NonContiguousVersionError,
 )
-from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass
+from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass, display_path
 
 
 class SimpleConfig(BaseModel):
@@ -673,3 +675,39 @@ class TestNonBlueprintFileFiltering:
 
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
         assert "etl" in bp_names
+
+
+class TestDisplayPath:
+    """Test the cwd-relative path renderer used for blueprint locations."""
+
+    def test_path_under_cwd_is_relative(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        nested = tmp_path / "dags" / "bp.py"
+        assert display_path(nested) == "dags/bp.py"
+
+    def test_path_outside_cwd_is_absolute(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "project"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+        sibling = (tmp_path / "elsewhere" / "bp.py").resolve()
+        assert display_path(sibling) == str(sibling)
+
+    def test_list_blueprints_reports_absolute_location(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "etl.py").write_text(
+            "from pydantic import BaseModel\n"
+            "from blueprint.core import Blueprint\n"
+            "class Cfg(BaseModel):\n"
+            "    x: str = 'a'\n"
+            "class Etl(Blueprint[Cfg]):\n"
+            "    def render(self, config):\n"
+            "        pass\n"
+        )
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        location = reg.list_blueprints()[0]["locations"][1]
+        assert Path(location).is_absolute()
+        assert Path(location) == (template_dir / "etl.py").resolve()
