@@ -22,26 +22,6 @@ logger = logging.getLogger(__name__)
 _BLUEPRINT_BASE_NAMES = frozenset({"Blueprint", "BlueprintDagArgs"})
 
 
-def display_path(path: str | Path) -> str:
-    """Render a path relative to the current working directory for display.
-
-    Falls back to the absolute path when it is not located under the working
-    directory (e.g. a sibling tree or a different drive on Windows).
-
-    Args:
-        path: Absolute or relative filesystem path.
-
-    Returns:
-        The path relative to ``Path.cwd()`` when it is below it, otherwise the
-        absolute path.
-    """
-    resolved = Path(path).resolve()
-    try:
-        return str(resolved.relative_to(Path.cwd()))
-    except ValueError:
-        return str(resolved)
-
-
 def _defines_blueprint_subclass(py_file: Path) -> bool:
     """Return True if the file's source defines a Blueprint or BlueprintDagArgs subclass.
 
@@ -197,20 +177,17 @@ class BlueprintRegistry:
         if version in self._blueprints[bp_name]:
             existing_loc = self._blueprint_locations[bp_name][version]
             dup_name = f"{bp_name} (v{version})"
-            raise DuplicateBlueprintError(
-                dup_name, [display_path(existing_loc), display_path(location)]
-            )
+            raise DuplicateBlueprintError(dup_name, [existing_loc, location])
 
         self._blueprints[bp_name][version] = cls
         self._blueprint_locations[bp_name][version] = location
 
     def _register_dag_args(self, cls: type[BlueprintDagArgs], py_file: Path) -> None:
+        """Register the single BlueprintDagArgs template, tracking its location."""
         location = str(py_file.resolve())
 
         if self._dag_args is not None:
-            raise MultipleDagArgsError(
-                [display_path(self._dag_args_location or ""), display_path(location)]
-            )
+            raise MultipleDagArgsError([self._dag_args_location or "", location])
 
         self._dag_args = cls
         self._dag_args_location = location

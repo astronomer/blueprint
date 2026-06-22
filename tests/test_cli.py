@@ -107,7 +107,9 @@ class Foo(Blueprint[FooConfig]):
 
         assert result.exit_code == 0
         assert "Location" in result.output
-        assert "dags/bp.py" in result.output
+        # display_path renders with the OS separator, so build the expected
+        # path the same way rather than hard-coding a POSIX separator.
+        assert str(Path("dags") / "bp.py") in result.output
 
     def test_describe_command(self, tmp_path):
         template_dir = tmp_path / "dags"

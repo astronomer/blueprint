@@ -12,7 +12,7 @@ from blueprint.errors import (
     MultipleDagArgsError,
     NonContiguousVersionError,
 )
-from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass, display_path
+from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass
 
 
 class SimpleConfig(BaseModel):
@@ -677,20 +677,8 @@ class TestNonBlueprintFileFiltering:
         assert "etl" in bp_names
 
 
-class TestDisplayPath:
-    """Test the cwd-relative path renderer used for blueprint locations."""
-
-    def test_path_under_cwd_is_relative(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        nested = tmp_path / "dags" / "bp.py"
-        assert display_path(nested) == "dags/bp.py"
-
-    def test_path_outside_cwd_is_absolute(self, tmp_path, monkeypatch):
-        cwd = tmp_path / "project"
-        cwd.mkdir()
-        monkeypatch.chdir(cwd)
-        sibling = (tmp_path / "elsewhere" / "bp.py").resolve()
-        assert display_path(sibling) == str(sibling)
+class TestBlueprintLocations:
+    """Test how the registry tracks and reports blueprint source locations."""
 
     def test_list_blueprints_reports_absolute_location(self, tmp_path):
         template_dir = tmp_path / "dags"
