@@ -1,6 +1,7 @@
 """Tests for the Blueprint CLI."""
 
 import json
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -79,6 +80,38 @@ class FooV2(Blueprint[FooV2Config]):
         assert "foo" in result.output.lower()
         assert "1" in result.output
         assert "2" in result.output
+
+    def test_list_location_is_relative_to_template_dir(self):
+        """When --template-dir is given, locations are shown relative to it."""
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            nested = Path("dags") / "etl"
+            nested.mkdir(parents=True)
+            (nested / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class FooConfig(BaseModel):
+    x: int = 1
+
+class Foo(Blueprint[FooConfig]):
+    '''Foo blueprint.'''
+    def render(self, config):
+        pass
+""")
+
+            result = runner.invoke(
+                cli,
+                ["list", "--template-dir", "dags"],
+                env={"COLUMNS": "200"},
+            )
+
+        assert result.exit_code == 0
+        assert "Location" in result.output
+        # Relative to the template dir ("dags"), not cwd. display_path renders
+        # with the OS separator, so build the expected path the same way.
+        assert str(Path("etl") / "bp.py") in result.output
+        assert str(Path("dags") / "etl" / "bp.py") not in result.output
 
     def test_describe_command(self, tmp_path):
         template_dir = tmp_path / "dags"

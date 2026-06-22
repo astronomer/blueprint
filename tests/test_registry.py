@@ -1,5 +1,7 @@
 """Tests for the version-aware Blueprint registry."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel
 
@@ -673,3 +675,27 @@ class TestNonBlueprintFileFiltering:
 
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
         assert "etl" in bp_names
+
+
+class TestBlueprintLocations:
+    """Test how the registry tracks and reports blueprint source locations."""
+
+    def test_list_blueprints_reports_absolute_location(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "etl.py").write_text(
+            "from pydantic import BaseModel\n"
+            "from blueprint.core import Blueprint\n"
+            "class Cfg(BaseModel):\n"
+            "    x: str = 'a'\n"
+            "class Etl(Blueprint[Cfg]):\n"
+            "    def render(self, config):\n"
+            "        pass\n"
+        )
+
+        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg.discover(force=True)
+
+        location = reg.list_blueprints()[0]["locations"][1]
+        assert Path(location).is_absolute()
+        assert Path(location) == (template_dir / "etl.py").resolve()

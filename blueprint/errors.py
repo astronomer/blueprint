@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from blueprint.utils import display_path
+
 # Constants
 MAX_SUGGESTION_VALUES = 10
 
@@ -207,16 +209,20 @@ class DuplicateBlueprintError(BlueprintError):
     def __init__(self, blueprint_name: str, locations: list[str]):
         self.blueprint_name = blueprint_name
         self.locations = locations
+        # Pass raw args (not the rendered message) so repr() stays informative
+        # while __str__ renders cwd-relative paths lazily at display time.
+        super().__init__(blueprint_name, locations)
 
-        message = f"Duplicate blueprint name '{blueprint_name}' found in multiple locations:"
-        for loc in locations:
-            message += f"\n  • {loc}"
+    def __str__(self) -> str:
+        message = f"Duplicate blueprint name '{self.blueprint_name}' found in multiple locations:"
+        for loc in self.locations:
+            message += f"\n  • {display_path(loc)}"
 
         message += "\n\n💡 Suggestions:"
         message += "\n  • Rename one of the blueprint classes"
         message += "\n  • Use unique names for each blueprint"
 
-        super().__init__(message)
+        return message
 
 
 class DuplicateDAGIdError(BlueprintError):
@@ -276,15 +282,19 @@ class MultipleDagArgsError(BlueprintError):
 
     def __init__(self, locations: list[str]):
         self.locations = locations
+        super().__init__(locations)
 
+    def __str__(self) -> str:
         message = "Multiple BlueprintDagArgs templates found. Only one is allowed per project:"
-        for loc in locations:
-            message += f"\n  • {loc}"
+        for loc in self.locations:
+            if not loc:
+                continue
+            message += f"\n  • {display_path(loc)}"
 
         message += "\n\n💡 Suggestions:"
         message += "\n  • Remove all but one BlueprintDagArgs subclass"
 
-        super().__init__(message)
+        return message
 
 
 class InvalidVersionError(BlueprintError):

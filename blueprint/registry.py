@@ -150,28 +150,25 @@ class BlueprintRegistry:
                             and obj is not Blueprint
                             and obj.__module__ == module_name
                         ):
-                            self._register_class(obj, py_file, directory)
+                            self._register_class(obj, py_file)
                         elif (
                             isinstance(obj, type)
                             and issubclass(obj, BlueprintDagArgs)
                             and obj not in (BlueprintDagArgs, DefaultDagArgs)
                             and obj.__module__ == module_name
                         ):
-                            self._register_dag_args(obj, py_file, directory)
+                            self._register_dag_args(obj, py_file)
 
             except (DuplicateBlueprintError, MultipleDagArgsError, ValueError):
                 raise
             except (ImportError, SyntaxError) as e:
                 logger.warning("Failed to load %s: %s", py_file, e)
 
-    def _register_class(self, cls: type[Blueprint], py_file: Path, base_dir: Path) -> None:
+    def _register_class(self, cls: type[Blueprint], py_file: Path) -> None:
         """Register a blueprint class with its parsed name and version."""
         bp_name, version = cls.parse_name_and_version()
 
-        try:
-            location = str(py_file.relative_to(base_dir.parent.parent))
-        except ValueError:
-            location = str(py_file)
+        location = str(py_file.resolve())
 
         if bp_name not in self._blueprints:
             self._blueprints[bp_name] = {}
@@ -185,13 +182,9 @@ class BlueprintRegistry:
         self._blueprints[bp_name][version] = cls
         self._blueprint_locations[bp_name][version] = location
 
-    def _register_dag_args(
-        self, cls: type[BlueprintDagArgs], py_file: Path, base_dir: Path
-    ) -> None:
-        try:
-            location = str(py_file.relative_to(base_dir.parent.parent))
-        except ValueError:
-            location = str(py_file)
+    def _register_dag_args(self, cls: type[BlueprintDagArgs], py_file: Path) -> None:
+        """Register the single BlueprintDagArgs template, tracking its location."""
+        location = str(py_file.resolve())
 
         if self._dag_args is not None:
             raise MultipleDagArgsError([self._dag_args_location or "", location])
