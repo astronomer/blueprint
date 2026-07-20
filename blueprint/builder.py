@@ -495,6 +495,21 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
+def _discover_yaml_files(search_path: Path, pattern: str) -> list[Path]:
+    """Find YAML files under search_path, honoring ``.airflowignore`` files.
+
+    Uses Airflow's own ignore-file walker so ignore semantics (configured
+    glob or regexp syntax, nested ignore files) match the DAG processor.
+    """
+    from airflow.utils.file import find_path_from_directory
+
+    return sorted(
+        path
+        for raw in find_path_from_directory(str(search_path), ".airflowignore")
+        if (path := Path(raw)).match(pattern)
+    )
+
+
 def build_all_airflow_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
@@ -519,7 +534,10 @@ def build_all_airflow_dags(
             or the directory containing the calling file.
         register_globals: Dict to register DAGs in. If not provided,
             automatically uses the caller's globals().
-        pattern: Glob pattern for YAML discovery (default: *.dag.yaml)
+        pattern: Glob pattern for YAML discovery (default: *.dag.yaml).
+            Files and directories matched by ``.airflowignore`` entries are
+            skipped, with the same syntax and semantics as Airflow's DAG
+            processor.
         render_templates: Whether to render Jinja2 templates in YAML files
         template_context: Additional context variables for template rendering
         bp_registry: Custom BlueprintRegistry to use. If not provided,
@@ -557,7 +575,7 @@ def build_all_airflow_dags(
 
     logger.info("Discovering DAGs in %s (pattern: %s)", resolved_path, pattern)
 
-    yaml_files = list(resolved_path.rglob(pattern)) if resolved_path.exists() else []
+    yaml_files = _discover_yaml_files(resolved_path, pattern) if resolved_path.exists() else []
     if not yaml_files:
         logger.debug("No YAML files found matching '%s' in %s", pattern, resolved_path)
         return []

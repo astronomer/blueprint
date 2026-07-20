@@ -46,6 +46,12 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 
 `build_all_airflow_dags()` with `on_dag_built` callback and `template_context`.
 
+### Ignoring DAG YAML (`dags/.airflowignore`)
+
+`build_all_airflow_dags()` honors `.airflowignore` with the same syntax and
+semantics as Airflow's DAG processor. Here `dags/.airflowignore` lists the
+`drafts` directory, so `drafts/lunar_relay.dag.yaml` never builds.
+
 ### Programmatic Building (`dags/programmatic_dags.py`)
 
 Builds DAGs in a loop with the `Builder` API instead of YAML. One telemetry DAG
