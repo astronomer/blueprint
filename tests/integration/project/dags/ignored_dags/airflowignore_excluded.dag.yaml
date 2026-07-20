@@ -1,0 +1,6 @@
+dag_id: airflowignore_excluded
+team: data-eng
+steps:
+  process:
+    blueprint: transform
+    operations: [clean]

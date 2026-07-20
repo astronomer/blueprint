@@ -32,6 +32,11 @@ class TestDagsLoaded:
         missing = EXPECTED_DAG_IDS - dag_ids
         assert not missing, f"Missing DAGs: {missing}"
 
+    def test_airflowignore_excludes_yaml(self, api_client: AirflowAPI):
+        """ignored_dags/ is listed in dags/.airflowignore, so its YAML must not build."""
+        dag_ids = api_client.get_dag_ids()
+        assert "airflowignore_excluded" not in dag_ids
+
     def test_no_import_errors(self, api_client: AirflowAPI):
         resp = api_client.get("/importErrors")
         assert resp.status_code == 200

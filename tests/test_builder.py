@@ -772,6 +772,92 @@ steps:
         assert dags[0].dag_id == "build_all_test"
         assert "build_all_test" in globals_dict
 
+    def test_build_all_respects_airflowignore(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class ProcConfig(BaseModel):
+    cmd: str = "echo hello"
+
+class Proc(Blueprint[ProcConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command=config.cmd)
+""")
+
+        kept_dir = tmp_path / "kept"
+        kept_dir.mkdir()
+        (kept_dir / "kept.dag.yaml").write_text("""
+dag_id: kept_dag
+steps:
+  step1:
+    blueprint: proc
+""")
+
+        ignored_dir = tmp_path / "drafts"
+        ignored_dir.mkdir()
+        (ignored_dir / "ignored.dag.yaml").write_text("""
+dag_id: ignored_dag
+steps:
+  step1:
+    blueprint: proc
+""")
+
+        (tmp_path / ".airflowignore").write_text("drafts\n")
+
+        globals_dict = {}
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+        )
+        assert [dag.dag_id for dag in dags] == ["kept_dag"]
+        assert "ignored_dag" not in globals_dict
+
+    def test_build_all_respects_nested_airflowignore(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class ProcConfig(BaseModel):
+    cmd: str = "echo hello"
+
+class Proc(Blueprint[ProcConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command=config.cmd)
+""")
+
+        subdir = tmp_path / "pipelines"
+        subdir.mkdir()
+        (subdir / ".airflowignore").write_text("skipped.dag.yaml\n")
+        (subdir / "skipped.dag.yaml").write_text("""
+dag_id: skipped_dag
+steps:
+  step1:
+    blueprint: proc
+""")
+        (subdir / "built.dag.yaml").write_text("""
+dag_id: built_dag
+steps:
+  step1:
+    blueprint: proc
+""")
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+        )
+        assert [dag.dag_id for dag in dags] == ["built_dag"]
+
     def test_build_all_deprecated_alias_warns_and_forwards(self, tmp_path):
         from blueprint.builder import build_all
 

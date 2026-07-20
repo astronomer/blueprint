@@ -76,6 +76,13 @@ def test_expected_dags_present():
     assert not missing, f"Missing DAGs: {missing}"
 
 
+def test_airflowignore_respected():
+    """YAML files under directories listed in .airflowignore must not build."""
+    with suppress_logging("airflow"):
+        dag_bag = DagBag(include_examples=False)
+    assert "airflowignore_excluded" not in dag_bag.dags
+
+
 def test_dag_args_team_tag_generated():
     """Verify that the team/tier abstraction generates the expected auto-tags."""
     with suppress_logging("airflow"):

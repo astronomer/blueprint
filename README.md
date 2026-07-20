@@ -463,6 +463,26 @@ build_all_airflow_dags(on_dag_built=post_process)
 
 This is useful for applying cross-cutting concerns like access controls, tags, or custom metadata that shouldn't live in individual YAML files. The callback runs once per DAG, after all steps are wired up.
 
+## Ignoring DAG YAML Files
+
+`build_all_airflow_dags()` honors [`.airflowignore`](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#airflowignore) files, with the same syntax and semantics as Airflow's DAG processor (including the `core.dag_ignore_file_syntax` setting and nested ignore files). A YAML file matched by an ignore entry is skipped:
+
+```
+# dags/.airflowignore
+drafts
+```
+
+```
+dags/
+├── .airflowignore
+├── loader.py
+├── customer_pipeline.dag.yaml   # built
+└── drafts/
+    └── wip_pipeline.dag.yaml    # skipped
+```
+
+`blueprint lint` skips ignored files the same way when it discovers a directory tree. To lint an ignored file anyway, pass its path explicitly: `blueprint lint drafts/wip_pipeline.dag.yaml`.
+
 ## Type Safety and Validation
 
 Blueprint uses Pydantic for robust validation:
