@@ -481,6 +481,8 @@ dags/
     └── wip_pipeline.dag.yaml    # skipped
 ```
 
+`blueprint lint` skips ignored files the same way when it discovers a directory tree. To lint an ignored file anyway, pass its path explicitly: `blueprint lint drafts/wip_pipeline.dag.yaml`.
+
 ## Type Safety and Validation
 
 Blueprint uses Pydantic for robust validation:

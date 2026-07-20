@@ -221,6 +221,72 @@ class Stub(Blueprint[StubConfig]):
         assert result.exit_code == 0
         assert "No .dag.yaml files found" in result.output
 
+    def test_lint_skips_airflowignored_files(self, tmp_path):
+        from pathlib import Path
+
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("good.dag.yaml").write_text("dag_id: good\nsteps:\n  s:\n    blueprint: stub\n")
+            drafts = Path("drafts")
+            drafts.mkdir()
+            (drafts / "broken.dag.yaml").write_text(
+                "dag_id: broken\nsteps:\n  s:\n    blueprint: missing\n"
+            )
+            Path(".airflowignore").write_text("drafts\n")
+
+            result = runner.invoke(cli, ["lint", "--template-dir", str(template_dir)])
+
+        assert result.exit_code == 0
+        assert "good.dag.yaml" in result.output
+        assert "broken.dag.yaml" not in result.output
+
+    def test_lint_explicit_path_overrides_airflowignore(self, tmp_path):
+        from pathlib import Path
+
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "bp.py").write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        pass
+""")
+
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            drafts = Path("drafts")
+            drafts.mkdir()
+            (drafts / "draft.dag.yaml").write_text(
+                "dag_id: draft\nsteps:\n  s:\n    blueprint: stub\n"
+            )
+            Path(".airflowignore").write_text("drafts\n")
+
+            result = runner.invoke(
+                cli, ["lint", "drafts/draft.dag.yaml", "--template-dir", str(template_dir)]
+            )
+
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+
     def test_lint_duplicate_dag_ids(self, tmp_path):
         from pathlib import Path
 

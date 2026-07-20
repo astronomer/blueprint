@@ -94,6 +94,29 @@ class TestLint:
         assert result.returncode == 0
         assert "PASS" in result.stdout
 
+    def test_lint_skips_airflowignored_yaml(self):
+        """Directory-wide lint from dags/ must skip ignored_dags/ per .airflowignore."""
+        result = subprocess.run(
+            ["uv", "run", "blueprint", "lint", "--template-dir", DAGS_DIR],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=DAGS_DIR,
+        )
+        assert result.returncode == 0, f"blueprint lint failed:\n{result.stdout}"
+        assert "airflowignore_excluded" not in result.stdout
+
+    def test_lint_explicit_path_overrides_airflowignore(self):
+        """An ignored file passed as an explicit path is still linted."""
+        result = _run_blueprint(
+            "lint",
+            f"{DAGS_DIR}/ignored_dags/airflowignore_excluded.dag.yaml",
+            "--template-dir",
+            DAGS_DIR,
+        )
+        assert result.returncode == 0
+        assert "PASS" in result.stdout
+
 
 class TestSchema:
     def test_schema_extract(self):

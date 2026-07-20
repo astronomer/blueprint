@@ -31,16 +31,17 @@ def cli():
 
 
 def _get_configs_to_check(path: str | None) -> list[Path]:
-    """Get list of configuration files to check."""
-    configs_to_check = []
+    """Get list of configuration files to check.
 
+    An explicit path is always checked, even if an ``.airflowignore`` entry
+    matches it; directory-wide discovery skips ignored files.
+    """
     if path:
-        configs_to_check.append(Path(path))
-    else:
-        for yaml_file in Path().rglob("*.dag.yaml"):
-            configs_to_check.append(yaml_file)
+        return [Path(path)]
 
-    return configs_to_check
+    from blueprint.builder import _discover_yaml_files
+
+    return _discover_yaml_files(Path(), "*.dag.yaml")
 
 
 def _validate_config(config_path: Path, template_dir: str | None) -> tuple[bool, str | None]:
@@ -89,7 +90,8 @@ def lint(path: str | None, template_dir: str | None):
     """Validate DAG YAML definitions.
 
     If PATH is provided, validate a specific file.
-    Otherwise, validate all .dag.yaml files in the current directory tree.
+    Otherwise, validate all .dag.yaml files in the current directory tree,
+    skipping files matched by .airflowignore entries.
     """
     configs_to_check = _get_configs_to_check(path)
 
