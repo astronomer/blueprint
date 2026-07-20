@@ -495,21 +495,6 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
-def _discover_yaml_files(search_path: Path, pattern: str) -> list[Path]:
-    """Find YAML files under search_path, honoring ``.airflowignore`` files.
-
-    Uses Airflow's own ignore-file walker so ignore semantics (configured
-    glob or regexp syntax, nested ignore files) match the DAG processor.
-    """
-    from airflow.utils.file import find_path_from_directory
-
-    return sorted(
-        path
-        for raw in find_path_from_directory(str(search_path), ".airflowignore")
-        if (path := Path(raw)).match(pattern)
-    )
-
-
 def build_all_airflow_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
@@ -557,7 +542,7 @@ def build_all_airflow_dags(
         build_all_airflow_dags()
         ```
     """
-    from blueprint.loaders import render_yaml_template
+    from blueprint.loaders import discover_yaml_files, render_yaml_template
 
     if register_globals is None:
         frame = inspect.currentframe()
@@ -575,7 +560,7 @@ def build_all_airflow_dags(
 
     logger.info("Discovering DAGs in %s (pattern: %s)", resolved_path, pattern)
 
-    yaml_files = _discover_yaml_files(resolved_path, pattern) if resolved_path.exists() else []
+    yaml_files = discover_yaml_files(resolved_path, pattern) if resolved_path.exists() else []
     if not yaml_files:
         logger.debug("No YAML files found matching '%s' in %s", pattern, resolved_path)
         return []

@@ -798,7 +798,7 @@ steps:
     blueprint: proc
 """)
 
-        ignored_dir = tmp_path / "adf"
+        ignored_dir = tmp_path / "drafts"
         ignored_dir.mkdir()
         (ignored_dir / "ignored.dag.yaml").write_text("""
 dag_id: ignored_dag
@@ -807,7 +807,7 @@ steps:
     blueprint: proc
 """)
 
-        (tmp_path / ".airflowignore").write_text("adf\n")
+        (tmp_path / ".airflowignore").write_text("drafts\n")
 
         globals_dict = {}
         dags = build_all_airflow_dags(

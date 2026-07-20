@@ -212,6 +212,31 @@ def discover_blueprints(template_dir: str | None = None) -> list[dict[str, Any]]
     return reg.list_blueprints()
 
 
+def discover_yaml_files(search_path: Path, pattern: str) -> list[Path]:
+    """Find YAML files under search_path, honoring ``.airflowignore`` files.
+
+    Uses Airflow's own ignore-file walker so ignore semantics (configured
+    glob or regexp syntax, nested ignore files) match the DAG processor.
+    Patterns are matched against the tail of each path, so name patterns
+    like ``*.dag.yaml`` behave as with ``rglob``; ``**`` is not supported
+    before Python 3.13. Results are sorted for deterministic build order.
+
+    Args:
+        search_path: Directory to walk.
+        pattern: Glob pattern files must match.
+
+    Returns:
+        Sorted list of matching file paths.
+    """
+    from airflow.utils.file import find_path_from_directory
+
+    return sorted(
+        path
+        for raw in find_path_from_directory(str(search_path), ".airflowignore")
+        if (path := Path(raw)).match(pattern)
+    )
+
+
 def get_blueprint_info(
     blueprint_name: str,
     template_dir: str | None = None,

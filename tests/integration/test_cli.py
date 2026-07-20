@@ -95,7 +95,6 @@ class TestLint:
         assert "PASS" in result.stdout
 
     def test_lint_skips_airflowignored_yaml(self):
-        """Directory-wide lint from dags/ must skip ignored_dags/ per .airflowignore."""
         result = subprocess.run(
             ["uv", "run", "blueprint", "lint", "--template-dir", DAGS_DIR],
             capture_output=True,
@@ -107,7 +106,6 @@ class TestLint:
         assert "airflowignore_excluded" not in result.stdout
 
     def test_lint_explicit_path_overrides_airflowignore(self):
-        """An ignored file passed as an explicit path is still linted."""
         result = _run_blueprint(
             "lint",
             f"{DAGS_DIR}/ignored_dags/airflowignore_excluded.dag.yaml",

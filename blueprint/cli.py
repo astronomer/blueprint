@@ -13,7 +13,12 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from blueprint.loaders import discover_blueprints, get_blueprint_info, validate_yaml
+from blueprint.loaders import (
+    discover_blueprints,
+    discover_yaml_files,
+    get_blueprint_info,
+    validate_yaml,
+)
 from blueprint.registry import BlueprintRegistry
 from blueprint.utils import display_path
 
@@ -39,9 +44,7 @@ def _get_configs_to_check(path: str | None) -> list[Path]:
     if path:
         return [Path(path)]
 
-    from blueprint.builder import _discover_yaml_files
-
-    return _discover_yaml_files(Path(), "*.dag.yaml")
+    return discover_yaml_files(Path(), "*.dag.yaml")
 
 
 def _validate_config(config_path: Path, template_dir: str | None) -> tuple[bool, str | None]:

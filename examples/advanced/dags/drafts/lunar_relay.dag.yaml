@@ -4,5 +4,6 @@ description: "Draft pipeline, excluded by dags/.airflowignore"
 steps:
   scan_relay:
     blueprint: scan
+    version: 1
     target: luna_relay_1
     band: ka_band

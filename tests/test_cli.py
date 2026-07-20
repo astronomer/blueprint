@@ -222,8 +222,6 @@ class Stub(Blueprint[StubConfig]):
         assert "No .dag.yaml files found" in result.output
 
     def test_lint_skips_airflowignored_files(self, tmp_path):
-        from pathlib import Path
-
         template_dir = tmp_path / "dags"
         template_dir.mkdir()
         (template_dir / "bp.py").write_text("""
@@ -255,8 +253,6 @@ class Stub(Blueprint[StubConfig]):
         assert "broken.dag.yaml" not in result.output
 
     def test_lint_explicit_path_overrides_airflowignore(self, tmp_path):
-        from pathlib import Path
-
         template_dir = tmp_path / "dags"
         template_dir.mkdir()
         (template_dir / "bp.py").write_text("""
