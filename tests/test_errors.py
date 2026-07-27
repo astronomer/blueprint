@@ -153,6 +153,19 @@ class TestDuplicateBlueprintError:
         message = str(error)
         assert "Duplicate blueprint name 'my_blueprint'" in message
 
+    def test_duplicate_location_from_installed_package_shown_unchanged(self):
+        """A dotted-module location (from entry-point discovery) isn't a real file.
+
+        display_path() must render it as-is rather than mangling it into a
+        fabricated absolute filesystem path (see blueprint/utils.py).
+        """
+        error = DuplicateBlueprintError(
+            "my_blueprint",
+            locations=["templates/etl.py", "company_blueprints.etl"],
+        )
+        message = str(error)
+        assert "company_blueprints.etl" in message
+
 
 class TestDuplicateDAGIdError:
     """Test duplicate DAG ID error."""

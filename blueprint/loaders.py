@@ -184,6 +184,7 @@ def load_blueprint(
     blueprint_name: str,
     template_dir: str | None = None,
     version: int | None = None,
+    discover_entry_points: bool = True,
 ) -> type[Blueprint]:
     """Load a blueprint class by name and optional version.
 
@@ -191,24 +192,31 @@ def load_blueprint(
         blueprint_name: Name of the blueprint (e.g., 'extract')
         template_dir: Directory containing blueprint files
         version: Specific version (None for latest)
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points
 
     Returns:
         The Blueprint class
     """
-    reg = get_registry(template_dir)
+    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
     return reg.get(blueprint_name, version)
 
 
-def discover_blueprints(template_dir: str | None = None) -> list[dict[str, Any]]:
+def discover_blueprints(
+    template_dir: str | None = None,
+    discover_entry_points: bool = True,
+) -> list[dict[str, Any]]:
     """Discover all available blueprints.
 
     Args:
         template_dir: Directory containing blueprint files
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points
 
     Returns:
         List of blueprint information dictionaries
     """
-    reg = get_registry(template_dir)
+    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
     return reg.list_blueprints()
 
 
@@ -241,6 +249,7 @@ def get_blueprint_info(
     blueprint_name: str,
     template_dir: str | None = None,
     version: int | None = None,
+    discover_entry_points: bool = True,
 ) -> dict[str, Any]:
     """Get detailed information about a specific blueprint.
 
@@ -248,23 +257,28 @@ def get_blueprint_info(
         blueprint_name: Name of the blueprint
         template_dir: Directory containing blueprint files
         version: Specific version (None for latest)
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points
 
     Returns:
         Dictionary with blueprint information including schema
     """
-    reg = get_registry(template_dir)
+    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
     return reg.get_blueprint_info(blueprint_name, version)
 
 
 def validate_yaml(
     path: str,
     template_dir: str | None = None,
+    discover_entry_points: bool = True,
 ) -> dict[str, Any]:
     """Validate a DAG YAML file without building the DAG.
 
     Args:
         path: Path to the .dag.yaml file
         template_dir: Directory containing blueprint files
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points
 
     Returns:
         The parsed and validated DAGConfig as a dict
@@ -276,7 +290,7 @@ def validate_yaml(
 
     dag_config = DAGConfig.model_validate(config)
 
-    reg = get_registry(template_dir)
+    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
 
     builder = Builder(bp_registry=reg)
     builder.validate_dependencies(dag_config)
@@ -294,10 +308,27 @@ def validate_yaml(
     return dag_config.model_dump()
 
 
-def get_registry(template_dir: str | None = None) -> BlueprintRegistry:
-    """Get or create a BlueprintRegistry for the given template directory."""
-    if template_dir:
-        temp_registry = BlueprintRegistry(template_dirs=[Path(template_dir)])
+def get_registry(
+    template_dir: str | None = None,
+    discover_entry_points: bool = True,
+) -> BlueprintRegistry:
+    """Get or create a BlueprintRegistry for the given template directory.
+
+    Args:
+        template_dir: Directory containing blueprint files. If given, a fresh registry
+            scoped to that directory is built and returned; otherwise the module-level
+            singleton registry is used.
+        discover_entry_points: Whether to also discover blueprints from installed packages
+            via entry points.
+
+    Returns:
+        A BlueprintRegistry with discovery already run.
+    """
+    if template_dir or not discover_entry_points:
+        temp_registry = BlueprintRegistry(
+            template_dirs=[Path(template_dir)] if template_dir else None,
+            discover_entry_points=discover_entry_points,
+        )
         temp_registry.discover(force=True)
         return temp_registry
 

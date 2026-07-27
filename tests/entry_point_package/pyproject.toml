@@ -1,0 +1,21 @@
+[project]
+name = "entry-point-test-blueprints"
+version = "0.0.0"
+description = "Test-only package that exercises entry-point blueprint discovery."
+requires-python = ">=3.10"
+dependencies = [
+    "airflow-blueprint",
+]
+
+# This is what makes the package's blueprints discoverable once installed, and is
+# the whole point of the fixture: BlueprintRegistry reads this group at discovery
+# time. See tests/integration/test_entry_point_discovery.py.
+[project.entry-points."airflow_blueprint.blueprints"]
+entry_point_test_blueprints = "entry_point_test_blueprints"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["entry_point_test_blueprints"]

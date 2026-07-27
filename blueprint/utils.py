@@ -16,9 +16,13 @@ def display_path(path: str | Path, base: Path | None = None) -> str:
 
     Returns:
         The path relative to ``base`` when it is below it, otherwise the
-        absolute path. A falsy ``path`` is returned unchanged.
+        absolute path. A falsy ``path`` is returned unchanged, as is a
+        non-absolute ``path`` (e.g. a dotted module name for a blueprint
+        discovered from an installed package rather than a file).
     """
     if not path:
+        return str(path)
+    if not Path(path).is_absolute():
         return str(path)
     base = (base or Path.cwd()).resolve()
     resolved = Path(path).resolve()

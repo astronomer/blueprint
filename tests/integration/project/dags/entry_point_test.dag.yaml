@@ -1,0 +1,5 @@
+dag_id: entry_point_test
+steps:
+  example:
+    blueprint: entry_point_bp_test
+    message: "Hello from test package"

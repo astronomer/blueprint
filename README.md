@@ -241,6 +241,77 @@ steps:
         table: orders
 ```
 
+## Sharing Blueprints Across Teams
+
+In larger organizations, it's common that one "data engineering" team implements Blueprint
+templates and multiple other "dag authoring" teams leverage those templates. The data
+engineering team can publish those templates using a pip-installable package. It's a bad practice
+to copy-paste template code across repositories since that quickly goes out of sync.
+
+Publishing Blueprint templates in a shared package requires declaring an entry point under the
+`airflow_blueprint.blueprints` group in your package's `pyproject.toml`:
+
+```toml
+# pyproject.toml
+[project.entry-points."airflow_blueprint.blueprints"]
+company_blueprints = "company_blueprints"
+```
+
+To leverage the Blueprint templates, install the package:
+
+```bash
+pip install company-blueprints  # or add it to requirements.txt
+```
+
+The Blueprint templates from the shared package become discoverable with the Blueprint CLI when the package is installed in your Python environment:
+
+```bash
+blueprint list
+```
+
+A few things worth knowing:
+
+**Collisions give an error**
+
+Two templates with the same name and version will raise a `DuplicateBlueprintError`. This also happens when templates are stored in different locations (such as locally and in package).
+
+**Keep the `entry-point` target scoped to code defining Blueprint templates**
+
+Every submodule under the `entry-point` gets scanned for Blueprint templates on every DAG parsing cycle. This could include unnecessary code. If your project contains other folders with non-Blueprint code, for example:
+
+```
+my_project/
+├── pyproject.toml
+└── my_project/
+    ├── __init__.py
+    ├── utils/       # Utility code, not Blueprint templates
+    │   └── ...
+    ├── operators/   # Custom Airflow operators, not Blueprint templates
+    │   └── ...
+    └── blueprints/  # <-- Only this contains Blueprint templates
+        ├── __init__.py
+        ├── extract.py
+        └── load.py
+```
+
+A top-level `entry-point` will look like so:
+
+```toml
+# pyproject.toml
+[project.entry-points."airflow_blueprint.blueprints"]
+my_project = "my_project"
+```
+
+And limiting the `entry-point` to a subfolder is done like so:
+
+```toml
+# pyproject.toml
+[project.entry-points."airflow_blueprint.blueprints"]
+my_project = "my_project.blueprints"
+```
+
+Note that this applies to the discoverability of Blueprint templates. A template can still import from another module that's not included in the `entry-point`.
+
 ## Airflow Rendered Templates
 
 Every task instance gets two extra fields visible in Airflow's "Rendered Template" tab:

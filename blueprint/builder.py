@@ -503,6 +503,7 @@ def build_all_airflow_dags(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -530,6 +531,9 @@ def build_all_airflow_dags(
         on_dag_built: Optional callback invoked after each DAG is built.
             Receives the DAG and the Path to the source YAML file.
             Use this to apply post-processing such as access controls or tags.
+        discover_entry_points: Whether to also discover blueprints from installed packages
+            advertising themselves via the ``airflow_blueprint.blueprints`` entry-point
+            group. Ignored when ``bp_registry`` is supplied directly.
 
     Returns:
         List of built DAGs
@@ -553,7 +557,11 @@ def build_all_airflow_dags(
     if bp_registry is None:
         caller_file = _get_caller_file()
         exclude = {Path(caller_file)} if caller_file else set()
-        bp_registry = BlueprintRegistry(template_dirs=[resolved_path], exclude_files=exclude)
+        bp_registry = BlueprintRegistry(
+            template_dirs=[resolved_path],
+            exclude_files=exclude,
+            discover_entry_points=discover_entry_points,
+        )
         bp_registry.discover(force=True)
 
     builder = Builder(bp_registry=bp_registry)
@@ -611,6 +619,7 @@ def build_all_dags(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``.
 
@@ -641,6 +650,7 @@ def build_all_dags(
         template_context=template_context,
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
+        discover_entry_points=discover_entry_points,
     )
 
 
@@ -652,6 +662,7 @@ def build_all(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``."""
     warnings.warn(
@@ -674,6 +685,7 @@ def build_all(
         template_context=template_context,
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
+        discover_entry_points=discover_entry_points,
     )
 
 

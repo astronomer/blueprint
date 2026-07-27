@@ -10,6 +10,7 @@ dc_resource('triggerer', resource_deps=['db-migration'])
 sync_pyproj_toml = sync('../../../pyproject.toml', '/usr/local/airflow/blueprint/pyproject.toml')
 sync_readme = sync('../../../README.md', '/usr/local/airflow/blueprint/README.md')
 sync_src = sync('../../../blueprint', '/usr/local/airflow/blueprint/blueprint')
+sync_shared_blueprints = sync('../../shared-blueprints', '/usr/local/airflow/shared-blueprints')
 
 docker_build(
     'blueprint-advanced-airflow3',
@@ -20,9 +21,14 @@ docker_build(
         sync_pyproj_toml,
         sync_src,
         sync_readme,
+        sync_shared_blueprints,
         run(
             'cd /usr/local/airflow/blueprint && uv pip install -e .',
             trigger=['pyproject.toml']
+        ),
+        run(
+            'cd /usr/local/airflow/shared-blueprints && uv pip install -e .',
+            trigger=['../../shared-blueprints/pyproject.toml']
         ),
     ]
 )

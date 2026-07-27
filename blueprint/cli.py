@@ -47,14 +47,24 @@ def _get_configs_to_check(path: str | None) -> list[Path]:
     return discover_yaml_files(Path(), "*.dag.yaml")
 
 
-def _validate_config(config_path: Path, template_dir: str | None) -> tuple[bool, str | None]:
+def _validate_config(
+    config_path: Path, template_dir: str | None, discover_entry_points: bool = True
+) -> tuple[bool, str | None]:
     """Validate a single configuration file.
+
+    Args:
+        config_path: Path to the .dag.yaml file to validate.
+        template_dir: Directory containing blueprint files.
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points.
 
     Returns:
         tuple of (success, dag_id)
     """
     try:
-        result = validate_yaml(str(config_path), template_dir=template_dir)
+        result = validate_yaml(
+            str(config_path), template_dir=template_dir, discover_entry_points=discover_entry_points
+        )
     except Exception as e:
         console.print(f"[red]FAIL[/red] {config_path}")
         if hasattr(e, "_format_message") and callable(e._format_message):
@@ -89,7 +99,12 @@ def _check_duplicate_dag_ids(dag_ids_to_files: dict[str, list[Path]]) -> bool:
 @cli.command()
 @click.argument("path", required=False, type=click.Path(exists=True))
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
-def lint(path: str | None, template_dir: str | None):
+@click.option(
+    "--entry-points/--no-entry-points",
+    default=True,
+    help="Discover blueprints from installed packages via entry points.",
+)
+def lint(path: str | None, template_dir: str | None, entry_points: bool):
     """Validate DAG YAML definitions.
 
     If PATH is provided, validate a specific file.
@@ -107,7 +122,9 @@ def lint(path: str | None, template_dir: str | None):
     valid_count = 0
 
     for config_path in configs_to_check:
-        success, dag_id = _validate_config(config_path, template_dir)
+        success, dag_id = _validate_config(
+            config_path, template_dir, discover_entry_points=entry_points
+        )
 
         if success and dag_id:
             if dag_id in dag_ids_to_files:
@@ -127,9 +144,14 @@ def lint(path: str | None, template_dir: str | None):
 
 @cli.command("list")
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
-def list_blueprints(template_dir: str | None):
+@click.option(
+    "--entry-points/--no-entry-points",
+    default=True,
+    help="Discover blueprints from installed packages via entry points.",
+)
+def list_blueprints(template_dir: str | None, entry_points: bool):
     """List available blueprints."""
-    blueprints = discover_blueprints(template_dir)
+    blueprints = discover_blueprints(template_dir, discover_entry_points=entry_points)
 
     if not blueprints:
         console.print("[yellow]No blueprints found.[/yellow]")
@@ -157,10 +179,19 @@ def list_blueprints(template_dir: str | None):
 @click.argument("blueprint_name")
 @click.option("--version", "-v", type=int, default=None, help="Specific version (default: latest)")
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
-def describe(blueprint_name: str, version: int | None, template_dir: str | None):
+@click.option(
+    "--entry-points/--no-entry-points",
+    default=True,
+    help="Discover blueprints from installed packages via entry points.",
+)
+def describe(
+    blueprint_name: str, version: int | None, template_dir: str | None, entry_points: bool
+):
     """Show blueprint parameters and documentation."""
     try:
-        info = get_blueprint_info(blueprint_name, template_dir, version=version)
+        info = get_blueprint_info(
+            blueprint_name, template_dir, version=version, discover_entry_points=entry_points
+        )
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
@@ -213,11 +244,22 @@ def describe(blueprint_name: str, version: int | None, template_dir: str | None)
     console.print(yaml_syntax)
 
 
-def _get_registry(template_dir: str | None) -> BlueprintRegistry:
-    """Get a BlueprintRegistry for the given template directory."""
+def _get_registry(
+    template_dir: str | None, discover_entry_points: bool = True
+) -> BlueprintRegistry:
+    """Get a BlueprintRegistry for the given template directory.
+
+    Args:
+        template_dir: Directory containing blueprint files.
+        discover_entry_points: Whether to also discover blueprints from installed packages via
+            entry points.
+
+    Returns:
+        A BlueprintRegistry with discovery already run.
+    """
     from blueprint.loaders import get_registry
 
-    return get_registry(template_dir)
+    return get_registry(template_dir, discover_entry_points=discover_entry_points)
 
 
 def _get_trigger_rule_values() -> list[str]:
@@ -304,11 +346,17 @@ def _build_dag_yaml_schema(dag_args_schema: dict) -> dict:
 @click.option("--dag-args", "dag_args", is_flag=True, help="Emit schema for DAG-level YAML fields")
 @click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
+@click.option(
+    "--entry-points/--no-entry-points",
+    default=True,
+    help="Discover blueprints from installed packages via entry points.",
+)
 def schema(
     blueprint_name: str | None,
     dag_args: bool,
     output: str | None,
     template_dir: str | None,
+    entry_points: bool,
 ):
     """Generate JSON Schema for a blueprint's configuration.
 
@@ -327,7 +375,7 @@ def schema(
         sys.exit(1)
 
     try:
-        reg = _get_registry(template_dir)
+        reg = _get_registry(template_dir, discover_entry_points=entry_points)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
@@ -446,9 +494,14 @@ def _collect_parameters(info: dict[str, Any]) -> dict[str, object]:
 @cli.command()
 @click.option("--template-dir", default=None, help="Directory containing blueprint files")
 @click.option("--output-dir", default=".", help="Output directory for YAML config")
-def new(template_dir: str | None, output_dir: str):
+@click.option(
+    "--entry-points/--no-entry-points",
+    default=True,
+    help="Discover blueprints from installed packages via entry points.",
+)
+def new(template_dir: str | None, output_dir: str, entry_points: bool):
     """Interactively create a new DAG YAML definition."""
-    blueprints = discover_blueprints(template_dir)
+    blueprints = discover_blueprints(template_dir, discover_entry_points=entry_points)
 
     if not blueprints:
         console.print("[red]No blueprints found.[/red]")
@@ -457,14 +510,14 @@ def new(template_dir: str | None, output_dir: str):
     selected = _select_blueprint(blueprints)
     console.print(f"\n[green]Selected:[/green] {selected['name']}")
 
-    info = get_blueprint_info(selected["name"], template_dir)
+    info = get_blueprint_info(selected["name"], template_dir, discover_entry_points=entry_points)
 
     dag_id = console.input("\nDAG ID: ")
     if not dag_id:
         console.print("[red]DAG ID is required[/red]")
         sys.exit(1)
 
-    reg = _get_registry(template_dir)
+    reg = _get_registry(template_dir, discover_entry_points=entry_points)
     dag_args_cls = reg.get_dag_args()
     dag_args_schema = dag_args_cls.get_schema()
     dag_args_params = dag_args_schema.get("properties", {})

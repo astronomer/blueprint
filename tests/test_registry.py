@@ -1,5 +1,8 @@
 """Tests for the version-aware Blueprint registry."""
 
+import importlib
+import importlib.metadata
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,11 +11,50 @@ from pydantic import BaseModel
 from blueprint.core import Blueprint, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
+    DuplicateBlueprintError,
     InvalidVersionError,
     MultipleDagArgsError,
     NonContiguousVersionError,
 )
 from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass
+
+
+def _blueprint_source(class_name: str, config_name: str = "Config") -> str:
+    """Generate minimal Blueprint subclass source for entry-point discovery tests."""
+    return f"""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class {config_name}(BaseModel):
+    x: int = 1
+
+class {class_name}(Blueprint[{config_name}]):
+    def render(self, config):
+        pass
+"""
+
+
+class _FakeEntryPoint:
+    """
+    Simulate installed entry points without having to package and installing distributions.
+    """
+
+    def __init__(self, name, value, dist_name=None, load_fn=None):
+        self.name = name
+        self.value = value
+        self._dist_name = dist_name
+        self._load_fn = load_fn or (lambda: importlib.import_module(value))
+
+    def load(self):
+        return self._load_fn()
+
+    @property
+    def dist(self):
+        if self._dist_name is None:
+            return None
+        from types import SimpleNamespace
+
+        return SimpleNamespace(name=self._dist_name)
 
 
 class SimpleConfig(BaseModel):
@@ -42,7 +84,9 @@ class TestBlueprintRegistry:
 
     @pytest.fixture
     def reg(self):
-        return BlueprintRegistry()
+        # Hermetic: directory-scan tests shouldn't pick up whatever this dev
+        # venv happens to have installed under the entry-point group.
+        return BlueprintRegistry(discover_entry_points=False)
 
     @pytest.fixture
     def temp_blueprints(self, tmp_path):
@@ -225,12 +269,12 @@ class Dup(Blueprint[DupConfig2]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         with pytest.raises(DuplicateBlueprintError, match="dup"):
             reg.discover(force=True)
 
     def test_template_dirs_constructor(self, temp_blueprints):
-        reg = BlueprintRegistry(template_dirs=[temp_blueprints])
+        reg = BlueprintRegistry(template_dirs=[temp_blueprints], discover_entry_points=False)
         reg.discover(force=True)
 
         blueprints = reg.list_blueprints()
@@ -239,7 +283,7 @@ class Dup(Blueprint[DupConfig2]):
         assert "load" in names
 
     def test_template_dirs_constructor_overrides_defaults(self, temp_blueprints):
-        reg = BlueprintRegistry(template_dirs=[temp_blueprints])
+        reg = BlueprintRegistry(template_dirs=[temp_blueprints], discover_entry_points=False)
         dirs = reg.get_template_dirs()
         assert dirs == [temp_blueprints]
 
@@ -302,7 +346,7 @@ class MyCustomExtractor(Blueprint[MyConfig]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         cls = reg.get("extract")
@@ -340,7 +384,7 @@ class CustomExtractor(Blueprint[Cfg2]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         with pytest.raises(DuplicateBlueprintError, match="extract"):
             reg.discover(force=True)
 
@@ -367,7 +411,7 @@ class ExtractV3(Blueprint[Cfg3]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         with pytest.raises(NonContiguousVersionError, match="Missing versions: 2"):
             reg.discover(force=True)
 
@@ -389,7 +433,7 @@ class MyExtractor(Blueprint[Cfg]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         with pytest.raises(NonContiguousVersionError, match="extract"):
             reg.discover(force=True)
 
@@ -420,7 +464,7 @@ class MyExtractorV2(Blueprint[Cfg2]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         versions = reg.get_all_versions_info("extract")
@@ -446,7 +490,7 @@ class X(Blueprint[XConfig]):
         pass
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
         assert reg.get_dag_args() is DefaultDagArgs
 
@@ -468,7 +512,7 @@ class MyDagArgs(BlueprintDagArgs[MyConfig]):
         return {"schedule": config.schedule} if config.schedule else {}
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         dag_args_cls = reg.get_dag_args()
@@ -505,7 +549,7 @@ class DagArgs2(BlueprintDagArgs[Config2]):
         return {}
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         with pytest.raises(MultipleDagArgsError):
             reg.discover(force=True)
 
@@ -526,7 +570,7 @@ class ClearDagArgs(BlueprintDagArgs[ClearConfig]):
         return {}
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
         assert reg.get_dag_args() is not DefaultDagArgs
 
@@ -557,7 +601,7 @@ class MyDa(BlueprintDagArgs[DaConfig]):
         return {}
 """)
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
@@ -646,7 +690,7 @@ class TestNonBlueprintFileFiltering:
             "        pass\n"
         )
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
@@ -670,7 +714,7 @@ class TestNonBlueprintFileFiltering:
             "        pass\n"
         )
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         bp_names = [bp["name"] for bp in reg.list_blueprints()]
@@ -693,9 +737,218 @@ class TestBlueprintLocations:
             "        pass\n"
         )
 
-        reg = BlueprintRegistry(template_dirs=[template_dir])
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
         reg.discover(force=True)
 
         location = reg.list_blueprints()[0]["locations"][1]
         assert Path(location).is_absolute()
         assert Path(location) == (template_dir / "etl.py").resolve()
+
+
+class TestEntryPointDiscovery:
+    """Test discovering blueprints from installed packages via entry points."""
+
+    def _patch_entry_points(self, monkeypatch, eps):
+        monkeypatch.setattr(importlib.metadata, "entry_points", lambda **_: eps)
+
+    def test_entry_point_discovery_basic(self, tmp_path, monkeypatch):
+        """Checks that a single installed entry-point module is discovered as a blueprint."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_basic_mod.py").write_text(_blueprint_source("BasicBp"))
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("basic", "_ep_basic_mod")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        reg.discover(force=True)
+
+        blueprints = reg.list_blueprints()
+        assert [bp["name"] for bp in blueprints] == ["basic_bp"]
+        assert blueprints[0]["locations"][1] == "_ep_basic_mod"
+
+    def test_entry_point_discovery_recursive_package(self, tmp_path, monkeypatch):
+        """Checks that when an entry point targets a package, its blueprint submodules are found too."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        pkg_dir = tmp_path / "_ep_recursive_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("from .primary import Primary  # noqa: F401\n")
+        (pkg_dir / "primary.py").write_text(_blueprint_source("Primary", "PrimaryConfig"))
+        (pkg_dir / "secondary.py").write_text(_blueprint_source("Secondary", "SecondaryConfig"))
+
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("recursive", "_ep_recursive_pkg")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        reg.discover(force=True)  # would raise DuplicateBlueprintError if double-registered
+
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"primary", "secondary"}
+
+    def test_entry_point_discovery_multiple_entry_points(self, tmp_path, monkeypatch):
+        """Checks that blueprints from more than one installed entry point are all discovered."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_multi_a.py").write_text(_blueprint_source("MultiA"))
+        (tmp_path / "_ep_multi_b.py").write_text(_blueprint_source("MultiB"))
+
+        self._patch_entry_points(
+            monkeypatch,
+            [_FakeEntryPoint("a", "_ep_multi_a"), _FakeEntryPoint("b", "_ep_multi_b")],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        reg.discover(force=True)
+
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"multi_a", "multi_b"}
+
+    def test_entry_point_duplicate_with_local_directory_raises(self, tmp_path, monkeypatch):
+        """Checks that discovery fails when the same blueprint exists both locally and in an installed package."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_dup_local.py").write_text(_blueprint_source("DupLocal"))
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("local", "_ep_dup_local")])
+
+        template_dir = tmp_path / "dags"
+        template_dir.mkdir()
+        (template_dir / "blueprints.py").write_text(_blueprint_source("DupLocal"))
+
+        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=True)
+        with pytest.raises(DuplicateBlueprintError, match="dup_local"):
+            reg.discover(force=True)
+
+    def test_entry_point_duplicate_across_two_entry_points_raises(self, tmp_path, monkeypatch):
+        """Checks that discovery fails when two installed packages export the same blueprint name and version."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_dup_a.py").write_text(_blueprint_source("DupSame", "DupSameConfigA"))
+        (tmp_path / "_ep_dup_b.py").write_text(_blueprint_source("DupSame", "DupSameConfigB"))
+
+        self._patch_entry_points(
+            monkeypatch,
+            [_FakeEntryPoint("a", "_ep_dup_a"), _FakeEntryPoint("b", "_ep_dup_b")],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with pytest.raises(DuplicateBlueprintError, match="dup_same"):
+            reg.discover(force=True)
+
+    def test_entry_point_broken_module_logs_and_continues(self, tmp_path, monkeypatch, caplog):
+        """Checks that one broken entry point is skipped without preventing good packages from loading."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_good.py").write_text(_blueprint_source("GoodBp"))
+
+        def _raise():
+            msg = "boom"
+            raise ImportError(msg)
+
+        self._patch_entry_points(
+            monkeypatch,
+            [
+                _FakeEntryPoint("broken", "_ep_missing", load_fn=_raise),
+                _FakeEntryPoint("good", "_ep_good"),
+            ],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with caplog.at_level(logging.WARNING):
+            reg.discover(force=True)
+
+        assert any("broken" in rec.getMessage() for rec in caplog.records)
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"good_bp"}
+
+    def test_entry_point_non_module_target_logs_and_skips(self, tmp_path, monkeypatch, caplog):
+        """Checks that an entry point pointing to the wrong kind of object is ignored instead of crashing discovery."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_good2.py").write_text(_blueprint_source("GoodBp2"))
+
+        self._patch_entry_points(
+            monkeypatch,
+            [
+                _FakeEntryPoint("bad", "_ep_bad:attr", load_fn=lambda: 42),
+                _FakeEntryPoint("good", "_ep_good2"),
+            ],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with caplog.at_level(logging.WARNING):
+            reg.discover(force=True)
+
+        assert any("does not resolve to a module" in rec.getMessage() for rec in caplog.records)
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"good_bp2"}
+
+    def test_entry_point_broken_leaf_submodule_continues_others(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Checks that one bad module inside a package does not stop other modules in that package from being discovered."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        pkg_dir = tmp_path / "_ep_broken_leaf_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+        (pkg_dir / "broken.py").write_text("raise ImportError('leaf boom')\n")
+        (pkg_dir / "fine.py").write_text(_blueprint_source("FineBp"))
+
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("leaf", "_ep_broken_leaf_pkg")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with caplog.at_level(logging.WARNING):
+            reg.discover(force=True)
+
+        assert any("broken" in rec.getMessage() for rec in caplog.records)
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"fine_bp"}
+
+    def test_entry_point_broken_subpackage_continues_siblings(self, tmp_path, monkeypatch, caplog):
+        """Checks that a broken subpackage does not stop discovery from reaching its sibling subpackages."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        pkg_dir = tmp_path / "_ep_broken_subpkg_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        broken_sub = pkg_dir / "broken_sub"
+        broken_sub.mkdir()
+        (broken_sub / "__init__.py").write_text("raise RuntimeError('subpackage boom')\n")
+
+        fine_sub = pkg_dir / "fine_sub"
+        fine_sub.mkdir()
+        (fine_sub / "__init__.py").write_text("")
+        (fine_sub / "bp.py").write_text(_blueprint_source("FineSub"))
+
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("subpkg", "_ep_broken_subpkg_pkg")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with caplog.at_level(logging.WARNING):
+            reg.discover(force=True)
+
+        names = {bp["name"] for bp in reg.list_blueprints()}
+        assert names == {"fine_sub"}
+
+    def test_discover_entry_points_false_disables_discovery(self, tmp_path, monkeypatch):
+        """Checks that entry-point discovery is completely skipped when the feature is turned off."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_disabled_mod.py").write_text(_blueprint_source("DisabledBp"))
+
+        calls = []
+
+        def _fake_entry_points(**kwargs):
+            calls.append(kwargs)
+            return [_FakeEntryPoint("disabled", "_ep_disabled_mod")]
+
+        monkeypatch.setattr(importlib.metadata, "entry_points", _fake_entry_points)
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=False)
+        reg.discover(force=True)
+
+        assert reg.list_blueprints() == []
+        assert calls == []
+
+    def test_entry_point_module_reused_across_force_rediscovery(self, tmp_path, monkeypatch):
+        """Checks that rediscovering entry points reuses the already imported module instead of creating a new class object."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_cache_mod.py").write_text(_blueprint_source("CacheBp"))
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("cache", "_ep_cache_mod")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        reg.discover(force=True)
+        cls_first = reg.get("cache_bp")
+
+        reg.discover(force=True)
+        cls_second = reg.get("cache_bp")
+
+        assert cls_first is cls_second

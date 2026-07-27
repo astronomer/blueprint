@@ -24,7 +24,7 @@ class TestCLI:
 
     def test_list_command_empty(self, tmp_path):
         runner = CliRunner()
-        result = runner.invoke(cli, ["list", "--template-dir", str(tmp_path)])
+        result = runner.invoke(cli, ["list", "--template-dir", str(tmp_path), "--no-entry-points"])
         assert result.exit_code == 0
         assert "No blueprints found" in result.output
 
