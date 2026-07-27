@@ -30,6 +30,9 @@ OnDagBuilt = Callable[["DAG", Path], None]
 
 DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
+SOURCE_TAG_PREFIX = "blueprint:"
+_TAG_MAX_LEN = 100
+
 _PARAM_SCHEMA_KEYS = frozenset(
     {
         "type",
@@ -186,11 +189,14 @@ class Builder:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             dag_kwargs["start_date"] = parsed
 
-    def build(self, config: DAGConfig) -> "DAG":
+    def build(self, config: DAGConfig, source: str | None = None) -> "DAG":
         """Build a DAG from a DAGConfig.
 
         Args:
             config: The parsed and validated DAG configuration
+            source: Path of the YAML file this DAG was built from, recorded
+                in each task's ``blueprint_step_config`` so the source
+                survives DAG serialization.
 
         Returns:
             A fully wired Airflow DAG
@@ -235,7 +241,7 @@ class Builder:
 
         with dag:
             for step_name, step_config in config.steps.items():
-                rendered[step_name] = self._render_step(step_name, step_config)
+                rendered[step_name] = self._render_step(step_name, step_config, source)
 
             for step_name, step_config in config.steps.items():
                 for dep_name in step_config.depends_on:
@@ -274,7 +280,7 @@ class Builder:
             raw_config = yaml.safe_load(raw_content)
 
         dag_config = DAGConfig.model_validate(raw_config)
-        dag = self.build(dag_config)
+        dag = self.build(dag_config, source=str(yaml_path))
 
         if self._on_dag_built:
             self._on_dag_built(dag, yaml_path)
@@ -359,6 +365,7 @@ class Builder:
         self,
         step_name: str,
         step_config: StepConfig,
+        source: str | None = None,
     ) -> TaskOrGroup:
         """Render a single step by instantiating its blueprint."""
         from pydantic import ValidationError
@@ -411,15 +418,14 @@ class Builder:
 
         result = instance.render(validated_config)
 
-        step_yaml = yaml.dump(
-            {
-                "blueprint": step_config.blueprint,
-                "version": resolved_version,
-                **blueprint_config,
-            },
-            default_flow_style=False,
-            sort_keys=False,
-        )
+        step_context: dict[str, Any] = {
+            "blueprint": step_config.blueprint,
+            "version": resolved_version,
+        }
+        if source is not None:
+            step_context["source"] = source
+        step_context.update(blueprint_config)
+        step_yaml = yaml.dump(step_context, default_flow_style=False, sort_keys=False)
 
         source_code = bp_class.get_source_code()
 
@@ -495,6 +501,33 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
+def _relative_source(yaml_path: Path, search_path: Path) -> str:
+    """Return yaml_path relative to search_path, or as-is if not beneath it."""
+    try:
+        return str(yaml_path.relative_to(search_path))
+    except ValueError:
+        return str(yaml_path)
+
+
+def _apply_source_tag(dag: "DAG", source: str) -> None:
+    """Tag a DAG with its source YAML path (``blueprint:<path>``).
+
+    The tag survives DAG serialization, so the Airflow UI plugin can map a
+    dag_id back to its YAML file without re-scanning the dags folder. Skipped
+    with a warning if the tag would exceed Airflow's tag length limit.
+    """
+    tag = f"{SOURCE_TAG_PREFIX}{source}"
+    if len(tag) > _TAG_MAX_LEN:
+        logger.warning(
+            "Skipping source tag for DAG '%s': '%s' exceeds %d characters",
+            dag.dag_id,
+            tag,
+            _TAG_MAX_LEN,
+        )
+        return
+    dag.tags = {*(dag.tags or ()), tag}
+
+
 def build_all_airflow_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
@@ -503,6 +536,7 @@ def build_all_airflow_dags(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    source_tags: bool = True,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -530,6 +564,9 @@ def build_all_airflow_dags(
         on_dag_built: Optional callback invoked after each DAG is built.
             Receives the DAG and the Path to the source YAML file.
             Use this to apply post-processing such as access controls or tags.
+        source_tags: Whether to tag each DAG with its source YAML path
+            (``blueprint:<path relative to search_path>``). The tag lets the
+            Airflow UI plugin resolve a DAG back to its YAML file.
 
     Returns:
         List of built DAGs
@@ -583,7 +620,11 @@ def build_all_airflow_dags(
 
         dag_config = DAGConfig.model_validate(raw_config)
         _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-        dag = builder.build(dag_config)
+        source = _relative_source(yaml_path, resolved_path)
+        dag = builder.build(dag_config, source=source)
+
+        if source_tags:
+            _apply_source_tag(dag, source)
 
         if on_dag_built:
             on_dag_built(dag, yaml_path)

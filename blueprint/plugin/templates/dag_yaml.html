@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ dag_id }} — YAML{% endblock %}
+{% block content %}
+<h1 class="embed-hide"><span class="mono">{{ dag_id }}</span></h1>
+
+{% if content_html is not none %}
+<div class="codefile">
+  <div class="codefile-head">{{ source }}</div>
+  {{ content_html | safe }}
+</div>
+
+{% if code_sections %}
+<h3>Blueprint code</h3>
+<p class="muted">The Python that renders each step of this DAG.</p>
+{% for bp in code_sections %}
+<details class="codefile">
+  <summary class="codefile-head">{{ bp.location }}
+    <span class="muted">· {{ bp.name }} v{{ bp.version }} ({{ bp.class }})</span></summary>
+  {{ bp.source_html | safe }}
+</details>
+{% endfor %}
+{% endif %}
+{% else %}
+<div class="notice">No source YAML found — this DAG wasn't built by Blueprint.</div>
+<p class="muted">Looked for a <span class="mono">blueprint:&lt;path&gt;</span> tag and scanned
+<span class="mono">{{ dags_folder }}</span> for a matching
+<span class="mono">*.dag.yaml</span> file.</p>
+{% endif %}
+{% endblock %}

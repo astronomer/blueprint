@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ task_id }} — Blueprint Step{% endblock %}
+{% block content %}
+<h1 class="embed-hide"><span class="mono">{{ task_id }}</span></h1>
+
+{% if step_name %}
+<p>
+  Rendered by blueprint <span class="mono">{{ blueprint }}</span>
+  {% if version %}<span class="badge">v{{ version }}{% if version_label %} · {{ version_label }}{% endif %}</span>
+  {% else %}<span class="badge">latest</span>{% endif %}
+  <span class="muted">— step <span class="mono">{{ step_name }}</span> in
+  <a href="/blueprint/dags/{{ dag_id }}/yaml"
+     data-top-href="/dags/{{ dag_id }}/plugin/blueprint_dag"><span class="mono">{{ dag_id }}</span></a></span>
+</p>
+{{ step_yaml_html | safe }}
+{% if provenance == "run" %}
+<p class="muted">Config as rendered for run <span class="mono">{{ run_id }}</span> —
+what this task actually ran with, param overrides included.</p>
+{% elif provenance == "serialized" %}
+<p class="muted">Config as built into the current serialized DAG. Open from a task
+instance to see per-run values.</p>
+{% else %}
+<p class="muted">Step definition from the source YAML on disk; the DAG may have been
+built from an earlier version of this file.</p>
+{% endif %}
+
+{% if source_code %}
+<details class="codefile">
+  <summary class="codefile-head">{{ blueprint }} source
+    <span class="muted">
+    {%- if code_provenance == "run" %}· as run
+    {%- elif code_provenance == "serialized" %}· as built
+    {%- else %}· current file{% endif %}</span></summary>
+  {{ source_code_html | safe }}
+</details>
+{% endif %}
+{% else %}
+<div class="notice">No blueprint step found for task <span class="mono">{{ task_id }}</span> —
+it isn't rendered by Blueprint.</div>
+{% endif %}
+{% endblock %}
