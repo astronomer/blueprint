@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Blueprint{% endblock %}</title>
+  <link rel="stylesheet" href="/blueprint/static/pygments.css">
+  <style>
+    /* Color values measured from Airflow 3.1's UI so embedded pages blend in. */
+    :root {
+      --bg: #ffffff;
+      --fg: oklch(0.232 0.032 266);
+      --muted: oklch(0.55 0.03 257);
+      --border: oklch(0.915 0.01 253);
+      --surface: oklch(0.984 0.003 248);
+      --accent: #2563eb;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: oklch(0.232 0.032 266);
+        --fg: oklch(0.985 0.004 253);
+        --muted: oklch(0.72 0.02 253);
+        --border: oklch(0.28 0.035 251);
+        --surface: oklch(0.26 0.03 262);
+        --accent: #60a5fa;
+        --code-bg: #1a202c;
+        --code-fg: #e2e8f0;
+      }
+    }
+    :root[data-theme="light"] {
+      --bg: #ffffff;
+      --fg: oklch(0.232 0.032 266);
+      --muted: oklch(0.55 0.03 257);
+      --border: oklch(0.915 0.01 253);
+      --surface: oklch(0.984 0.003 248);
+      --accent: #2563eb;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+    }
+    :root[data-theme="dark"] {
+      --bg: oklch(0.232 0.032 266);
+      --fg: oklch(0.985 0.004 253);
+      --muted: oklch(0.72 0.02 253);
+      --border: oklch(0.28 0.035 251);
+      --surface: oklch(0.26 0.03 262);
+      --accent: #60a5fa;
+      --code-bg: #1a202c;
+      --code-fg: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 14px/1.6 Inter, -apple-system, "system-ui", "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    :root.embedded main { padding-top: 1rem; }
+    :root.embedded .embed-hide { display: none; }
+    h1 { font-size: 1.3rem; margin: 0 0 1rem; }
+    h2 { font-size: 1.05rem; margin: 0; }
+    h3 { font-size: 0.9rem; margin: 1.25rem 0 0.25rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; }
+    .badge {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0 0.6em;
+      font-size: 0.8em;
+      color: var(--muted);
+      background: var(--bg);
+      vertical-align: middle;
+    }
+    pre.code {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      tab-size: 2;
+    }
+    /* Pygments output, framed like Airflow's Code tab. */
+    .codeblock {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 0.5rem 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      tab-size: 2;
+    }
+    .codeblock .highlight { overflow-x: auto; }
+    .codeblock pre { margin: 0; padding: 0.75rem 1rem; }
+    .codeblock table.highlighttable {
+      width: 100%;
+      margin: 0;
+      border-collapse: collapse;
+    }
+    .codeblock .highlighttable td { border: none; padding: 0; vertical-align: top; }
+    .codeblock td.linenos {
+      width: 1%;
+      user-select: none;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+    }
+    .codeblock td.linenos pre {
+      color: var(--muted);
+      text-align: right;
+      padding: 0.75rem 0.75rem;
+      background: transparent;
+    }
+    .codeblock .linenodiv a { color: var(--muted); text-decoration: none; }
+    /* Filename header attached to a code block, GitHub-file style. */
+    .codefile { margin: 0.75rem 0; }
+    .codefile-head {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      cursor: default;
+      color: var(--fg);
+    }
+    summary.codefile-head { cursor: pointer; }
+    summary.codefile-head:hover { color: var(--fg); }
+    div.codefile > .codefile-head,
+    details.codefile[open] > .codefile-head {
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+    }
+    .codefile .codeblock {
+      margin: 0;
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+    }
+    details { margin: 0.5rem 0; }
+    summary { cursor: pointer; color: var(--muted); }
+    summary:hover { color: var(--fg); }
+    .notice {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+  </style>
+  <script>
+    // Inside Airflow the page renders in a same-origin iframe: hide headings
+    // the surrounding chrome already shows, and follow Airflow's theme toggle
+    // (its html element carries class "light"/"dark") instead of the OS theme.
+    (function () {
+      if (window.top === window) return;
+      var root = document.documentElement;
+      root.classList.add("embedded");
+      try {
+        var topRoot = window.top.document.documentElement;
+        var sync = function () {
+          root.setAttribute(
+            "data-theme",
+            topRoot.classList.contains("dark") ? "dark" : "light"
+          );
+        };
+        sync();
+        new MutationObserver(sync).observe(topRoot, { attributes: true });
+      } catch (err) { /* cross-origin embed: fall back to OS theme */ }
+    })();
+  </script>
+</head>
+<body>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    // The sandbox blocks target="_top" and window.top.location, but same-origin
+    // access lets us drive the parent SPA's router through its history API.
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest("a[data-top-href]");
+      if (!link || window.top === window) return;
+      event.preventDefault();
+      const url = link.getAttribute("data-top-href");
+      try {
+        const top = window.top;
+        top.history.pushState({}, "", url);
+        top.dispatchEvent(new top.PopStateEvent("popstate", { state: {} }));
+      } catch (err) {
+        window.location.href = link.getAttribute("href");
+      }
+    });
+  </script>
+</body>
+</html>

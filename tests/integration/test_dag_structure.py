@@ -141,7 +141,12 @@ class TestVersionedETL:
         resp = api_client.get("/dags/versioned_etl")
         assert resp.status_code == 200
         tags = api_client.get_tags(resp.json())
-        assert tags == {"team:data-eng", "critical", "callback-verified"}
+        assert tags == {
+            "team:data-eng",
+            "critical",
+            "callback-verified",
+            "blueprint:versioned.dag.yaml",
+        }
 
     def test_critical_tier_retries(self, api_client: AirflowAPI):
         tasks = self._get_tasks(api_client)
@@ -223,7 +228,12 @@ class TestExplicitNaming:
         resp = api_client.get("/dags/explicit_naming")
         assert resp.status_code == 200
         tags = api_client.get_tags(resp.json())
-        assert tags == {"team:platform", "standard", "callback-verified"}
+        assert tags == {
+            "team:platform",
+            "standard",
+            "callback-verified",
+            "blueprint:explicit_naming.dag.yaml",
+        }
 
 
 class TestDagArgsRendering:
@@ -260,7 +270,12 @@ class TestDagArgsRendering:
     def test_only_derived_tags_present(self, api_client: AirflowAPI):
         dag = self._get_dag(api_client)
         tags = api_client.get_tags(dag)
-        assert tags == {"team:analytics", "critical", "callback-verified"}
+        assert tags == {
+            "team:analytics",
+            "critical",
+            "callback-verified",
+            "blueprint:dag_args_test.dag.yaml",
+        }
 
     def test_owner_derived_from_team(self, api_client: AirflowAPI):
         tasks = self._get_tasks(api_client)

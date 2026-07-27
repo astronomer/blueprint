@@ -52,6 +52,21 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 semantics as Airflow's DAG processor. Here `dags/.airflowignore` lists the
 `drafts` directory, so `drafts/lunar_relay.dag.yaml` never builds.
 
+### Airflow UI Plugin (Airflow 3 only)
+
+The `airflow-blueprint` package registers an Airflow plugin automatically. In
+the Airflow 3 example you get a **Blueprint** tab (Airflow 3.1+) on every DAG,
+DAG run, task, and task instance page:
+
+- DAG and DAG run: the source YAML the DAG was built from (resolved via the
+  `blueprint:<path>` tag that `build_all_airflow_dags()` stamps on every DAG),
+  with the blueprint Python underneath.
+- Task and task instance: that step's config and blueprint source, showing the
+  exact as-run values where Airflow stored them.
+
+The pages are served by a FastAPI app mounted at `/blueprint` under the API
+server (Airflow 3.0+), e.g. http://localhost:8080/blueprint/dags/satellite_telemetry/yaml.
+
 ### Programmatic Building (`dags/programmatic_dags.py`)
 
 Builds DAGs in a loop with the `Builder` API instead of YAML. One telemetry DAG

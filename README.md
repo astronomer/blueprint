@@ -250,6 +250,19 @@ Every task instance gets two extra fields visible in Airflow's "Rendered Templat
 
 This makes it easy to understand what generated each task instance without leaving the Airflow UI.
 
+## Airflow UI Plugin (Airflow 3)
+
+Installing `airflow-blueprint` registers an Airflow plugin that puts the YAML front and center in the UI. Airflow's built-in Code tab shows the loader file that built the DAG — the plugin adds a **Blueprint** tab (Airflow 3.1+) that shows the YAML and blueprint Python instead:
+
+- On a DAG or DAG run: the source YAML the DAG was built from, with the code of each blueprint it uses underneath.
+- On a task or task instance: that step's config and its blueprint source. Where Airflow stored the run's rendered fields, the config is the exact one the task ran with — param overrides included — falling back to the serialized DAG and then the file on disk, labeled with which you're seeing.
+
+The pages are served by a FastAPI app mounted at `/blueprint` under the API server (Airflow 3.0+), so you can also open them directly.
+
+To map a DAG back to its YAML, `build_all_airflow_dags()` tags each DAG with `blueprint:<path relative to the dags folder>` and records the path in each task's `blueprint_step_config`. Both survive DAG serialization, so the plugin resolves the file with one lookup instead of re-scanning the dags folder (it still falls back to a scan for DAGs built by older versions). Pass `source_tags=False` to skip the tag.
+
+On Airflow 2 the plugin loads but registers nothing.
+
 ## Runtime Parameter Overrides
 
 Blueprints that set `supports_params = True` have their config fields registered as Airflow [DAG params](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/params.html), namespaced as `{step}__{field}`. When you trigger a DAG from the Airflow UI, the trigger form shows those fields pre-filled with YAML defaults — users can override any value before running.

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -38,6 +38,7 @@ dependencies = [
     { name = "apache-airflow" },
     { name = "click" },
     { name = "pydantic" },
+    { name = "pygments" },
     { name = "pyyaml" },
     { name = "rich" },
 ]
@@ -60,6 +61,7 @@ requires-dist = [
     { name = "apache-airflow", specifier = ">=2.5.0" },
     { name = "click", specifier = ">=8.0.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "pygments", specifier = ">=2.15.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.9.4" },
 ]

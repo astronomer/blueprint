@@ -1081,6 +1081,78 @@ class Stub(Blueprint[StubConfig]):
             )
 
 
+class TestSourceMetadata:
+    STUB_BLUEPRINT = """
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+"""
+
+    def _build(self, tmp_path, **kwargs):
+        from blueprint.builder import build_all_airflow_dags
+
+        (tmp_path / "blueprints.py").write_text(self.STUB_BLUEPRINT)
+        nested = tmp_path / "team"
+        nested.mkdir()
+        (nested / "meta.dag.yaml").write_text(
+            "dag_id: meta_test\nsteps:\n  s1:\n    blueprint: stub\n"
+        )
+        return build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+            **kwargs,
+        )
+
+    def test_source_tag_added(self, tmp_path):
+        (dag,) = self._build(tmp_path)
+        assert "blueprint:team/meta.dag.yaml" in dag.tags
+
+    def test_source_tag_opt_out(self, tmp_path):
+        (dag,) = self._build(tmp_path, source_tags=False)
+        assert not [t for t in (dag.tags or []) if t.startswith("blueprint:")]
+
+    def test_source_in_step_config(self, tmp_path):
+        (dag,) = self._build(tmp_path)
+        task = next(iter(dag.task_dict.values()))
+        parsed = yaml.safe_load(task.blueprint_step_config)
+        assert parsed["source"] == "team/meta.dag.yaml"
+        assert parsed["blueprint"] == "stub"
+
+    def test_source_tag_skipped_when_too_long(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        (tmp_path / "blueprints.py").write_text(self.STUB_BLUEPRINT)
+        deep = tmp_path / ("d" * 120)
+        deep.mkdir()
+        (deep / "long.dag.yaml").write_text(
+            "dag_id: long_tag_test\nsteps:\n  s1:\n    blueprint: stub\n"
+        )
+        (dag,) = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+        )
+        assert not [t for t in (dag.tags or []) if t.startswith("blueprint:")]
+
+    def test_build_without_source_omits_key(self, builder):
+        config = DAGConfig(
+            dag_id="no_source",
+            steps={"s1": StepConfig(blueprint="load", target_table="out")},
+        )
+        dag = builder.build(config)
+        task = next(iter(dag.task_dict.values()))
+        parsed = yaml.safe_load(task.blueprint_step_config)
+        assert "source" not in parsed
+
+
 class TestOnDagBuilt:
     def test_build_all_on_dag_built_called(self, tmp_path):
         from blueprint.builder import build_all_airflow_dags
