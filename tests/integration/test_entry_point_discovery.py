@@ -1,11 +1,8 @@
-"""Tier 1: blueprint discovery from an installed package via entry points.
+"""
+Test blueprint discovery from an installed package via entry points.
 
-The project's requirements.txt (written by the `airflow_env` fixture) installs
-`tests/entry_point_package` alongside this repo. That package declares its `EntryPointBpTest`
-blueprint under the `airflow_blueprint.blueprints` entry-point group and ships no YAML of its own
--- `dags/entry_point_test.dag.yaml` references it by name with no corresponding local .py file,
-so the DAG only parses if BlueprintRegistry's entry-point discovery is actually working end to end
-against a real installed package (not just a mocked one).
+Validate if Blueprints from installed packages can be referenced by name with no corresponding
+local .py file.
 """
 
 from __future__ import annotations
@@ -54,7 +51,7 @@ class TestEntryPointDiscovery:
         ]
         assert not offending, f"Import errors for the entry-point DAG: {offending}"
 
-    def test_no_local_py_file_defines_the_probe_blueprint(self):
+    def test_no_local_py_file_defines_the_test_blueprint(self):
         """Guard against a future 'fix' that quietly adds a local copy of the blueprint,
         which would defeat the entire point of this test suite without any single assertion
         above failing.
@@ -66,7 +63,6 @@ class TestEntryPointDiscovery:
             if "class EntryPointBpTest(" in py_file.read_text()
         ]
         assert not offenders, (
-            f"Found a local copy of EntryPointBpTest in {offenders} -- the "
-            "entry-point DAG must resolve its blueprint purely from the "
-            "installed test package."
+            f"Found a local copy of EntryPointBpTest in {offenders}. The entry-point DAG must "
+            "resolve its blueprint purely from the installed test package."
         )
