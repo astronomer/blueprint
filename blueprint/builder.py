@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from blueprint.core import TaskOrGroup
 from blueprint.errors import (
+    BlueprintError,
     ConfigurationError,
     CyclicDependencyError,
     DuplicateDAGIdError,
@@ -503,6 +504,7 @@ def build_all_airflow_dags(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    skip_invalid_dags: bool = False,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -530,6 +532,9 @@ def build_all_airflow_dags(
         on_dag_built: Optional callback invoked after each DAG is built.
             Receives the DAG and the Path to the source YAML file.
             Use this to apply post-processing such as access controls or tags.
+        skip_invalid_dags: When True, log a warning and skip DAG files that fail
+            to parse or build instead of aborting the entire load. Valid DAGs are
+            still built and registered.
 
     Returns:
         List of built DAGs
@@ -568,36 +573,49 @@ def build_all_airflow_dags(
     dags: list[DAG] = []
     dag_id_to_file: dict[str, Path] = {}
 
+    skipped_files: set[str] = set()
     for yaml_path in yaml_files:
-        if render_templates:
-            raw_config, _rendered = render_yaml_template(
-                yaml_path, context=template_context, use_airflow_context=True
-            )
-        else:
-            raw_content = yaml_path.read_text()
-            raw_config = yaml.safe_load(raw_content)
+        try:
+            if render_templates:
+                raw_config, _rendered = render_yaml_template(
+                    yaml_path, context=template_context, use_airflow_context=True
+                )
+            else:
+                raw_content = yaml_path.read_text()
+                raw_config = yaml.safe_load(raw_content)
 
-        if not raw_config or "steps" not in raw_config:
-            logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
-            continue
+            if not raw_config or "steps" not in raw_config:
+                logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
+                continue
 
-        dag_config = DAGConfig.model_validate(raw_config)
-        _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-        dag = builder.build(dag_config)
+            dag_config = DAGConfig.model_validate(raw_config)
+            _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
+            dag = builder.build(dag_config)
 
-        if on_dag_built:
-            on_dag_built(dag, yaml_path)
+            if on_dag_built:
+                on_dag_built(dag, yaml_path)
 
-        dag_id_to_file[dag.dag_id] = yaml_path
-        register_globals[dag.dag_id] = dag
-        dags.append(dag)
-        logger.info("Built DAG '%s' from %s", dag.dag_id, yaml_path.name)
+            dag_id_to_file[dag.dag_id] = yaml_path
+            register_globals[dag.dag_id] = dag
+            dags.append(dag)
+            logger.info("Built DAG '%s' from %s", dag.dag_id, yaml_path.name)
+        except (BlueprintError, ValidationError, yaml.YAMLError) as e:
+            if not skip_invalid_dags:
+                raise
+            skipped_files.add(str(yaml_path))
+            logger.warning("Skipping invalid file %s: %s", yaml_path, e)
 
     if dags:
         logger.info(
             "Successfully built %d DAG(s): %s",
             len(dags),
             ", ".join(d.dag_id for d in dags),
+        )
+    if skipped_files:
+        logger.warning(
+            "Skipped %d invalid DAG file(s); built %d DAG(s) successfully",
+            len(skipped_files),
+            len(dags),
         )
 
     return dags
@@ -611,6 +629,7 @@ def build_all_dags(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    skip_invalid_dags: bool = False,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``.
 
@@ -641,6 +660,7 @@ def build_all_dags(
         template_context=template_context,
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
+        skip_invalid_dags=skip_invalid_dags,
     )
 
 
@@ -652,6 +672,7 @@ def build_all(
     template_context: dict[str, Any] | None = None,
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
+    skip_invalid_dags: bool = False,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``."""
     warnings.warn(
@@ -674,6 +695,7 @@ def build_all(
         template_context=template_context,
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
+        skip_invalid_dags=skip_invalid_dags,
     )
 
 
