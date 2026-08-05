@@ -1080,6 +1080,144 @@ class Stub(Blueprint[StubConfig]):
                 render_templates=False,
             )
 
+    def test_skip_invalid_dags_builds_valid_ones(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
+
+        yaml_good = tmp_path / "good.dag.yaml"
+        yaml_good.write_text("""
+dag_id: good_dag
+steps:
+    step1:
+        blueprint: stub
+        x: 1
+""")
+
+        yaml_bad = tmp_path / "bad.dag.yaml"
+        yaml_bad.write_text("""
+dag_id: bad_dag
+steps:
+    step1:
+        blueprint: stub
+        y: 1
+""")
+
+        globals_dict = {}
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+        assert dags[0].dag_id == "good_dag"
+        assert "good_dag" in globals_dict
+        assert "bad_dag" not in globals_dict
+
+    def test_skip_invalid_dags_skips_invalid_yaml(self, tmp_path):
+        """Verify if valid yamls still return DAGs when invalid yamls are present."""
+        from blueprint.builder import build_all_airflow_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
+
+        yaml_good = tmp_path / "good.dag.yaml"
+        yaml_good.write_text("dag_id: good_dag\nsteps:\n  s1:\n    blueprint: stub\n")
+
+        yaml_invalid = tmp_path / "invalid.dag.yaml"
+        yaml_invalid.write_text("dag_id: invalid_dag\nsteps: {}\n")
+
+        globals_dict = {}
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+        assert [dag.dag_id for dag in dags] == ["good_dag"]
+        assert "invalid_dag" not in globals_dict
+
+        # Rebuild, but now with skip_invalid_dags=False, and ensure it raises an exception
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            build_all_airflow_dags(
+                search_path=tmp_path,
+                register_globals=globals_dict,
+                render_templates=False,
+                skip_invalid_dags=False,
+            )
+
+    def test_skip_invalid_dags_skips_duplicate_dag_id(self, tmp_path):
+        """Verify if the first DAG is rendered with skip_invalid_dags=True."""
+        from blueprint.builder import build_all_airflow_dags
+
+        bp_file = tmp_path / "blueprints.py"
+        bp_file.write_text("""
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+class StubConfig(BaseModel):
+    x: int = 1
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command="echo ok")
+""")
+
+        yaml1 = tmp_path / "first.dag.yaml"
+        yaml1.write_text("dag_id: dup_id\nsteps:\n  s1:\n    blueprint: stub\n")
+
+        yaml2 = tmp_path / "second.dag.yaml"
+        yaml2.write_text("dag_id: dup_id\nsteps:\n  s2:\n    blueprint: stub\n")
+
+        globals_dict = {}
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals=globals_dict,
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+        assert len(dags) == 1
+        assert dags[0].dag_id == "dup_id"
+        assert dags[0].leaves[0].task_id == "s1"
+        assert len(globals_dict) == 1
+
+        # Rebuild, but now with skip_invalid_dags=False, and ensure it raises a DuplicateDAGIdError
+        from blueprint.errors import DuplicateDAGIdError
+
+        with pytest.raises(DuplicateDAGIdError):
+            build_all_airflow_dags(
+                search_path=tmp_path,
+                register_globals=globals_dict,
+                render_templates=False,
+                skip_invalid_dags=False,
+            )
+
 
 class TestOnDagBuilt:
     def test_build_all_on_dag_built_called(self, tmp_path):
