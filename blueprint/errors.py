@@ -297,6 +297,27 @@ class MultipleDagArgsError(BlueprintError):
         return message
 
 
+class EntryPointLoadError(BlueprintError):
+    """Error when a package advertising blueprints via entry points fails to load."""
+
+    def __init__(self, entry_point: str, value: str, dist_name: str, cause: str):
+        self.entry_point = entry_point
+        self.value = value
+        self.dist_name = dist_name
+        self.cause = cause
+
+        message = (
+            f"Failed to load blueprints from entry point '{entry_point}' ({value}) "
+            f"in package '{dist_name}': {cause}"
+        )
+        message += "\n\n💡 Suggestions:"
+        message += f"\n  • Check that '{value}' is importable: python -c 'import {value}'"
+        message += f"\n  • Verify '{dist_name}' and its dependencies are installed"
+        message += "\n  • Pass skip_invalid_dags=True to log and skip instead of failing"
+
+        super().__init__(message)
+
+
 class InvalidVersionError(BlueprintError):
     """Error when a requested blueprint version does not exist."""
 

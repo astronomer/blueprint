@@ -566,6 +566,7 @@ def build_all_airflow_dags(
             template_dirs=[resolved_path],
             exclude_files=exclude,
             discover_entry_points=discover_entry_points,
+            skip_invalid=skip_invalid_dags,
         )
         bp_registry.discover(force=True)
 

@@ -17,6 +17,7 @@ from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
     DuplicateBlueprintError,
+    EntryPointLoadError,
     InvalidVersionError,
     MultipleDagArgsError,
     NonContiguousVersionError,
@@ -82,6 +83,7 @@ class BlueprintRegistry:
         template_dirs: list[Path] | None = None,
         exclude_files: set[Path] | None = None,
         discover_entry_points: bool = True,
+        skip_invalid: bool = False,
     ) -> None:
         self._blueprints: dict[str, dict[int, type[Blueprint]]] = {}
         self._blueprint_locations: dict[str, dict[int, str]] = {}
@@ -92,6 +94,7 @@ class BlueprintRegistry:
         self._template_dirs = template_dirs
         self._exclude_files = {p.resolve() for p in exclude_files} if exclude_files else set()
         self._discover_entry_points = discover_entry_points
+        self._skip_invalid = skip_invalid
 
     def get_template_dirs(self) -> list[Path]:
         """Get all template directories to search."""
@@ -173,10 +176,14 @@ class BlueprintRegistry:
 
         Packages advertise themselves under the ``airflow_blueprint.blueprints`` entry-point group;
         this imports each advertised module (and, recursively, every submodule of a package) and
-        registers any Blueprint/BlueprintDagArgs subclasses defined directly in it. Load failures
-        for an individual entry point or submodule are logged and skipped rather than raised: a
-        broken shared package must not take down every DAG in the deployment, only the (normal,
-        scoped) BlueprintNotFoundError for DAGs that actually reference its blueprints.
+        registers any Blueprint/BlueprintDagArgs subclasses defined directly in it.
+
+        When ``skip_invalid`` is False (the default), a package that fails to load raises
+        EntryPointLoadError, so the root cause reaches Airflow's UI as a DAG import error.
+        When True, failures are logged and skipped instead.
+
+        Raises:
+            EntryPointLoadError: If an entry point fails to load and skip_invalid is False.
         """
         if not self._discover_entry_points:
             return
@@ -188,6 +195,10 @@ class BlueprintRegistry:
             try:
                 loaded = ep.load()
             except Exception as e:
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name, ep.value, dist_name, f"{type(e).__name__}: {e}"
+                    ) from e
                 logger.warning(
                     "Failed to load entry point '%s' (%s) from %s: %s",
                     ep.name,
@@ -198,6 +209,14 @@ class BlueprintRegistry:
                 continue
 
             if not inspect.ismodule(loaded):
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name,
+                        ep.value,
+                        dist_name,
+                        "entry point does not resolve to a module "
+                        f"(got {type(loaded).__name__}); the value must be a dotted module path",
+                    )
                 logger.warning(
                     "Entry point '%s' (%s) from %s does not resolve to a module; skipping",
                     ep.name,
@@ -206,24 +225,31 @@ class BlueprintRegistry:
                 )
                 continue
 
-            for module in self._iter_entry_point_modules(loaded):
+            for module in self._iter_entry_point_modules(loaded, ep, dist_name):
                 if module.__name__ in seen_modules:
                     continue
                 seen_modules.add(module.__name__)
                 self._register_module_classes(module, module.__name__)
 
-    def _iter_entry_point_modules(self, module: ModuleType) -> Iterator[ModuleType]:
+    def _iter_entry_point_modules(
+        self, module: ModuleType, ep: importlib.metadata.EntryPoint, dist_name: str
+    ) -> Iterator[ModuleType]:
         """Yield module and, if it is a package, every importable submodule.
 
-        A submodule that fails to import is logged and skipped rather than raised, so one
-        broken submodule does not prevent its siblings (or a broken subpackage's siblings)
-        from being scanned.
+        When ``skip_invalid`` is False (the default), a submodule that fails to import raises
+        EntryPointLoadError. When True, it is logged and skipped, so one broken submodule does
+        not prevent its siblings (or a broken subpackage's siblings) from being scanned.
 
         Args:
             module: The top-level module or package resolved from an entry point.
+            ep: The entry point that resolved to this module, for error reporting.
+            dist_name: Name of the distribution advertising the entry point.
 
         Yields:
             The module itself, then each importable submodule in turn.
+
+        Raises:
+            EntryPointLoadError: If a submodule fails to import and skip_invalid is False.
         """
         yield module
 
@@ -232,6 +258,10 @@ class BlueprintRegistry:
             return
 
         def _on_error(name: str) -> None:
+            if not self._skip_invalid:
+                raise EntryPointLoadError(
+                    ep.name, ep.value, dist_name, f"failed to import submodule '{name}'"
+                )
             logger.warning("Failed to import submodule '%s' of '%s'", name, module.__name__)
 
         for _finder, name, _is_pkg in pkgutil.walk_packages(
@@ -242,6 +272,13 @@ class BlueprintRegistry:
             try:
                 submodule = importlib.import_module(name)
             except Exception as e:
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name,
+                        ep.value,
+                        dist_name,
+                        f"failed to import submodule '{name}': {type(e).__name__}: {e}",
+                    ) from e
                 logger.warning("Failed to import submodule '%s': %s", name, e)
                 continue
             yield submodule
