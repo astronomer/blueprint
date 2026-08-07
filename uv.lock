@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -44,6 +44,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "entry-point-test-blueprints" },
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "playwright" },
@@ -66,6 +67,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "entry-point-test-blueprints", editable = "tests/entry_point_package" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "hypothesis", specifier = ">=6.113.0" },
     { name = "playwright", specifier = ">=1.58.0" },
@@ -710,6 +712,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/48/ce/13508a1ec3f8bb981
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/ee/bf0adb559ad3c786f12bcbc9296b3f5675f529199bef03e2df281fa1fadb/email_validator-2.2.0-py3-none-any.whl", hash = "sha256:561977c2d73ce3611850a06fa56b414621e0c8faa9d66f2611407d87465da631", size = 33521, upload-time = "2024-06-20T11:30:28.248Z" },
 ]
+
+[[package]]
+name = "entry-point-test-blueprints"
+version = "0.0.0"
+source = { editable = "tests/entry_point_package" }
+dependencies = [
+    { name = "airflow-blueprint" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "airflow-blueprint" }]
 
 [[package]]
 name = "exceptiongroup"

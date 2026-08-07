@@ -20,6 +20,7 @@ ASTRO_CLI = os.environ.get("ASTRO_CLI", "astro")
 INTEGRATION_DIR = Path(__file__).parent
 PROJECT_DIR = INTEGRATION_DIR / "project"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+ENTRY_POINT_PACKAGE_DIR = REPO_ROOT / "tests" / "entry_point_package"
 
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 2
@@ -33,6 +34,7 @@ EXPECTED_DAG_IDS = {
     "explicit_naming",
     "params_test",
     "context_test",
+    "entry_point_test",
 }
 
 
@@ -186,7 +188,7 @@ def airflow_env():
     port = str(_find_free_port())
 
     req_file = PROJECT_DIR / "requirements.txt"
-    req_file.write_text(f"-e {REPO_ROOT}\n")
+    req_file.write_text(f"-e {REPO_ROOT}\n-e {ENTRY_POINT_PACKAGE_DIR}\n")
 
     _run_astro("dev", "kill", "--standalone", check=False)
     result = _run_astro(

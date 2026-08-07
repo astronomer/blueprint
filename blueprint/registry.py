@@ -1,17 +1,23 @@
 """Global registry for Blueprint discovery and management with version tracking."""
 
 import ast
+import importlib.metadata
 import importlib.util
+import inspect
 import logging
 import os
+import pkgutil
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
     DuplicateBlueprintError,
+    EntryPointLoadError,
     InvalidVersionError,
     MultipleDagArgsError,
     NonContiguousVersionError,
@@ -20,6 +26,18 @@ from blueprint.errors import (
 logger = logging.getLogger(__name__)
 
 _BLUEPRINT_BASE_NAMES = frozenset({"Blueprint", "BlueprintDagArgs"})
+
+# Shared-blueprint packages advertise themselves under this entry-point group so
+# BlueprintRegistry can discover them once installed, with no per-repo config:
+#
+#   [project.entry-points."airflow_blueprint.blueprints"]
+#   company_blueprints = "company_blueprints"  # noqa: ERA001
+#
+# The value must be a plain dotted module/package path (no "module:attr" syntax).
+# The module (and, if it's a package, every submodule) is scanned the same way
+# a locally discovered file is: any Blueprint/BlueprintDagArgs subclass defined
+# directly in it gets registered.
+_ENTRY_POINT_GROUP = "airflow_blueprint.blueprints"
 
 
 def _defines_blueprint_subclass(py_file: Path) -> bool:
@@ -64,6 +82,8 @@ class BlueprintRegistry:
         self,
         template_dirs: list[Path] | None = None,
         exclude_files: set[Path] | None = None,
+        discover_entry_points: bool = True,
+        skip_invalid: bool = False,
     ) -> None:
         self._blueprints: dict[str, dict[int, type[Blueprint]]] = {}
         self._blueprint_locations: dict[str, dict[int, str]] = {}
@@ -73,6 +93,8 @@ class BlueprintRegistry:
         self._discovery_in_progress = False
         self._template_dirs = template_dirs
         self._exclude_files = {p.resolve() for p in exclude_files} if exclude_files else set()
+        self._discover_entry_points = discover_entry_points
+        self._skip_invalid = skip_invalid
 
     def get_template_dirs(self) -> list[Path]:
         """Get all template directories to search."""
@@ -110,6 +132,7 @@ class BlueprintRegistry:
 
         self._discovery_in_progress = True
         try:
+            self._discover_from_entry_points()
             for template_dir in self.get_template_dirs():
                 if template_dir.exists():
                     self._discover_in_directory(template_dir)
@@ -141,34 +164,165 @@ class BlueprintRegistry:
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
                     spec.loader.exec_module(module)
-
-                    for name in dir(module):
-                        obj = getattr(module, name)
-                        if (
-                            isinstance(obj, type)
-                            and issubclass(obj, Blueprint)
-                            and obj is not Blueprint
-                            and obj.__module__ == module_name
-                        ):
-                            self._register_class(obj, py_file)
-                        elif (
-                            isinstance(obj, type)
-                            and issubclass(obj, BlueprintDagArgs)
-                            and obj not in (BlueprintDagArgs, DefaultDagArgs)
-                            and obj.__module__ == module_name
-                        ):
-                            self._register_dag_args(obj, py_file)
+                    self._register_module_classes(module, str(py_file.resolve()))
 
             except (DuplicateBlueprintError, MultipleDagArgsError, ValueError):
                 raise
             except (ImportError, SyntaxError) as e:
                 logger.warning("Failed to load %s: %s", py_file, e)
 
-    def _register_class(self, cls: type[Blueprint], py_file: Path) -> None:
-        """Register a blueprint class with its parsed name and version."""
-        bp_name, version = cls.parse_name_and_version()
+    def _discover_from_entry_points(self) -> None:
+        """Discover blueprints from installed packages via entry points.
 
-        location = str(py_file.resolve())
+        Packages advertise themselves under the ``airflow_blueprint.blueprints`` entry-point group;
+        this imports each advertised module (and, recursively, every submodule of a package) and
+        registers any Blueprint/BlueprintDagArgs subclasses defined directly in it.
+
+        When ``skip_invalid`` is False (the default), a package that fails to load raises
+        EntryPointLoadError, so the root cause reaches Airflow's UI as a DAG import error.
+        When True, failures are logged and skipped instead.
+
+        Raises:
+            EntryPointLoadError: If an entry point fails to load and skip_invalid is False.
+        """
+        if not self._discover_entry_points:
+            return
+
+        seen_modules: set[str] = set()
+
+        for ep in importlib.metadata.entry_points(group=_ENTRY_POINT_GROUP):
+            dist_name = ep.dist.name if ep.dist else "unknown package"
+            try:
+                loaded = ep.load()
+            except Exception as e:
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name, ep.value, dist_name, f"{type(e).__name__}: {e}"
+                    ) from e
+                logger.warning(
+                    "Failed to load entry point '%s' (%s) from %s: %s",
+                    ep.name,
+                    ep.value,
+                    dist_name,
+                    e,
+                )
+                continue
+
+            if not inspect.ismodule(loaded):
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name,
+                        ep.value,
+                        dist_name,
+                        "entry point does not resolve to a module "
+                        f"(got {type(loaded).__name__}); the value must be a dotted module path",
+                    )
+                logger.warning(
+                    "Entry point '%s' (%s) from %s does not resolve to a module; skipping",
+                    ep.name,
+                    ep.value,
+                    dist_name,
+                )
+                continue
+
+            for module in self._iter_entry_point_modules(loaded, ep, dist_name):
+                if module.__name__ in seen_modules:
+                    continue
+                seen_modules.add(module.__name__)
+                self._register_module_classes(module, module.__name__)
+
+    def _iter_entry_point_modules(
+        self, module: ModuleType, ep: importlib.metadata.EntryPoint, dist_name: str
+    ) -> Iterator[ModuleType]:
+        """Yield module and, if it is a package, every importable submodule.
+
+        When ``skip_invalid`` is False (the default), a submodule that fails to import raises
+        EntryPointLoadError. When True, it is logged and skipped, so one broken submodule does
+        not prevent its siblings (or a broken subpackage's siblings) from being scanned.
+
+        Args:
+            module: The top-level module or package resolved from an entry point.
+            ep: The entry point that resolved to this module, for error reporting.
+            dist_name: Name of the distribution advertising the entry point.
+
+        Yields:
+            The module itself, then each importable submodule in turn.
+
+        Raises:
+            EntryPointLoadError: If a submodule fails to import and skip_invalid is False.
+        """
+        yield module
+
+        module_path = getattr(module, "__path__", None)
+        if module_path is None:
+            return
+
+        def _on_error(name: str) -> None:
+            if not self._skip_invalid:
+                raise EntryPointLoadError(
+                    ep.name, ep.value, dist_name, f"failed to import submodule '{name}'"
+                )
+            logger.warning("Failed to import submodule '%s' of '%s'", name, module.__name__)
+
+        for _finder, name, _is_pkg in pkgutil.walk_packages(
+            module_path, prefix=f"{module.__name__}.", onerror=_on_error
+        ):
+            if name.rsplit(".", 1)[-1].startswith("_"):
+                continue
+            try:
+                submodule = importlib.import_module(name)
+            except Exception as e:
+                if not self._skip_invalid:
+                    raise EntryPointLoadError(
+                        ep.name,
+                        ep.value,
+                        dist_name,
+                        f"failed to import submodule '{name}': {type(e).__name__}: {e}",
+                    ) from e
+                logger.warning("Failed to import submodule '%s': %s", name, e)
+                continue
+            yield submodule
+
+    def _register_module_classes(self, module: ModuleType, location: str) -> None:
+        """Register any Blueprint/BlueprintDagArgs subclasses defined directly in module.
+
+        Args:
+            module: The already-imported module to scan.
+            location: Human-readable source of this module (a resolved file path for
+                directory-scanned modules, a dotted module name for entry-point-discovered
+                ones), recorded for error messages and `blueprint list` output.
+        """
+        module_name = module.__name__
+        for name in dir(module):
+            obj = getattr(module, name)
+            if (
+                isinstance(obj, type)
+                and issubclass(obj, Blueprint)
+                and obj is not Blueprint
+                and obj.__module__ == module_name
+            ):
+                self._register_class(obj, location)
+            elif (
+                isinstance(obj, type)
+                and issubclass(obj, BlueprintDagArgs)
+                and obj not in (BlueprintDagArgs, DefaultDagArgs)
+                and obj.__module__ == module_name
+            ):
+                self._register_dag_args(obj, location)
+
+    def _register_class(self, cls: type[Blueprint], location: str) -> None:
+        """Register a blueprint class with its parsed name and version.
+
+        Args:
+            cls: The Blueprint subclass to register.
+            location: Human-readable source of this class, recorded for error messages
+                and `blueprint list` output.
+
+        Raises:
+            DuplicateBlueprintError: If a class with the same name and version is
+                already registered.
+        """
+        bp_name, version = cls.parse_name_and_version()
 
         if bp_name not in self._blueprints:
             self._blueprints[bp_name] = {}
@@ -182,10 +336,16 @@ class BlueprintRegistry:
         self._blueprints[bp_name][version] = cls
         self._blueprint_locations[bp_name][version] = location
 
-    def _register_dag_args(self, cls: type[BlueprintDagArgs], py_file: Path) -> None:
-        """Register the single BlueprintDagArgs template, tracking its location."""
-        location = str(py_file.resolve())
+    def _register_dag_args(self, cls: type[BlueprintDagArgs], location: str) -> None:
+        """Register the single BlueprintDagArgs template, tracking its location.
 
+        Args:
+            cls: The BlueprintDagArgs subclass to register.
+            location: Human-readable source of this class, recorded for error messages.
+
+        Raises:
+            MultipleDagArgsError: If a BlueprintDagArgs template is already registered.
+        """
         if self._dag_args is not None:
             raise MultipleDagArgsError([self._dag_args_location or "", location])
 

@@ -73,7 +73,13 @@ dev = [
     "ty>=0.0.1a15",
     "playwright>=1.58.0",
     "httpx>=0.28.0",
+    "entry-point-test-blueprints",
 ]
+
+# Local package installed into the dev venv so entry-point discovery is exercised
+# against a real installed distribution instead of only mocks.
+[tool.uv.sources]
+entry-point-test-blueprints = { path = "tests/entry_point_package", editable = true }
 
 [tool.ruff]
 target-version = "py310"

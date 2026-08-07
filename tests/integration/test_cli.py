@@ -6,6 +6,7 @@ DAG files and blueprint definitions. No running Airflow instance needed.
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -17,13 +18,20 @@ pytestmark = pytest.mark.integration
 DAGS_DIR = str(INTEGRATION_DIR / "project" / "dags")
 
 
-def _run_blueprint(*args: str) -> subprocess.CompletedProcess:
+def _run_blueprint(*args: str, columns: int | None = None) -> subprocess.CompletedProcess:
     """Run a blueprint CLI command against the test project's dags."""
+    env = None
+    if columns is not None:
+        env = {
+            **os.environ,
+            "COLUMNS": str(columns),
+        }  # Could avoid columns if we'd have JSON output
     return subprocess.run(
         ["uv", "run", "blueprint", *args],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -39,6 +47,19 @@ class TestList:
         assert result.returncode == 0
         assert "1" in result.stdout
         assert "2" in result.stdout
+
+    def test_lists_entry_point_sourced_blueprint_with_dotted_location(self):
+        """Verify if the entry-point blueprints are discovered."""
+        result = _run_blueprint("list", "--template-dir", DAGS_DIR, columns=200)
+        assert result.returncode == 0, f"blueprint list failed:\n{result.stderr}"
+        assert "entry_point_bp_test" in result.stdout.lower()
+        assert "entry_point_test_blueprints.entrypoint_bp_test" in result.stdout
+        assert DAGS_DIR not in result.stdout
+
+    def test_no_entry_points_flag_hides_installed_package_blueprint(self):
+        result = _run_blueprint("list", "--template-dir", DAGS_DIR, "--no-entry-points")
+        assert result.returncode == 0, f"blueprint list failed:\n{result.stderr}"
+        assert "entry_point_test_blueprints.entrypoint_bp_test" not in result.stdout
 
 
 class TestDescribe:

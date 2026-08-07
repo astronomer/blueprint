@@ -505,6 +505,7 @@ def build_all_airflow_dags(
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
     skip_invalid_dags: bool = False,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -535,6 +536,9 @@ def build_all_airflow_dags(
         skip_invalid_dags: When True, log a warning and skip DAG files that fail
             to parse or build instead of aborting the entire load. Valid DAGs are
             still built and registered.
+        discover_entry_points: Whether to also discover blueprints from installed packages
+            advertising themselves via the ``airflow_blueprint.blueprints`` entry-point
+            group. Ignored when ``bp_registry`` is supplied directly.
 
     Returns:
         List of built DAGs
@@ -558,7 +562,12 @@ def build_all_airflow_dags(
     if bp_registry is None:
         caller_file = _get_caller_file()
         exclude = {Path(caller_file)} if caller_file else set()
-        bp_registry = BlueprintRegistry(template_dirs=[resolved_path], exclude_files=exclude)
+        bp_registry = BlueprintRegistry(
+            template_dirs=[resolved_path],
+            exclude_files=exclude,
+            discover_entry_points=discover_entry_points,
+            skip_invalid=skip_invalid_dags,
+        )
         bp_registry.discover(force=True)
 
     builder = Builder(bp_registry=bp_registry)
@@ -630,6 +639,7 @@ def build_all_dags(
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
     skip_invalid_dags: bool = False,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``.
 
@@ -661,6 +671,7 @@ def build_all_dags(
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
         skip_invalid_dags=skip_invalid_dags,
+        discover_entry_points=discover_entry_points,
     )
 
 
@@ -673,6 +684,7 @@ def build_all(
     bp_registry: BlueprintRegistry | None = None,
     on_dag_built: OnDagBuilt | None = None,
     skip_invalid_dags: bool = False,
+    discover_entry_points: bool = True,
 ) -> list["DAG"]:
     """Deprecated alias for ``build_all_airflow_dags``."""
     warnings.warn(
@@ -696,6 +708,7 @@ def build_all(
         bp_registry=bp_registry,
         on_dag_built=on_dag_built,
         skip_invalid_dags=skip_invalid_dags,
+        discover_entry_points=discover_entry_points,
     )
 
 

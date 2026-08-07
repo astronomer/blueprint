@@ -169,7 +169,7 @@ class BetaBlueprint(Blueprint[BConfig]):
     def test_discover_empty_dir(self, tmp_path):
         template_dir = tmp_path / "empty"
         template_dir.mkdir()
-        assert discover_blueprints(str(template_dir)) == []
+        assert discover_blueprints(str(template_dir), discover_entry_points=False) == []
 
 
 class TestGetBlueprintInfo:
