@@ -12,6 +12,7 @@ from blueprint.core import Blueprint, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
     DuplicateBlueprintError,
+    EntryPointLoadError,
     InvalidVersionError,
     MultipleDagArgsError,
     NonContiguousVersionError,
@@ -827,8 +828,8 @@ class TestEntryPointDiscovery:
         with pytest.raises(DuplicateBlueprintError, match="dup_same"):
             reg.discover(force=True)
 
-    def test_entry_point_broken_module_logs_and_continues(self, tmp_path, monkeypatch, caplog):
-        """Checks that one broken entry point is skipped without preventing good packages from loading."""
+    def test_entry_point_broken_module_raises(self, tmp_path, monkeypatch):
+        """Checks that an entry point that fails to load surfaces the underlying import error."""
         monkeypatch.syspath_prepend(str(tmp_path))
         (tmp_path / "_ep_good.py").write_text(_blueprint_source("GoodBp"))
 
@@ -845,15 +846,41 @@ class TestEntryPointDiscovery:
         )
 
         reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with pytest.raises(EntryPointLoadError, match="ImportError: boom") as exc_info:
+            reg.discover(force=True)
+
+        assert exc_info.value.entry_point == "broken"
+        assert isinstance(exc_info.value.__cause__, ImportError)
+
+    def test_entry_point_broken_module_skipped_when_skip_invalid(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Checks that with skip_invalid one broken entry point does not prevent good packages from loading."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_good_skip.py").write_text(_blueprint_source("GoodSkipBp"))
+
+        def _raise():
+            msg = "boom"
+            raise ImportError(msg)
+
+        self._patch_entry_points(
+            monkeypatch,
+            [
+                _FakeEntryPoint("broken", "_ep_missing", load_fn=_raise),
+                _FakeEntryPoint("good", "_ep_good_skip"),
+            ],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True, skip_invalid=True)
         with caplog.at_level(logging.WARNING):
             reg.discover(force=True)
 
         assert any("broken" in rec.getMessage() for rec in caplog.records)
         names = {bp["name"] for bp in reg.list_blueprints()}
-        assert names == {"good_bp"}
+        assert names == {"good_skip_bp"}
 
-    def test_entry_point_non_module_target_logs_and_skips(self, tmp_path, monkeypatch, caplog):
-        """Checks that an entry point pointing to the wrong kind of object is ignored instead of crashing discovery."""
+    def test_entry_point_non_module_target_raises(self, tmp_path, monkeypatch):
+        """Checks that an entry point pointing to the wrong kind of object fails with a clear error."""
         monkeypatch.syspath_prepend(str(tmp_path))
         (tmp_path / "_ep_good2.py").write_text(_blueprint_source("GoodBp2"))
 
@@ -866,17 +893,34 @@ class TestEntryPointDiscovery:
         )
 
         reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with pytest.raises(EntryPointLoadError, match="does not resolve to a module"):
+            reg.discover(force=True)
+
+    def test_entry_point_non_module_target_skipped_when_skip_invalid(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Checks that with skip_invalid an entry point resolving to a non-module is ignored, not fatal."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        (tmp_path / "_ep_good2_skip.py").write_text(_blueprint_source("GoodBp2Skip"))
+
+        self._patch_entry_points(
+            monkeypatch,
+            [
+                _FakeEntryPoint("bad", "_ep_bad:attr", load_fn=lambda: 42),
+                _FakeEntryPoint("good", "_ep_good2_skip"),
+            ],
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True, skip_invalid=True)
         with caplog.at_level(logging.WARNING):
             reg.discover(force=True)
 
         assert any("does not resolve to a module" in rec.getMessage() for rec in caplog.records)
         names = {bp["name"] for bp in reg.list_blueprints()}
-        assert names == {"good_bp2"}
+        assert names == {"good_bp2_skip"}
 
-    def test_entry_point_broken_leaf_submodule_continues_others(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        """Checks that one bad module inside a package does not stop other modules in that package from being discovered."""
+    def test_entry_point_broken_leaf_submodule_raises(self, tmp_path, monkeypatch):
+        """Checks that a bad module inside an entry-point package fails discovery with its import error."""
         monkeypatch.syspath_prepend(str(tmp_path))
         pkg_dir = tmp_path / "_ep_broken_leaf_pkg"
         pkg_dir.mkdir()
@@ -887,15 +931,32 @@ class TestEntryPointDiscovery:
         self._patch_entry_points(monkeypatch, [_FakeEntryPoint("leaf", "_ep_broken_leaf_pkg")])
 
         reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with pytest.raises(EntryPointLoadError, match="_ep_broken_leaf_pkg.broken"):
+            reg.discover(force=True)
+
+    def test_entry_point_broken_leaf_submodule_skipped_when_skip_invalid(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Checks that with skip_invalid one bad module does not stop its siblings from being discovered."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        pkg_dir = tmp_path / "_ep_broken_leaf_skip_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+        (pkg_dir / "broken.py").write_text("raise ImportError('leaf boom')\n")
+        (pkg_dir / "fine.py").write_text(_blueprint_source("FineSkipBp"))
+
+        self._patch_entry_points(monkeypatch, [_FakeEntryPoint("leaf", "_ep_broken_leaf_skip_pkg")])
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True, skip_invalid=True)
         with caplog.at_level(logging.WARNING):
             reg.discover(force=True)
 
         assert any("broken" in rec.getMessage() for rec in caplog.records)
         names = {bp["name"] for bp in reg.list_blueprints()}
-        assert names == {"fine_bp"}
+        assert names == {"fine_skip_bp"}
 
-    def test_entry_point_broken_subpackage_continues_siblings(self, tmp_path, monkeypatch, caplog):
-        """Checks that a broken subpackage does not stop discovery from reaching its sibling subpackages."""
+    def test_entry_point_broken_subpackage_raises(self, tmp_path, monkeypatch):
+        """Checks that a broken subpackage of an entry-point package fails discovery."""
         monkeypatch.syspath_prepend(str(tmp_path))
         pkg_dir = tmp_path / "_ep_broken_subpkg_pkg"
         pkg_dir.mkdir()
@@ -913,11 +974,37 @@ class TestEntryPointDiscovery:
         self._patch_entry_points(monkeypatch, [_FakeEntryPoint("subpkg", "_ep_broken_subpkg_pkg")])
 
         reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True)
+        with pytest.raises(EntryPointLoadError, match="_ep_broken_subpkg_pkg.broken_sub"):
+            reg.discover(force=True)
+
+    def test_entry_point_broken_subpackage_skipped_when_skip_invalid(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Checks that with skip_invalid a broken subpackage does not stop discovery of its siblings."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        pkg_dir = tmp_path / "_ep_broken_subpkg_skip_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        broken_sub = pkg_dir / "broken_sub"
+        broken_sub.mkdir()
+        (broken_sub / "__init__.py").write_text("raise RuntimeError('subpackage boom')\n")
+
+        fine_sub = pkg_dir / "fine_sub"
+        fine_sub.mkdir()
+        (fine_sub / "__init__.py").write_text("")
+        (fine_sub / "bp.py").write_text(_blueprint_source("FineSubSkip"))
+
+        self._patch_entry_points(
+            monkeypatch, [_FakeEntryPoint("subpkg", "_ep_broken_subpkg_skip_pkg")]
+        )
+
+        reg = BlueprintRegistry(template_dirs=[], discover_entry_points=True, skip_invalid=True)
         with caplog.at_level(logging.WARNING):
             reg.discover(force=True)
 
         names = {bp["name"] for bp in reg.list_blueprints()}
-        assert names == {"fine_sub"}
+        assert names == {"fine_sub_skip"}
 
     def test_discover_entry_points_false_disables_discovery(self, tmp_path, monkeypatch):
         """Checks that entry-point discovery is completely skipped when the feature is turned off."""
