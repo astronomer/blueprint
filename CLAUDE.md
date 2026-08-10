@@ -60,12 +60,14 @@ Reusable task group templates composed into Airflow DAGs via YAML.
   - `README.md`: Index of every example
   - `run.sh`: Launch an example locally -- `./run.sh <example> [2|3]`
   - `check.sh`: Validate every example (run by CI)
-  - `_runtime/airflow2/`, `_runtime/airflow3/`: Shared orchestration only (docker-compose
-    and Tiltfile), parametrised by the `EXAMPLE` variable
+  - `_runtime/`: Shared orchestration only (docker-compose and Tiltfile), parametrised by
+    the `EXAMPLE` variable
   - `<example>/`: A real Astro project -- `Dockerfile`, `requirements.txt`, `packages.txt`,
     `dags/`. The example directory is the Docker build context, so it builds exactly as a
-    standalone project would. The `Dockerfile` takes a `BASE_IMAGE` arg (Airflow 2 vs 3) and
-    installs `.wheels/*.whl` when present, which `run.sh` builds from the working tree.
+    standalone project would. The `Dockerfile` installs `.wheels/*.whl` when present, which
+    `run.sh` builds from the working tree.
+  - Examples target Airflow 3 and use its import paths directly, with no 2/3 compatibility
+    shim. The package still supports 2.5.0+; that is covered by the unit test matrix.
   - `<example>/package/`: Optional installable blueprint package (shared-blueprints-package)
 - `.github/workflows/`: CI/CD pipelines
 

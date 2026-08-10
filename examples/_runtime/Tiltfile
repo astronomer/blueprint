@@ -1,4 +1,4 @@
-# Shared Airflow 3 runtime. Pick the example to run with:
+# Shared Airflow runtime. Pick the example to run with:
 #
 #     tilt up -- --example=getting-started
 #
@@ -10,7 +10,7 @@ config.define_string('example')
 cfg = config.parse()
 example = cfg.get('example', os.getenv('EXAMPLE', 'getting-started'))
 
-example_dir = '../../' + example
+example_dir = '../' + example
 if not os.path.exists(example_dir + '/dags'):
     fail('No such example: examples/' + example + ' (expected a dags/ directory)')
 
@@ -22,7 +22,7 @@ print('Running example: ' + example)
 # requirements.txt. Re-run `tilt up` to pick up edits to the blueprint package.
 local(
     'rm -rf ' + example_dir + '/.wheels && ' +
-    'uv build --wheel --quiet -o ' + example_dir + '/.wheels ../../..',
+    'uv build --wheel --quiet -o ' + example_dir + '/.wheels ../..',
     quiet=True,
 )
 
@@ -36,9 +36,8 @@ dc_resource('dag-processor', resource_deps=['db-migration'])
 dc_resource('triggerer', resource_deps=['db-migration'])
 
 docker_build(
-    'blueprint-example-' + example + '-airflow3',
+    'blueprint-example-' + example,
     context=example_dir,
     dockerfile=example_dir + '/Dockerfile',
-    build_args={'BASE_IMAGE': 'astrocrpublic.azurecr.io/runtime:3.3'},
     ignore=['**/logs/**'],
 )

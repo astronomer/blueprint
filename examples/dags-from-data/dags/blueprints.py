@@ -1,12 +1,7 @@
 """Blueprints reused across every generated DAG."""
 
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-    from airflow.sdk import TaskGroup
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
-    from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup
 
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup
 

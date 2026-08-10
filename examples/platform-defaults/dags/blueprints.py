@@ -1,10 +1,6 @@
 """Ordinary blueprints. The interesting part of this example is dag_args.py."""
 
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
+from airflow.providers.standard.operators.bash import BashOperator
 
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup
 

@@ -29,8 +29,7 @@ rest is the `dags/` folder.
 ## Run it
 
 ```bash
-../run.sh getting-started      # Airflow 3
-../run.sh getting-started 2    # Airflow 2
+../run.sh getting-started
 ```
 
 Airflow UI: http://localhost:8080

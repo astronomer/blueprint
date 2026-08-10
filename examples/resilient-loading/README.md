@@ -27,8 +27,7 @@ at all.
 ## Run it
 
 ```bash
-../run.sh resilient-loading      # Airflow 3
-../run.sh resilient-loading 2    # Airflow 2
+../run.sh resilient-loading
 ```
 
 `blueprint lint` **fails in this directory on purpose** — `broken.dag.yaml` really is broken.

@@ -5,19 +5,14 @@ are rejected, values are range- and pattern-checked, and two custom validators
 enforce rules the type system cannot express.
 """
 
+from typing import Literal
+
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup
+
 # PrivateAttr is not re-exported by blueprint; import anything else you need
 # straight from pydantic.
 from pydantic import PrivateAttr
-
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-    from airflow.sdk import TaskGroup
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
-    from airflow.utils.task_group import TaskGroup
-
-from typing import Literal
 
 from blueprint import (
     BaseModel,

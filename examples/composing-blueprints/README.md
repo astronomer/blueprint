@@ -25,8 +25,7 @@ expose only the ones that should.
 ## Run it
 
 ```bash
-../run.sh composing-blueprints      # Airflow 3
-../run.sh composing-blueprints 2    # Airflow 2
+../run.sh composing-blueprints
 ```
 
 Or compare the two configs without Docker:

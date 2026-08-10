@@ -23,8 +23,7 @@ syntax barely distinguishes them — most templating bugs are really a confusion
 ## Run it
 
 ```bash
-../run.sh templating      # Airflow 3
-../run.sh templating 2    # Airflow 2
+../run.sh templating
 ```
 
 ```bash

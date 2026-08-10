@@ -25,8 +25,7 @@ one run.
 This one is worth actually running — the trigger form is the feature.
 
 ```bash
-../run.sh runtime-params      # Airflow 3
-../run.sh runtime-params 2    # Airflow 2
+../run.sh runtime-params
 ```
 
 Then open `events_backfill` and hit **Trigger DAG w/ config**.

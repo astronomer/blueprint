@@ -171,20 +171,22 @@ Run any example against a local Airflow:
 
 ```bash
 cd examples
-./run.sh getting-started      # Airflow 3
-./run.sh getting-started 2    # Airflow 2
+./run.sh getting-started
 
 # Access Airflow at http://localhost:8080
 ```
 
-Or with Tilt, which live-syncs the `blueprint` source into the containers:
+Or with Tilt:
 
 ```bash
-cd examples/_runtime/airflow3   # or airflow2
+cd examples/_runtime
 tilt up -- --example=getting-started
 
 # Tilt dashboard at http://localhost:10350
 ```
+
+Examples target Airflow 3. `airflow-blueprint` still supports 2.5.0+, which the
+unit test matrix covers -- see `.github/workflows/test-matrix.yml`.
 
 ### Testing Edge Cases
 
@@ -255,11 +257,9 @@ tests/
 
 examples/
 ├── README.md            # Index of every example
-├── run.sh               # ./run.sh <example> [2|3]
+├── run.sh               # ./run.sh <example>
 ├── check.sh             # Validates every example; run by CI
 ├── _runtime/            # Shared orchestration only (compose + Tiltfile)
-│   ├── airflow2/
-│   └── airflow3/
 └── <example>/           # A real Astro project, one per idea
     ├── Dockerfile       # FROM astrocrpublic.azurecr.io/runtime:3.3
     ├── requirements.txt # airflow-blueprint
@@ -270,10 +270,9 @@ examples/
 ```
 
 Each example builds with its own directory as the Docker context, so it is the
-same image a standalone project would produce. Two concessions to this being a
-repository rather than a real project, both confined to the `Dockerfile`: a
-`BASE_IMAGE` build argument so one file covers Airflow 2 and 3, and an install
-of `.wheels/*.whl` when present, which `run.sh` builds from the working tree so
+same image a standalone project would produce. One concession to this being a
+repository rather than a real project, confined to the `Dockerfile`: it installs
+`.wheels/*.whl` when present, which `run.sh` builds from the working tree so
 examples exercise local changes instead of the released package.
 
 ### Adding an Example
@@ -292,8 +291,10 @@ kitchen sink -- that is what the previous `simple`/`advanced` split turned into.
    look at in the Airflow UI, and links to related examples.
 3. Add a row to the table in `examples/README.md`, marking whether it needs Docker or
    is CLI only.
-4. Support both Airflow 2 and 3 -- use the try/except import shim the other examples
-   use at the top of `blueprints.py`.
+4. Use the Airflow 3 import paths (`airflow.providers.standard.operators.bash`,
+   `airflow.sdk`) as the other examples do. Examples do not carry a 2/3
+   compatibility shim -- it would sit at the top of every file and obscure the
+   point of the example.
 5. Run `uv run examples/check.sh`. It picks up the new directory with no configuration.
    Two conventions are honoured automatically: a `pytest.ini` means the example's tests
    are run, and an executable `regenerate-schemas.sh` is invoked with `--check`. If the

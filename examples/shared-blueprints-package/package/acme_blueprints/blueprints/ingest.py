@@ -2,14 +2,8 @@
 
 from typing import Literal
 
-# A published package cannot assume which Airflow major version its consumers
-# run, so cross-version imports matter more here than in a single repo.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-    from airflow.sdk import TaskGroup
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
-    from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup
 
 from acme_blueprints.utils import sla_minutes
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup

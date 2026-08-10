@@ -4,11 +4,7 @@ This example is about wiring steps together in YAML, so every blueprint here
 renders a single task and the graph in the UI stays readable.
 """
 
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
+from airflow.providers.standard.operators.bash import BashOperator
 
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup
 

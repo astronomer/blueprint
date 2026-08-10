@@ -52,21 +52,19 @@ The rest start a local Airflow.
 ## Running an example
 
 ```bash
-./run.sh <example>        # Airflow 3 (default)
-./run.sh <example> 2      # Airflow 2
+./run.sh <example>
 ```
 
 ```bash
 ./run.sh runtime-params
 ```
 
-Airflow UI: http://localhost:8080 — Airflow 3 needs no login; Airflow 2 uses `admin`/`admin`.
+Airflow UI: http://localhost:8080 — no login required.
 
-With [Tilt](https://tilt.dev/), which live-syncs the `blueprint` source into the running
-containers:
+Or with [Tilt](https://tilt.dev/):
 
 ```bash
-cd _runtime/airflow3        # or airflow2
+cd _runtime
 tilt up -- --example=runtime-params
 ```
 
@@ -101,14 +99,10 @@ The example directory is the Docker build context, so the image is built exactly
 in a standalone project — Astro Runtime installs `packages.txt` and `requirements.txt` and
 copies the project in.
 
-What is *not* realistic, and is confined to two places:
-
-- The `Dockerfile` takes a `BASE_IMAGE` build argument so one file can run on both Airflow 2
-  and 3. Your own project would write the `FROM` line directly.
-- Below a marked comment, the `Dockerfile` installs a wheel from `.wheels/` if one is present.
-  `run.sh` builds that from this repository's working tree so the examples exercise local
-  changes rather than the released package. Delete `.wheels/` and the example runs against the
-  real `airflow-blueprint` from PyPI.
+Exactly one thing is not realistic: below a marked comment, the `Dockerfile` installs a wheel
+from `.wheels/` if one is present. `run.sh` builds that from this repository's working tree so
+the examples exercise local changes rather than the released package. Delete `.wheels/` and the
+example runs against the real `airflow-blueprint` from PyPI.
 
 Only the orchestration around the projects is shared:
 
@@ -116,38 +110,27 @@ Only the orchestration around the projects is shared:
 examples/
 ├── run.sh          # launcher: builds the dev wheel, then docker compose
 ├── check.sh        # validates every example; run by CI
-└── _runtime/
-    ├── airflow2/   # docker-compose.yaml + Tiltfile
-    └── airflow3/
+└── _runtime/       # docker-compose.yaml + Tiltfile
 ```
 
-Those compose files exist so one command can run any example on either Airflow version. In a
-real project you would use `astro dev start` instead and have no `_runtime/` at all.
+That compose file exists so one command can run any example. In a real project you would use
+`astro dev start` and have no `_runtime/` at all.
 
-## Airflow 2 and 3
+## Airflow version
 
-Every example runs on both. The blueprints and YAML are identical; only the import paths
-differ, which each `blueprints.py` handles with a try/except at the top:
+The examples target **Airflow 3** and use its import paths directly:
 
 ```python
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-    from airflow.sdk import TaskGroup
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
-    from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup
 ```
 
-The legacy paths still resolve on Airflow 3 but are deprecated, so the shim is what a real
-cross-version project needs rather than example decoration.
-
-| | Airflow 2 | Airflow 3 |
-|---|---|---|
-| Base image | `astro-runtime:13.4.0` | `runtime:3.3` (the default) |
-| UI server | `webserver` | `api-server` |
-| DAG parsing | Built into the scheduler | Standalone `dag-processor` |
-| DB init | `airflow db init` | `airflow db migrate` |
-| Auth | RBAC, `admin`/`admin` | SimpleAuthManager, no login |
+`airflow-blueprint` itself supports Airflow 2.5.0+, and blueprints written against Airflow 2
+work the same way — only these import paths differ (`airflow.operators.bash` and
+`airflow.utils.task_group`). The examples do not carry a compatibility shim for both, because it
+would sit at the top of every file and obscure the thing each example is there to teach. If you
+publish blueprints for consumers on either version, see
+[shared-blueprints-package](shared-blueprints-package/), which covers what that costs you.
 
 ## A note when working in this repository
 

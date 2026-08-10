@@ -24,8 +24,7 @@ return whatever shape the work actually needs, and change it freely later.
 ## Run it
 
 ```bash
-../run.sh tasks-and-taskgroups      # Airflow 3
-../run.sh tasks-and-taskgroups 2    # Airflow 2
+../run.sh tasks-and-taskgroups
 ```
 
 The graph view is the whole point of this example, so it is worth actually starting.

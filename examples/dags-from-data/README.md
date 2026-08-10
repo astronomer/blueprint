@@ -26,8 +26,7 @@ There is no `loader.py` and no `*.dag.yaml` here — this example is entirely pr
 ## Run it
 
 ```bash
-../run.sh dags-from-data      # Airflow 3
-../run.sh dags-from-data 2    # Airflow 2
+../run.sh dags-from-data
 ```
 
 `blueprint lint` reports no files to check, which is correct: there is no YAML to lint. See

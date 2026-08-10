@@ -28,8 +28,7 @@ This example is two projects in one directory — the publisher and a consumer.
 ## Run it
 
 ```bash
-../run.sh shared-blueprints-package      # Airflow 3
-../run.sh shared-blueprints-package 2    # Airflow 2
+../run.sh shared-blueprints-package
 ```
 
 A real consumer repo would list `acme-blueprints` in `requirements.txt` and install it from a
@@ -105,10 +104,11 @@ That is deliberate: silent shadowing is how you get a DAG that behaves different
 environments. If a consumer needs a local variant, it needs a different name. Prefixing
 published names (`acme_ingest`) is worth considering if collisions are likely.
 
-### Cross-version imports matter more here
+### Cross-version imports are your problem now
 
-A published package cannot assume its consumers' Airflow major version, so the try/except
-import shim in `ingest.py` is doing real work rather than being example boilerplate:
+A DAG repository knows which Airflow it runs. A published package does not, and this example's
+code targets Airflow 3 like every other example here. If your consumers span Airflow 2 and 3,
+that is a real constraint you inherit, because the import paths moved:
 
 ```python
 try:  # Airflow 3
@@ -119,8 +119,13 @@ except ImportError:  # Airflow 2
     from airflow.utils.task_group import TaskGroup
 ```
 
-Test the package against every Airflow version you claim to support — the failure mode is an
-`ImportError` during DAG parsing in someone else's repository.
+The legacy paths still resolve on Airflow 3 but are deprecated, so importing them
+unconditionally is not a shortcut. Test the package against every Airflow version you claim to
+support: the failure mode is an `ImportError` during DAG parsing in someone else's repository,
+which you will hear about from them rather than from your own CI.
+
+Declaring a narrow `apache-airflow` range in `pyproject.toml` is the honest alternative to
+supporting both.
 
 ## What to look at in the UI
 

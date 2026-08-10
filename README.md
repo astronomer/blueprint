@@ -73,9 +73,8 @@ Blueprints typically return a **TaskGroup** containing multiple tasks. For simpl
 `self.step_id` is the step name from YAML; using it as the `task_id`/`group_id` is what keeps
 two steps built from the same blueprint from colliding.
 
-On Airflow 2 the imports are `airflow.operators.bash` and `airflow.utils.task_group`; the
-blueprint itself is unchanged. Every example wraps both in a try/except so it runs on either
-version.
+The imports above are the Airflow 3 paths. On Airflow 2 they are `airflow.operators.bash` and
+`airflow.utils.task_group` — the blueprint itself is unchanged.
 
 ### 2. Compose a DAG in YAML
 
@@ -166,8 +165,7 @@ idea and each a real Astro project you can run:
 
 ```bash
 cd examples
-./run.sh getting-started        # Airflow 3
-./run.sh getting-started 2      # Airflow 2
+./run.sh getting-started
 ```
 
 | Example | What it covers |

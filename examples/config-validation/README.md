@@ -39,8 +39,7 @@ blueprint describe load                       # the contract, as authors see it
 To see the DAG in Airflow anyway:
 
 ```bash
-../run.sh config-validation      # Airflow 3
-../run.sh config-validation 2    # Airflow 2
+../run.sh config-validation
 ```
 
 ## Walk-through

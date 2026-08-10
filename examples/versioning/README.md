@@ -29,8 +29,7 @@ blueprint describe extract        # latest
 ```
 
 ```bash
-../run.sh versioning      # Airflow 3
-../run.sh versioning 2    # Airflow 2
+../run.sh versioning
 ```
 
 ## Walk-through

@@ -2,22 +2,19 @@
 #
 # Run any example against a local Airflow.
 #
-#   ./run.sh <example> [2|3]
+#   ./run.sh <example>
 #
-# Examples:
-#   ./run.sh getting-started       # Airflow 3 (default)
-#   ./run.sh runtime-params 2      # Airflow 2
+# Example:
+#   ./run.sh runtime-params
 #
-# Airflow UI: http://localhost:8080
-#   Airflow 3 -- no login required
-#   Airflow 2 -- username admin, password admin
+# Airflow UI: http://localhost:8080 (no login required)
 #
 set -euo pipefail
 
 EXAMPLES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-    echo "usage: ./run.sh <example> [2|3]" >&2
+    echo "usage: ./run.sh <example>" >&2
     echo >&2
     echo "Available examples:" >&2
     for dir in "${EXAMPLES_DIR}"/*/; do
@@ -32,7 +29,6 @@ usage() {
 [[ $# -ge 1 ]] || usage
 
 EXAMPLE="$1"
-VERSION="${2:-3}"
 
 if [[ ! -d "${EXAMPLES_DIR}/${EXAMPLE}/dags" ]]; then
     echo "error: no such example '${EXAMPLE}' (expected ${EXAMPLES_DIR}/${EXAMPLE}/dags)" >&2
@@ -40,13 +36,8 @@ if [[ ! -d "${EXAMPLES_DIR}/${EXAMPLE}/dags" ]]; then
     usage
 fi
 
-if [[ "${VERSION}" != "2" && "${VERSION}" != "3" ]]; then
-    echo "error: Airflow version must be 2 or 3, got '${VERSION}'" >&2
-    exit 1
-fi
-
-REPO_ROOT="$(cd "${EXAMPLES_DIR}/.." && pwd)"
 WHEELS_DIR="${EXAMPLES_DIR}/${EXAMPLE}/.wheels"
+REPO_ROOT="$(cd "${EXAMPLES_DIR}/.." && pwd)"
 
 # Each example installs the released airflow-blueprint through its
 # requirements.txt, exactly as your own project would. For local development we
@@ -63,6 +54,6 @@ fi
 
 export EXAMPLE
 exec docker compose \
-    -f "${EXAMPLES_DIR}/_runtime/airflow${VERSION}/docker-compose.yaml" \
-    -p "blueprint-${EXAMPLE}-af${VERSION}" \
+    -f "${EXAMPLES_DIR}/_runtime/docker-compose.yaml" \
+    -p "blueprint-${EXAMPLE}" \
     up --build

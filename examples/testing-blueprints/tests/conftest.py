@@ -8,10 +8,7 @@ from datetime import datetime
 
 import pytest
 
-try:  # Airflow 3
-    from airflow.sdk import DAG
-except ImportError:  # Airflow 2
-    from airflow import DAG
+from airflow.sdk import DAG
 
 DAGS_DIR = "dags"
 

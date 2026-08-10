@@ -26,8 +26,7 @@ answer: who owns this, and how important is it.
 ## Run it
 
 ```bash
-../run.sh platform-defaults      # Airflow 3
-../run.sh platform-defaults 2    # Airflow 2
+../run.sh platform-defaults
 ```
 
 Or check the policy without Docker:

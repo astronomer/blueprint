@@ -1,26 +1,26 @@
 ---
-# Shared Airflow 3 runtime for every example.
+# Shared Airflow runtime for every example.
 #
 # The example to run is selected with the EXAMPLE environment variable, which
 # picks both the image tag and the dags/ directory to mount:
 #
 #     EXAMPLE=getting-started docker compose -f docker-compose.yaml up --build
 #
-# Use examples/run.sh instead of invoking this directly.
+# Use examples/run.sh instead of invoking this directly. In a real project you
+# would use `astro dev start` and have nothing like this file.
 
 x-airflow-common: &airflow-common
-  image: blueprint-example-${EXAMPLE}-airflow3
+  image: blueprint-example-${EXAMPLE}
   build:
     # The example directory is the build context, so each example builds
-    # exactly like a standalone Astro project would.
-    context: ../../${EXAMPLE}
+    # exactly like a standalone Astro project would -- including its own
+    # Dockerfile, which is the one a real project would have.
+    context: ../${EXAMPLE}
     dockerfile: Dockerfile
-    args:
-      BASE_IMAGE: astrocrpublic.azurecr.io/runtime:3.3
   env_file:
-    - path: ../../.env
+    - path: ../.env
       required: false
-    - path: ../../${EXAMPLE}/.env
+    - path: ../${EXAMPLE}/.env
       required: false
   networks:
     - airflow
@@ -44,7 +44,7 @@ x-airflow-common: &airflow-common
     OPENLINEAGE_DISABLED: "True"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
   volumes:
-    - ../../${EXAMPLE}/dags:/usr/local/airflow/dags
+    - ../${EXAMPLE}/dags:/usr/local/airflow/dags
     - airflow_logs:/usr/local/airflow/logs
 
 networks:

@@ -25,8 +25,7 @@ follow a pattern and leave the rest alone.
 ## Run it
 
 ```bash
-../run.sh python-dag-interop      # Airflow 3
-../run.sh python-dag-interop 2    # Airflow 2
+../run.sh python-dag-interop
 ```
 
 Both DAGs appear. `blueprint lint` covers only the YAML one.

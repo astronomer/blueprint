@@ -4,11 +4,7 @@ Nothing here knows about templating. Values arrive as ordinary strings; some
 of them happen to be Airflow template expressions that resolve later.
 """
 
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-except ImportError:  # Airflow 2
-    from airflow.operators.bash import BashOperator
+from airflow.providers.standard.operators.bash import BashOperator
 
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup
 

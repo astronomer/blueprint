@@ -6,14 +6,8 @@ Notify deliberately does not opt in -- see the README for why that matters.
 
 from typing import Literal
 
-# Blueprints run unchanged on Airflow 2 and 3 -- only the import paths differ.
-try:  # Airflow 3
-    from airflow.providers.standard.operators.bash import BashOperator
-    from airflow.sdk import TaskGroup, task
-except ImportError:  # Airflow 2
-    from airflow.decorators import task
-    from airflow.operators.bash import BashOperator
-    from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup, task
 
 from blueprint import BaseModel, Blueprint, Field, TaskOrGroup
 

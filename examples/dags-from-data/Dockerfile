@@ -1,17 +1,9 @@
-# A standard Astro Runtime project image.
-#
-# BASE_IMAGE is an argument only so this one file can run the example on both
-# Airflow 2 and Airflow 3. In your own project you would write the FROM line
-# directly:
-#
-#     FROM astrocrpublic.azurecr.io/runtime:3.3
-#
-ARG BASE_IMAGE=astrocrpublic.azurecr.io/runtime:3.3
-FROM ${BASE_IMAGE}
+# A standard Astro Runtime project image, as `astro dev init` generates.
+FROM astrocrpublic.azurecr.io/runtime:3.3
 
 # Nothing else is needed. The base image installs packages.txt and
-# requirements.txt and copies this project into /usr/local/airflow for you --
-# which is where airflow-blueprint comes from.
+# requirements.txt and copies this project into /usr/local/airflow -- which is
+# where airflow-blueprint comes from.
 
 # ---------------------------------------------------------------------------
 # Everything below is specific to the Blueprint repository and has no place in

@@ -23,8 +23,7 @@ what the tasks do.
 ## Run it
 
 ```bash
-../run.sh step-dependencies      # Airflow 3
-../run.sh step-dependencies 2    # Airflow 2
+../run.sh step-dependencies
 ```
 
 Or check the wiring without Docker, from this directory:
@@ -106,8 +105,8 @@ worth knowing:
 teardown and failure notifications — anything that must happen regardless of the outcome. Without
 it, a failed publish leaves the scratch bucket full, because `cleanup` would be skipped.
 
-The valid values come from the Airflow version you have installed, so the full set differs
-between Airflow 2 and 3. An invalid value is rejected at build time with the list of valid ones.
+The valid values are read from the Airflow you have installed rather than hardcoded, so the set
+tracks your version. An invalid value is rejected at build time, with the valid ones listed.
 
 ## Errors you will hit
 
