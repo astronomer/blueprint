@@ -22,6 +22,15 @@ jobs:
       python-version: ${{ matrix.python-version }}
       os: ${{ matrix.os }}
 
+  # The matrix above resolves the newest allowed Airflow, which is 3.x. The
+  # examples are Airflow 3 only, so this job is what keeps the declared
+  # apache-airflow>=2.5.0 support honest.
+  test-airflow2:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      python-version: "3.11"
+      airflow-version: "<3"
+
   integration-test:
     runs-on: ubuntu-latest
     needs: [test]

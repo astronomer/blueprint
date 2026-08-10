@@ -12,6 +12,14 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+      airflow-version:
+        description: >
+          Optional pip version specifier for apache-airflow, e.g. "<3". When set,
+          tests run in an isolated environment resolved against it instead of the
+          project venv. Leave empty to use the version pyproject.toml resolves to.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   test:
@@ -32,5 +40,17 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Run tests
+        if: inputs.airflow-version == ''
         run: |
           uv run pytest tests/ --ignore=tests/integration -v
+
+      # `uv pip install` into the synced project venv will not downgrade
+      # apache-airflow, so resolve a separate isolated environment instead.
+      - name: Run tests against Airflow ${{ inputs.airflow-version }}
+        if: inputs.airflow-version != ''
+        run: |
+          uv run --isolated --with "apache-airflow${{ inputs.airflow-version }}" \
+            python -c "import airflow; print('airflow', airflow.__version__)"
+          uv run --isolated --with "apache-airflow${{ inputs.airflow-version }}" \
+            pytest tests/ --ignore=tests/integration -v
+        shell: bash
