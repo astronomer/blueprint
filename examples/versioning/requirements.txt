@@ -1,2 +1,1 @@
-# Astro Runtime installs these when the image is built.
 airflow-blueprint

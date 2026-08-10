@@ -276,8 +276,18 @@ files is specific to this repository.
 The one concession lives in `_runtime/docker-compose.yaml`, which mounts this
 repository's `blueprint/` into the containers and sets `PYTHONPATH` so it
 shadows the released `airflow-blueprint` installed from `requirements.txt`.
-Edits to the library therefore take effect on the next DAG parse, with no
-rebuild -- but a new dependency added to `pyproject.toml` still needs one.
+
+This is what lets an example demonstrate an unreleased feature: the container
+imports the working tree, not the version pip installed, so no release is
+needed. `examples/check.sh` gets there differently -- it runs in this repo's
+venv, where the package is an editable install.
+
+The gap to watch is dependencies. The mount supplies Python code only, and
+Blueprint's current dependencies happen to be installed by Airflow anyway. If
+you add a new third-party dependency to `pyproject.toml`, add it to the
+affected example's `requirements.txt` until the next release, or that example's
+DAGs will fail to import. Do not pin `airflow-blueprint` to an unpublished
+version in `requirements.txt` -- that breaks the image build.
 
 ### Adding an Example
 

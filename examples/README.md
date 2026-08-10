@@ -111,16 +111,41 @@ examples/
 └── _runtime/       # docker-compose.yaml + Tiltfile
 ```
 
-The one deviation lives here rather than in the examples: `_runtime/docker-compose.yaml` mounts
-this repository's `blueprint/` into the containers and sets `PYTHONPATH` so it shadows the
-released `airflow-blueprint` the image installed from `requirements.txt`. That way an edit to
-the library shows up on the next DAG parse, and the examples verify the working tree rather than
-the last release. Remove those two volume entries and the examples run against PyPI, exactly as
-a reader's project would. (A *new* dependency in `pyproject.toml` is not covered by the mount and
-still needs a rebuild.)
-
 That compose file exists so one command can run any example. In a real project you would use
 `astro dev start` and have no `_runtime/` at all.
+
+## What the examples actually run against
+
+An example's `requirements.txt` lists `airflow-blueprint`, so building its image installs the
+**released** version from PyPI, exactly as a reader's project would.
+
+That is not what the containers import. `_runtime/docker-compose.yaml` mounts this repository's
+`blueprint/` at `/opt/blueprint-src` and sets `PYTHONPATH` so it takes precedence over the
+installed package. `import blueprint` resolves to the working tree, and an edit to the library
+takes effect on the next DAG parse with no rebuild.
+
+Two consequences worth knowing:
+
+- **An unreleased feature works in the examples immediately.** You do not need to publish a
+  version to demonstrate a change. `examples/check.sh` gets the same result a different way: it
+  runs in this repo's venv, where `airflow-blueprint` is an editable install of the working tree.
+- **The mount supplies Python code, not dependencies.** Blueprint's current dependencies
+  (`pyyaml`, `click`, `pydantic`, `rich`) all happen to be installed by Airflow itself, so this
+  is invisible today. If you add a new third-party dependency to `pyproject.toml`, the mount will
+  not install it and neither will the released package — add it to the affected example's
+  `requirements.txt` until the next release, or the DAG will fail to import.
+
+Delete the `blueprint/` volume and the `PYTHONPATH` entry and the examples run against PyPI,
+which is the configuration a reader gets.
+
+### Examples on `main` can use unreleased features
+
+Because of the mount, an example on `main` may use an API that is not in the latest release. That
+is intentional — `main`'s examples document `main`. It does mean someone copying an example out
+before the feature ships gets the released `airflow-blueprint` and an import or attribute error.
+If that matters for a particular change, pin a floor in the example's `requirements.txt`
+(`airflow-blueprint>=0.5.0`) as part of the release, not before it: an unpublished version in
+`requirements.txt` breaks the image build.
 
 ## Airflow version
 

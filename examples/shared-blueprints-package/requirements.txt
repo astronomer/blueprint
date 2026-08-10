@@ -1,4 +1,3 @@
-# Astro Runtime installs these when the image is built.
 airflow-blueprint
 
 # A real consumer repo would also list the platform team's package here:
