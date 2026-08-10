@@ -5,12 +5,12 @@ something upstream fails.
 
 ## Why you'd do this
 
-`depends_on` and `trigger_rule` are the only two knobs a YAML author has over DAG shape, and
-they are the ones people reach for daily. Getting them right is the difference between a
-pipeline that leaves scratch data behind on every failure and one that cleans up after itself.
+`depends_on` and `trigger_rule` are the only controls a YAML author has over DAG shape. Between
+them they determine what runs concurrently, what waits, and whether cleanup still runs when an
+upstream step fails.
 
-Every blueprint here renders a single task on purpose — the interesting part is the graph, not
-what the tasks do.
+Every blueprint here renders a single task so the graph stays readable; the wiring is the
+subject, not the task bodies.
 
 ## Files
 
@@ -142,8 +142,9 @@ Open `dependency_shapes` in the graph view. The two extracts sit side by side at
 funnel into `merge_sources`, then `check_merged` fans back out to `publish_dataset` and
 `announce`, and both feed `cleanup`.
 
-Hover `merge_sources` and `cleanup` to see their non-default trigger rules. To watch `all_done`
-earn its keep, mark `publish_dataset` as failed in a run and confirm `cleanup` still runs.
+Hover `merge_sources` and `cleanup` to see their non-default trigger rules. To confirm `all_done`
+behaves as described, mark `publish_dataset` as failed in a run and check that `cleanup` still
+runs.
 
 ## Related
 

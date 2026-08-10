@@ -9,9 +9,9 @@ Python classes that know how to build tasks correctly, with a validated config d
 callers are allowed to change. Everyone else composes DAGs in YAML by naming a blueprint and
 filling in its config.
 
-The payoff is that the YAML author never writes an operator, never picks a retry count, and
-cannot construct a task incorrectly. The blueprint author changes how something is done once,
-and every DAG using it picks up the change.
+YAML authors do not write operators or choose retry counts, and cannot pass a value the config
+model disallows. Blueprint authors change an implementation in one place and every DAG using it
+picks up the change on the next parse.
 
 ## Files
 
@@ -68,8 +68,8 @@ By the time `render()` runs, `config` is already validated — there is no need 
 fill in defaults. `self.step_id` is the name the YAML author gave this step, and using it as the
 `task_id` is what keeps two steps from the same blueprint from colliding.
 
-The class docstring is not decoration: it is what `blueprint list` and `blueprint describe`
-show to the people choosing a blueprint.
+The class docstring is what `blueprint list` and `blueprint describe` show, so it is the
+description someone reads when choosing a blueprint.
 
 ### 2. The class name becomes the YAML name
 

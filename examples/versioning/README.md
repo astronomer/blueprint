@@ -7,9 +7,9 @@ Shipping a breaking change to a blueprint without breaking the DAGs already usin
 Once several teams depend on a blueprint, you cannot change its config in place — you would
 break every DAG that used the old shape, all at once, on someone else's schedule.
 
-Blueprint's answer is that a version is just another class. v1 keeps working, unmodified, for
-as long as anyone needs it; v2 is free to have a completely different config. DAGs move over
-one at a time, and the migration is visible in git as a `version:` line disappearing from YAML.
+Each version is a separate class. v1 keeps working, unmodified, for as long as it is needed, and
+v2 can take a different config. DAGs move over individually, and the migration is visible in git
+as a `version:` line being removed from a YAML file.
 
 ## Files
 
@@ -41,10 +41,10 @@ class Extract(Blueprint[ExtractConfig]):          # v1: source_table: str
 class ExtractV2(Blueprint[ExtractV2Config]):      # v2: sources: list[Source]
 ```
 
-v2 drops `source_table` entirely and takes a list of nested models instead — about as breaking
-as a config change gets. That is fine, because v1 is still there, still registered, and still
-does exactly what it did before. There is no shared config base class to keep compatible and no
-migration shim inside `render()`.
+v2 drops `source_table` entirely and takes a list of nested models instead. No YAML written
+against v1 would validate against it, and that is acceptable because v1 remains registered and
+unchanged. There is no shared config base class to keep compatible and no migration branch inside
+`render()`.
 
 Both register under the name `extract`:
 

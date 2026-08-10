@@ -4,13 +4,13 @@ Letting someone override a step's config when they trigger the DAG, without edit
 
 ## Why you'd do this
 
-Some pipelines are triggered by a person with an intent: rebuild *this* table for *these*
-dates, just this once. Without runtime params the options are all bad — edit the YAML and
-revert it afterwards, keep a near-duplicate "manual" DAG, or hand the job to whoever can deploy.
+Some DAGs are triggered manually for a specific run: rebuild one table over one date range.
+Without runtime params the alternatives are editing the YAML and reverting it afterwards,
+maintaining a near-duplicate "manual" DAG, or asking whoever can deploy.
 
-A blueprint that opts into params turns its config into an Airflow trigger form, pre-filled
-from the YAML. The YAML still describes the normal case; the form is how you depart from it for
-one run.
+A blueprint that opts into params turns its config into an Airflow trigger form, pre-filled from
+the YAML. The YAML continues to describe the scheduled case; the form covers one-off departures
+from it.
 
 ## Files
 
@@ -22,7 +22,7 @@ one run.
 
 ## Run it
 
-This one is worth actually running — the trigger form is the feature.
+The trigger form is what this example demonstrates, so it is worth starting.
 
 ```bash
 ../run.sh runtime-params
@@ -44,10 +44,10 @@ Every field of `BackfillConfig` is registered as an Airflow DAG param named
 `rebuild_events__start_date`, and so on. The namespacing is what lets two steps of the same
 blueprint coexist in one form.
 
-Only opt in if `render()` actually reads the params. `Notify` does not, and that is deliberate:
-its `render()` bakes `config.channel` into the command at parse time, so a `channel` box on the
-trigger form would accept input and change nothing. A param that silently does nothing is worse
-than no param.
+Only opt in if `render()` reads the params. `Notify` does not: its `render()` embeds
+`config.channel` in the command at parse time, so a `channel` field on the trigger form would
+accept input and have no effect. That is worse than not offering the field at all, because the
+form implies it works.
 
 ### Two ways to read a param
 
@@ -117,9 +117,9 @@ before anything acts on the value. Rely on `self.param()` alone and it does not.
 
 ### Keep params scalar
 
-Scalars and `Literal`s render as real controls. Nested models, unions and lists render as JSON
-text boxes — they work, but they are a poor thing to hand someone at 3am. Fields people
-override often are worth flattening for that reason alone.
+Scalars and `Literal`s render as native form controls. Nested models, unions and lists render as
+JSON text boxes: functional, but the person triggering the DAG has to write valid JSON by hand.
+Flatten the fields that are overridden often.
 
 ### Triggering without the UI
 

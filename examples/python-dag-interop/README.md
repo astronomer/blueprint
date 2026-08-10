@@ -5,13 +5,13 @@ gradually instead of all at once.
 
 ## Why you'd do this
 
-Nobody gets to rewrite two hundred Python DAGs in YAML before seeing any benefit. And plenty of
-DAGs should never be fully declarative — the one with the bespoke reconciliation step and the
-lock nobody fully understands is not a good candidate.
+An existing codebase of Python DAGs cannot be converted to YAML in one step, and some DAGs are
+not worth converting at all — one with a bespoke reconciliation step and an external lock has
+little in common with a template.
 
-A blueprint is just a class with a `render()` method returning ordinary Airflow objects, so it
-drops into a `with DAG(...)` block next to hand-written operators. You migrate the parts that
-follow a pattern and leave the rest alone.
+A blueprint is a class whose `render()` returns ordinary Airflow objects, so it can be used
+inside a `with DAG(...)` block alongside hand-written operators. Convert the parts that follow a
+pattern and leave the rest.
 
 ## Files
 
@@ -76,11 +76,11 @@ Keep the safe-mode rule in mind: Airflow only parses a file whose contents menti
 3. **Convert the DAGs that are now entirely blueprint calls** to YAML — compare
    `legacy_hybrid_dag.py` with `fully_declarative.dag.yaml`, which describe nearly the same
    pipeline.
-4. **Leave the rest.** A DAG that is 80% bespoke is fine in Python permanently. Half-declarative
-   is a legitimate resting place, not a failure to finish.
+4. **Leave the rest.** A DAG that is mostly bespoke can stay in Python indefinitely; a partly
+   converted DAG is a valid end state.
 
-The one thing to avoid is the reverse: a blueprint with an `if` for every caller's special case.
-When that starts, the step is not standard, and the DAG that needs it should keep its
+Avoid the opposite approach: a blueprint carrying an `if` for every caller's special case. At
+that point the step is not standard, and the DAG that needs the variation should keep its
 hand-written task.
 
 ## What to look at in the UI

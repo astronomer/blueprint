@@ -5,12 +5,11 @@ caught before review rather than after deploy.
 
 ## Why you'd do this
 
-Blueprint validates configs at build time, which is early — but "early" still means after
-someone wrote the file, pushed it, and waited for a DAG to appear. The feedback that actually
-changes behaviour is the kind that arrives while typing.
+Blueprint validates configs at build time, but that still requires writing the file, pushing it,
+and waiting for a DAG to appear. Editor and pre-commit feedback arrives before any of that.
 
-Two cheap pieces of wiring get most of it: a JSON Schema the editor can read, and
-`blueprint lint` in a pre-commit hook and a CI job. Neither needs a running Airflow.
+Two pieces of wiring cover most of it: a JSON Schema the editor can read, and `blueprint lint` in
+a pre-commit hook and a CI job. Neither needs a running Airflow.
 
 ## Files
 
@@ -78,8 +77,8 @@ step's `blueprint:` value, and JSON Schema cannot dispatch on it here — `steps
 object of objects.
 
 So the per-blueprint schemas are documentation and tooling input rather than live step
-validation. Step configs are checked by `blueprint lint`, which is why the lint gate is the
-part you should not skip.
+validation. Step configs are checked by `blueprint lint`, which is why the lint gate matters more
+than the editor wiring.
 
 ### Keeping schemas honest
 

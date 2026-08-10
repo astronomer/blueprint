@@ -5,13 +5,12 @@ computed from the config.
 
 ## Why you'd do this
 
-A step in YAML is one line, but the work behind it usually isn't. A blueprint decides how much
-structure sits behind that line, and the YAML author is insulated from the choice — they write
-`blueprint: extract` either way.
+A step in YAML is one line; the work behind it often is not. The blueprint decides how much
+structure sits behind that line, and the YAML is the same either way — `blueprint: extract`.
 
-That insulation is the point. A blueprint can start as a single task and grow into a
-five-task group with a retry loop and a validation step, and no DAG YAML has to change. So
-return whatever shape the work actually needs, and change it freely later.
+Because the YAML does not encode the shape, a blueprint can start as a single task and later
+become a group of five with a validation step, without any DAG YAML changing. Return whatever
+shape the work requires and change it later.
 
 ## Files
 
@@ -33,8 +32,8 @@ The graph view is the whole point of this example, so it is worth actually start
 
 ### `self.step_id` means two different things
 
-This is the one rule to internalise. `self.step_id` is the step name from YAML, and where you
-put it determines the naming of everything the step produces.
+`self.step_id` is the step name from YAML, and where you put it determines the naming of
+everything the step produces.
 
 Returning a single operator, it is the **task ID**:
 

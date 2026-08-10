@@ -8,10 +8,10 @@ settings they never see.
 Blueprints standardise what happens *inside* a step. This example standardises everything
 around it — retries, timeouts, ownership, tags, alerting.
 
-Left to convention, these drift. One DAG has 10 retries because someone was debugging, another
-has none, half are untagged, and when a pipeline breaks at 3am nobody knows who owns it. The
-fix is to stop asking authors for those values and start deriving them from something they can
-answer: who owns this, and how important is it.
+Left to convention these values drift: one DAG has 10 retries left over from a debugging
+session, another has none, and untagged DAGs have no recorded owner when they fail. Rather than
+asking authors for each value, derive them from two fields they can answer reliably — who owns
+the DAG, and how important it is.
 
 ## Files
 

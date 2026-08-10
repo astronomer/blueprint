@@ -5,13 +5,13 @@ of one YAML file each.
 
 ## Why you'd do this
 
-Sometimes the set of DAGs is not an authoring decision — it is a fact about the business. One
-pipeline per tenant, per region, per source system. The pipelines are structurally identical;
-only a handful of values differ.
+Sometimes the set of DAGs follows from data rather than from an authoring decision: one pipeline
+per tenant, per region, or per source system. The pipelines are structurally identical and only
+a few values differ.
 
-Writing those by hand means the DAG list drifts from reality: a tenant is onboarded and nobody
-adds the YAML, another churns and their DAG runs for months. Generating them from the same data
-that defines the tenants keeps the two in sync by construction.
+Maintaining one file per tenant by hand lets the DAG list drift from the data: a new tenant has
+no DAG until someone adds the YAML, and a removed tenant keeps running. Generating the DAGs from
+the same data that defines the tenants keeps the two consistent.
 
 ## Files
 
@@ -83,9 +83,9 @@ must be fast and must not fail. Querying a warehouse here means the query runs e
 and an outage empties your DAG list. Read from a file the deployment writes, or a cache
 refreshed on a schedule — not the live system.
 
-Keep the data itself dumb, too. `tenants.json` holds facts about tenants, not Airflow settings;
-the mapping from a tenant to a schedule and a set of steps lives in Python, where it is
-reviewable.
+Keep Airflow settings out of the data. `tenants.json` records facts about tenants; the mapping
+from a tenant to a schedule and a set of steps stays in Python, where it is reviewed alongside
+the rest of the code.
 
 ### YAML and generated DAGs coexist
 

@@ -5,10 +5,10 @@ work-in-progress out of Airflow entirely.
 
 ## Why you'd do this
 
-All the YAML in a folder is built by one loader, which makes the blast radius of a mistake much
-larger than the mistake. By default, a single unbuildable file aborts the load and every DAG
-beside it disappears from the UI — a one-character typo in a new pipeline takes out production
-ones that have not changed in months.
+All the YAML in a folder is built by one loader, so the effect of one bad file is not limited to
+that file. By default a single unbuildable file aborts the load and every DAG beside it
+disappears from the UI, which means a typo in a new pipeline can remove unrelated production
+DAGs.
 
 There are two separate problems here, with two separate answers. A file that is broken *by
 accident* should be contained. A file that is not finished *on purpose* should never be loaded
@@ -52,9 +52,9 @@ WARNING - Skipped 1 invalid DAG file(s); built 1 DAG(s) successfully
 Without the flag, the `LoadConfig` validation error propagates out of the loader, Airflow marks
 the whole file as failed to import, and `healthy_pipeline` vanishes too.
 
-This is a containment measure, not a fix. The failure is now a warning in the scheduler log,
-which nobody reads — so a skipped DAG is a DAG that has silently stopped running. Two things
-make that survivable:
+This is a containment measure, not a fix. The failure is reported only as a warning in the
+scheduler log, so a skipped DAG is one that has stopped running without any visible signal. Two
+things make that acceptable:
 
 - **Lint in CI**, so a broken file cannot merge in the first place. The flag is for what slips
   through, not a substitute. See [editor-and-ci](../editor-and-ci/).

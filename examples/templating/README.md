@@ -8,9 +8,9 @@ and how to keep the two apart.
 The same pipeline usually has to differ slightly per environment, per region, or per run. A
 bucket name changes between dev and prod; a partition path depends on the run date.
 
-Blueprint renders each YAML file through Jinja2 before parsing it, so one file covers all of
-them. The catch is that there are two completely different evaluation times in play, and the
-syntax barely distinguishes them — most templating bugs are really a confusion about *when*.
+Blueprint renders each YAML file through Jinja2 before parsing it, so one file can cover all of
+them. Two different evaluation times are involved and the syntax does not clearly distinguish
+them, which accounts for most templating errors.
 
 ## Files
 

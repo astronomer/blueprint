@@ -5,13 +5,12 @@ single step with a smaller config.
 
 ## Why you'd do this
 
-Patterns repeat. If every DAG ends with "run the quality checks, then post the results", that
-pair will be copied into thirty YAML files — and the day you add a mandatory check, you edit
-thirty files and miss two.
+If every DAG ends with the same pair of steps — run the quality checks, then post the results —
+that pair gets copied into every YAML file that needs it. Adding a mandatory check then means
+editing all of them.
 
-Wrapping the pair in one blueprint moves that decision into Python, where it is made once. The
-composite also gets to be *opinionated*: it can fix the settings that should not vary and
-expose only the ones that should.
+Wrapping the pair in one blueprint moves the wiring into Python, where it is defined once. A
+composite can also fix the settings that should not vary and expose only those that should.
 
 ## Files
 
@@ -70,10 +69,10 @@ is safe even if the DAG has another step by that name.
 `QualityGateConfig` has three fields; the two configs behind it have five. `fail_fast=True` and
 `mention_on_failure="@data-oncall"` are hardcoded, not passed through.
 
-That is the point rather than an oversight. A gate that blocks a release should behave the same
-everywhere, and every field you expose is a decision you have delegated. Start with the
-smallest config that works and widen it when a real DAG needs it — widening a config is
-backwards compatible, narrowing one is not.
+That is intentional. A gate that blocks a release should behave the same everywhere, and each
+exposed field is a decision delegated to the caller. Start with the smallest config that works
+and widen it when a DAG needs it: widening a config is backwards compatible, narrowing one is
+not.
 
 ### The building blocks stay available
 
@@ -88,9 +87,9 @@ whether the blocks need to be public at all.
 
 ### When not to compose
 
-Composition costs indirection — a reader chasing what `gate_customers` does now reads two
-configs and two `render()` methods. It earns that cost when the combination is genuinely
-standard.
+Composition adds indirection: a reader working out what `gate_customers` does has to read two
+configs and two `render()` methods. That cost is worth paying when the combination is standard
+across DAGs.
 
 If the two steps are usually used together but wired differently each time, leave them separate
 and let YAML do the wiring; that is what `depends_on` is for. Nesting more than two levels deep

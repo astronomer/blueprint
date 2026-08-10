@@ -8,10 +8,10 @@ team's templates without copying code.
 The common shape in a larger organisation is one platform team writing templates and several
 DAG-authoring teams using them. Those teams have their own repositories.
 
-Copy-pasting `blueprints.py` into each one works for about a month. After that the copies have
-drifted, a fix lands in two of five repos, and nobody can say which version any given DAG is
-running. Shipping a package makes the dependency explicit and versioned: consumers upgrade
-deliberately, and `pip list` answers what they are on.
+Copying `blueprints.py` into each repository leads to drift: a fix lands in some repos and not
+others, and there is no reliable way to tell which version a given DAG is running. Shipping a
+package makes the dependency explicit and versioned — consumers upgrade deliberately, and
+`pip list` reports what they are on.
 
 ## Files
 
@@ -124,8 +124,8 @@ unconditionally is not a shortcut. Test the package against every Airflow versio
 support: the failure mode is an `ImportError` during DAG parsing in someone else's repository,
 which you will hear about from them rather than from your own CI.
 
-Declaring a narrow `apache-airflow` range in `pyproject.toml` is the honest alternative to
-supporting both.
+If you do not intend to support both, declare a narrow `apache-airflow` range in
+`pyproject.toml` so consumers get a resolution error rather than an import error.
 
 ## What to look at in the UI
 

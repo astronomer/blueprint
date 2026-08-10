@@ -9,9 +9,9 @@ and compose them into Airflow DAGs using simple YAML files. Each Blueprint defin
 Pydantic config and a `render()` method that produces a TaskGroup. DAGs are defined
 declaratively in YAML by composing blueprint instances as steps with explicit dependencies.
 
-The split is the point: a platform team owns the Python, so tasks are built correctly and
-consistently; everyone else composes DAGs in YAML without writing an operator or being able to
-construct a step incorrectly.
+This splits responsibilities: a platform team owns the Python that builds tasks, and other teams
+compose DAGs in YAML without writing operators or being able to pass a value the config model
+disallows.
 
 With Blueprint, you can:
 

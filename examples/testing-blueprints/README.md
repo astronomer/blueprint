@@ -5,14 +5,14 @@ DAG in the repository still builds.
 
 ## Why you'd do this
 
-A blueprint is used by DAGs you do not own, in repositories you may not watch. That inverts the
-usual testing calculus: a change that looks harmless — renaming a config field, adding a
-required one, reordering a dependency inside a group — breaks other people's pipelines, and you
-find out from them.
+A blueprint is used by DAGs you do not own, in repositories you may not watch. A change that
+looks harmless — renaming a config field, adding a required one, reordering a dependency inside a
+group — can break pipelines elsewhere, and the report comes from their owners rather than from
+your own CI.
 
-Blueprints are unusually easy to test, because a config is a plain Pydantic model and
-`render()` is a plain function returning Airflow objects. No scheduler, no database, no
-executor. The whole suite here runs in about a second.
+Blueprints are cheap to test: a config is a plain Pydantic model and `render()` is a function
+returning Airflow objects. No scheduler, database or executor is required, and this suite runs in
+about a second.
 
 ## Files
 

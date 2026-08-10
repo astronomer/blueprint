@@ -5,13 +5,12 @@ message instead of producing a subtly wrong DAG.
 
 ## Why you'd do this
 
-The config model is the entire public interface of a blueprint. Whatever it permits, someone
-will eventually write — and the further a bad value travels, the worse the failure gets. A
-`batch_size` of 0 caught at lint time is a two-second fix; the same value caught in production
-is a 3am page.
+The config model is the public interface of a blueprint, and whatever it permits will eventually
+be written. A `batch_size` of 0 rejected at lint time costs a moment; the same value reaching a
+running task costs a failed run and time spent tracing it back.
 
-So the goal is to make invalid configurations unrepresentable, and to make the resulting error
-message the best documentation the DAG author will ever read.
+Two things follow: constrain the model so invalid configurations are rejected, and write the
+constraints so the resulting message tells the DAG author what to change.
 
 ## Files
 
@@ -58,9 +57,9 @@ author can trip over — so spend it where mistakes are plausible or expensive.
 model_config = ConfigDict(extra="forbid")
 ```
 
-This is the single highest-value line in the file. Pydantic's default is to **ignore** fields
-it does not recognise, so `batchsize: 5000` is silently dropped and the default of 1000 is used.
-The DAG builds, runs, and is quietly wrong.
+Pydantic's default is to **ignore** fields it does not recognise, so `batchsize: 5000` is
+silently dropped and the default of 1000 is used. The DAG builds and runs with a value the
+author did not intend, and nothing reports it.
 
 ```
 FAIL invalid/unknown-field.yaml
