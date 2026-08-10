@@ -35,7 +35,7 @@ Reusable task group templates composed into Airflow DAGs via YAML.
 - Run specific test: `uv run pytest tests/test_<module>.py`
 - Run with coverage: `uv run pytest --cov=blueprint tests/`
 - Run integration tests locally: `uv run pytest tests/integration/ -v` (requires Astro CLI — `astro version` to verify; starts a local Airflow instance via `astro dev start --standalone`, runs tests against the REST API, then tears down)
-- New features must include integration test coverage (`tests/integration/`) and be demonstrated in the advanced example (`examples/advanced/`)
+- New features must include integration test coverage (`tests/integration/`) and be demonstrated in `examples/` -- added to the example whose idea it belongs to, or a new single-idea directory. See "Adding an Example" in `docs/CONTRIBUTING.md`. Do not grow one example into a kitchen sink.
 
 ## Code Style Guidelines
 - Follow Ruff configuration in `pyproject.toml`
@@ -56,12 +56,17 @@ Reusable task group templates composed into Airflow DAGs via YAML.
   - `errors.py`: Custom exceptions (CyclicDependencyError, InvalidVersionError, etc.)
   - `utils.py`: Common utilities
 - `tests/`: Test files
-- `examples/`: Example blueprints and YAML DAG definitions
-  - `airflow2/`: Dockerfile and docker-compose for Airflow 2
-  - `airflow3/`: Dockerfile and docker-compose for Airflow 3
-  - `dags/etl_blueprints.py`: Blueprint class definitions
-  - `dags/*.dag.yaml`: DAG definitions composed from blueprints
-  - `dags/loader.py`: DAG loader calling build_all()
+- `examples/`: One directory per idea; each is independent and self-contained
+  - `README.md`: Index of every example
+  - `run.sh`: Launch an example locally -- `./run.sh <example> [2|3]`
+  - `check.sh`: Validate every example (run by CI)
+  - `_runtime/airflow2/`, `_runtime/airflow3/`: Shared orchestration only (docker-compose
+    and Tiltfile), parametrised by the `EXAMPLE` variable
+  - `<example>/`: A real Astro project -- `Dockerfile`, `requirements.txt`, `packages.txt`,
+    `dags/`. The example directory is the Docker build context, so it builds exactly as a
+    standalone project would. The `Dockerfile` takes a `BASE_IMAGE` arg (Airflow 2 vs 3) and
+    installs `.wheels/*.whl` when present, which `run.sh` builds from the working tree.
+  - `<example>/package/`: Optional installable blueprint package (shared-blueprints-package)
 - `.github/workflows/`: CI/CD pipelines
 
 ## Architecture

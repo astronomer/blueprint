@@ -1,0 +1,20 @@
+dag_id: assembled_release
+schedule: "@daily"
+description: The building blocks used directly, for a case the composite does not cover
+
+steps:
+  # Composing a blueprint out of others does not hide them. A DAG that needs
+  # non-standard behaviour -- here, running all checks rather than failing
+  # fast -- still reaches for the pieces.
+  check_orders:
+    blueprint: validate
+    table: analytics.orders
+    checks: [nulls, duplicates, freshness, referential_integrity]
+    fail_fast: false
+
+  report_orders:
+    blueprint: report
+    depends_on: [check_orders]
+    trigger_rule: all_done
+    channel: "#orders-quality"
+    mention_on_failure: "@orders-oncall"

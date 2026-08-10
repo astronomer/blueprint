@@ -1,0 +1,16 @@
+dag_id: customer_etl
+schedule: "@daily"
+description: The DAG asserted by tests/test_dag_integrity.py
+
+steps:
+  extract_crm:
+    blueprint: extract
+    source: crm
+    datasets: [customers, contacts]
+
+  load_customers:
+    blueprint: load
+    depends_on: [extract_crm]
+    target: warehouse.customers
+    mode: upsert
+    dedupe_keys: [customer_id]

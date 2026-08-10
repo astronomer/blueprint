@@ -1,0 +1,38 @@
+# A sample GitHub Actions workflow for a DAG repository.
+#
+# Copy to .github/workflows/dags.yml in your own repo. It is named
+# ci-workflow.yml here so it is not picked up by this repository's Actions.
+name: DAGs
+
+on:
+  pull_request:
+    paths:
+      - "dags/**"
+      - "schemas/**"
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Install the same blueprint templates the DAGs resolve against. For a
+      # consumer repo this is where the shared package gets installed.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Fails on unknown blueprints, invalid configs, bad dependencies,
+      # dependency cycles and duplicate DAG IDs. No Airflow instance needed.
+      - name: Validate DAG YAML
+        run: blueprint lint
+
+      # Catches a blueprint config change that was not reflected in the
+      # committed schemas editors read.
+      - name: Check schemas are current
+        run: ./regenerate-schemas.sh --check

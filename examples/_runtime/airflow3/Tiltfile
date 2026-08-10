@@ -1,0 +1,44 @@
+# Shared Airflow 3 runtime. Pick the example to run with:
+#
+#     tilt up -- --example=getting-started
+#
+# Each example builds from its own directory as the Docker context, exactly as
+# a standalone Astro project would. Its dags/ folder is bind-mounted, so edits
+# to blueprints and YAML take effect on the next DAG parse with no rebuild.
+
+config.define_string('example')
+cfg = config.parse()
+example = cfg.get('example', os.getenv('EXAMPLE', 'getting-started'))
+
+example_dir = '../../' + example
+if not os.path.exists(example_dir + '/dags'):
+    fail('No such example: examples/' + example + ' (expected a dags/ directory)')
+
+os.putenv('EXAMPLE', example)
+print('Running example: ' + example)
+
+# Build airflow-blueprint from the working tree into the example's context, so
+# the image installs local changes over the released version in
+# requirements.txt. Re-run `tilt up` to pick up edits to the blueprint package.
+local(
+    'rm -rf ' + example_dir + '/.wheels && ' +
+    'uv build --wheel --quiet -o ' + example_dir + '/.wheels ../../..',
+    quiet=True,
+)
+
+docker_compose('./docker-compose.yaml')
+
+dc_resource('postgres')
+dc_resource('db-migration', resource_deps=['postgres'])
+dc_resource('api-server', resource_deps=['db-migration'])
+dc_resource('scheduler', resource_deps=['db-migration'])
+dc_resource('dag-processor', resource_deps=['db-migration'])
+dc_resource('triggerer', resource_deps=['db-migration'])
+
+docker_build(
+    'blueprint-example-' + example + '-airflow3',
+    context=example_dir,
+    dockerfile=example_dir + '/Dockerfile',
+    build_args={'BASE_IMAGE': 'astrocrpublic.azurecr.io/runtime:3.3'},
+    ignore=['**/logs/**'],
+)

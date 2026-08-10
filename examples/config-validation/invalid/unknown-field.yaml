@@ -1,0 +1,12 @@
+# `batchsize` is not a field on LoadConfig. Because LoadConfig sets
+# extra="forbid", this is an error rather than a silently ignored typo.
+dag_id: invalid_unknown_field
+
+steps:
+  load_customers:
+    blueprint: load
+    destination:
+      database: analytics
+      schema_name: core
+      table: customers
+    batchsize: 5000

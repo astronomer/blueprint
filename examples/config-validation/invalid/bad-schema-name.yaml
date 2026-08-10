@@ -1,0 +1,11 @@
+# schema_name is pattern-constrained to ^[a-z][a-z0-9_]*$, and the failure is
+# reported against the nested field, not the whole `destination` object.
+dag_id: invalid_schema_name
+
+steps:
+  load_customers:
+    blueprint: load
+    destination:
+      database: analytics
+      schema_name: Core Analytics
+      table: customers

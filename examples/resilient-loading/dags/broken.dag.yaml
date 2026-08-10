@@ -1,0 +1,14 @@
+# Deliberately invalid: LoadConfig requires `target`, and this step does not
+# set it. With skip_invalid_dags=True the loader logs this file and moves on;
+# without it, healthy_pipeline would fail to load as well.
+dag_id: broken_pipeline
+schedule: "@daily"
+
+steps:
+  extract_customers:
+    blueprint: extract
+    source: crm
+
+  load_customers:
+    blueprint: load
+    depends_on: [extract_customers]

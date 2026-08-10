@@ -1,0 +1,11 @@
+# batch_size is declared as Field(ge=1, le=100_000).
+dag_id: invalid_out_of_range
+
+steps:
+  load_customers:
+    blueprint: load
+    destination:
+      database: analytics
+      schema_name: core
+      table: customers
+    batch_size: 250000

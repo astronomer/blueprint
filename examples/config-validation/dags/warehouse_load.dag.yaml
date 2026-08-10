@@ -1,0 +1,28 @@
+dag_id: warehouse_load
+schedule: "@daily"
+description: A DAG whose step configs all pass validation
+
+steps:
+  extract_customers:
+    blueprint: extract
+    source: crm
+
+  load_customers:
+    blueprint: load
+    depends_on: [extract_customers]
+    destination:
+      database: analytics
+      schema_name: core
+      table: customers
+    mode: overwrite
+    batch_size: 5000
+
+  load_customer_events:
+    blueprint: load
+    depends_on: [extract_customers]
+    destination:
+      database: analytics
+      schema_name: core
+      table: customer_events
+    mode: upsert
+    dedupe_keys: [customer_id, event_at]

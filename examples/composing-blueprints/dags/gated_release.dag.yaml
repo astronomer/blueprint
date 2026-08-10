@@ -1,0 +1,10 @@
+dag_id: gated_release
+schedule: "@daily"
+description: One composite step doing the work of two
+
+steps:
+  # Three keys, and the gate is fully specified. Compare with
+  # assembled_release.dag.yaml, which wires the same thing by hand.
+  gate_customers:
+    blueprint: quality_gate
+    table: analytics.customers

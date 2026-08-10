@@ -69,7 +69,7 @@ jobs:
             Be constructive, helpful, and welcoming in your response.
 
           # Allow limited tools for checking project context
-          claude_args: --allowedTools "Bash(uv run blueprint --help),Bash(cd examples/simple && uv run blueprint list),Bash(cd examples/advanced && uv run blueprint list),Bash(ls examples/simple/dags/ examples/advanced/dags/)"
+          claude_args: --allowedTools "Bash(uv run blueprint --help),Bash(cd examples/:*),Bash(ls examples/:*)"
 
           # Use sticky comment so Claude updates the same comment if issue is edited
           use_sticky_comment: true

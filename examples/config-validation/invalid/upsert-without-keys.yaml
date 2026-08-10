@@ -1,0 +1,12 @@
+# Every field here is individually valid. The combination is not: the
+# model_validator rejects mode "upsert" with no dedupe_keys.
+dag_id: invalid_upsert
+
+steps:
+  load_customers:
+    blueprint: load
+    destination:
+      database: analytics
+      schema_name: core
+      table: customers
+    mode: upsert

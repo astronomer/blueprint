@@ -1,0 +1,31 @@
+# Every Jinja expression in this file is evaluated when the DAG is parsed,
+# except the `context.` ones, which are rewritten into Airflow macros that
+# resolve when a task runs. See the README for the distinction.
+#
+# Note that YAML comments are not exempt: Jinja renders the whole file before
+# YAML ever sees it, so an expression written in a comment is still evaluated.
+dag_id: "{{ env.get('DEPLOY_ENV', 'dev') }}_orders_etl"
+schedule: "{{ var.get('orders_schedule', '@daily') }}"
+description: >-
+  Orders ETL for {{ region | default('us-east-1') }},
+  writing to {{ warehouse | default('analytics') }}
+
+steps:
+  extract_orders:
+    blueprint: extract
+    # From the loader's template_context. The `default` filter keeps the file
+    # lintable on its own, where that context does not exist.
+    source: "orders_{{ region | default('us-east-1') }}"
+    # context.* becomes an Airflow macro, resolved per task run rather than now.
+    partition: "{{ context.ds_nodash }}"
+    output_path: >-
+      s3://{{ warehouse | default('analytics') }}-{{ region | default('us-east-1') }}/orders/{{ context.ds }}/data.parquet
+
+  load_orders:
+    blueprint: load
+    depends_on: [extract_orders]
+    # From an Airflow Variable, with a fallback for when it is not set.
+    target: "{{ var.get('orders_target', 'analytics.orders') }}"
+    # A raw block keeps this from being evaluated now, so Airflow sees the
+    # filter at runtime. Without it, parse-time rendering would fail on `ds`.
+    label: "run {% raw %}{{ ds | replace('-', '') }}{% endraw %} in {{ region | default('us-east-1') }}"

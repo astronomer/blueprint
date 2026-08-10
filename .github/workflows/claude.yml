@@ -65,4 +65,4 @@ jobs:
 
           # Allow Claude to run project-specific commands.
           # Pass `--model "claude-opus-4-1-20250805"` (etc.) in claude_args to change the model.
-          claude_args: --allowedTools "Bash(uv sync:*),Bash(uv run blueprint:*),Bash(uv run pytest:*),Bash(uv run ruff check:*),Bash(uv run ruff format:*),Bash(uv run ty check:*),Bash(uv build),Bash(cd examples/simple && uv run blueprint:*),Bash(cd examples/advanced && uv run blueprint:*)"
+          claude_args: --allowedTools "Bash(uv sync:*),Bash(uv run blueprint:*),Bash(uv run pytest:*),Bash(uv run ruff check:*),Bash(uv run ruff format:*),Bash(uv run ty check:*),Bash(uv build),Bash(cd examples/:*)"

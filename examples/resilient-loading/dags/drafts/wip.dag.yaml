@@ -1,0 +1,9 @@
+# Work in progress. Never built, because dags/.airflowignore lists `drafts`.
+# It is also invalid -- `source` is missing -- which is exactly why it is here
+# rather than in the folder above.
+dag_id: wip_pipeline
+schedule: "@daily"
+
+steps:
+  extract_customers:
+    blueprint: extract

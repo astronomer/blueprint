@@ -1,0 +1,22 @@
+dag_id: task_shapes
+schedule: "@daily"
+description: One step per render() shape - single task, group, config-driven group
+
+steps:
+  # Renders as a TaskGroup: extract_orders.validate -> extract_orders.fetch
+  extract_orders:
+    blueprint: extract
+    source: orders
+
+  # Renders as a TaskGroup containing a nested group, with one task per region
+  publish_orders:
+    blueprint: publish
+    depends_on: [extract_orders]
+    dataset: orders
+    regions: [us_east, eu_west, ap_south]
+
+  # Renders as a single task
+  announce:
+    blueprint: notify
+    depends_on: [publish_orders]
+    channel: "#data-releases"

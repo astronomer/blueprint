@@ -1,0 +1,23 @@
+# Runs `blueprint lint` on every commit that touches DAG YAML.
+#
+#   pre-commit install
+#
+# `blueprint lint` with no arguments validates the whole tree and honours
+# .airflowignore, so the hook passes no filenames -- a change to blueprints.py
+# can invalidate a YAML file that was not itself edited.
+repos:
+  - repo: local
+    hooks:
+      - id: blueprint-lint
+        name: blueprint lint
+        entry: blueprint lint
+        language: system
+        pass_filenames: false
+        files: '\.(dag\.yaml|py)$'
+
+      - id: blueprint-schemas
+        name: blueprint schemas are up to date
+        entry: ./regenerate-schemas.sh --check
+        language: system
+        pass_filenames: false
+        files: '\.py$'

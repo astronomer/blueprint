@@ -1,0 +1,3 @@
+# Same syntax and semantics as Airflow's own DAG processor. Everything under
+# drafts/ is skipped by the loader and by directory-wide `blueprint lint`.
+drafts

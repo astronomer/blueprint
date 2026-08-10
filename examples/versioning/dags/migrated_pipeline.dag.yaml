@@ -1,0 +1,30 @@
+dag_id: migrated_pipeline
+schedule: "@daily"
+description: Migrated to v2; one step still pinned to v1 mid-migration
+
+steps:
+  # No `version`, so this resolves to the latest -- v2, whose config takes a
+  # list of sources rather than a single source_table.
+  extract_core:
+    blueprint: extract
+    sources:
+      - schema_name: raw
+        table: customers
+      - schema_name: raw
+        table: orders
+    batch_size: 2000
+
+  # Still on v1 while the bulk-copy stage is being set up. Mixed versions in
+  # one DAG are fine.
+  load_customers:
+    blueprint: load
+    version: 1
+    depends_on: [extract_core]
+    target_table: analytics.customers
+
+  load_orders:
+    blueprint: load
+    version: 2
+    depends_on: [extract_core]
+    target_table: analytics.orders
+    stage: s3://warehouse-stage/orders/

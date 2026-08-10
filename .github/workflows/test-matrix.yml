@@ -40,10 +40,11 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Test CLI basic functionality
-        run: |
-          uv run blueprint --help
-          cd examples/simple
-          uv run blueprint list
-          cd ../advanced
-          uv run blueprint list
+        run: uv run blueprint --help
+        shell: bash
+
+      # Iterates every directory under examples/, so a new example is covered
+      # as soon as it is added. See examples/check.sh for what it runs.
+      - name: Check examples
+        run: uv run examples/check.sh
         shell: bash

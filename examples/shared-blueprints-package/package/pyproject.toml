@@ -1,0 +1,24 @@
+[project]
+name = "acme-blueprints"
+version = "0.2.0"
+description = "Blueprint templates published by the Acme data platform team"
+requires-python = ">=3.10"
+dependencies = [
+    "airflow-blueprint",
+]
+
+# This is the whole integration. Any installed package advertising itself under
+# the "airflow_blueprint.blueprints" group is scanned by BlueprintRegistry, so
+# consumers get these templates simply by installing the package.
+#
+# The target is `acme_blueprints.blueprints`, not `acme_blueprints`: only that
+# submodule is scanned, so utils.py is never imported during DAG parsing.
+[project.entry-points."airflow_blueprint.blueprints"]
+acme_blueprints = "acme_blueprints.blueprints"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["acme_blueprints"]

@@ -1,0 +1,45 @@
+dag_id: dependency_shapes
+schedule: "@daily"
+description: Fan-out, fan-in, and trigger rules in one graph
+
+steps:
+  # No depends_on, so these two start together as soon as the DAG runs.
+  extract_primary:
+    blueprint: extract
+    source: primary_db
+
+  extract_backup:
+    blueprint: extract
+    source: backup_db
+
+  # Fan-in. all_success would require both extracts; one_success lets the
+  # pipeline continue as long as at least one source came through.
+  merge_sources:
+    blueprint: merge
+    depends_on: [extract_primary, extract_backup]
+    trigger_rule: one_success
+    output: staging.merged
+
+  check_merged:
+    blueprint: quality_check
+    depends_on: [merge_sources]
+    table: staging.merged
+
+  # Fan-out. Both of these wait on check_merged, then run in parallel.
+  publish_dataset:
+    blueprint: publish
+    depends_on: [check_merged]
+    dataset: merged_customers
+
+  announce:
+    blueprint: notify
+    depends_on: [check_merged]
+    channel: "#data-releases"
+
+  # all_done: run once the upstream steps have finished, successfully or not,
+  # so scratch data is cleared even on a failed run.
+  cleanup:
+    blueprint: cleanup
+    depends_on: [publish_dataset, announce]
+    trigger_rule: all_done
+    path: s3://scratch/merged_customers/

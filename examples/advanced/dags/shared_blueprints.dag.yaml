@@ -1,8 +1,0 @@
-dag_id: shared_blueprints_example
-schedule: "@daily"
-
-steps:
-  example:
-    blueprint: example
-    foo: "Hello"
-    bar: "World"

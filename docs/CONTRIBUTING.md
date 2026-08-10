@@ -140,7 +140,9 @@ When adding features to the Blueprint framework:
 3. Update `builder.py` if DAG building logic changes
 4. Update `registry.py` if discovery/versioning is affected
 5. Update CLI commands in `cli.py` if user-facing
-6. Add examples in `examples/dags/`
+6. Demonstrate the feature in `examples/` -- either in the example whose idea it
+   belongs to, or a new directory if it is a distinct idea (see
+   [Adding an Example](#adding-an-example))
 
 ### Adding a New Error Type
 
@@ -153,21 +155,34 @@ When adding features to the Blueprint framework:
 ### Manual Testing
 
 ```bash
-# Test CLI commands
-uv run blueprint list --template-dir examples/dags/
-uv run blueprint describe extract --template-dir examples/dags/
-uv run blueprint lint examples/dags/customer_etl.dag.yaml --template-dir examples/dags/
+# Test CLI commands against any example
+cd examples/getting-started
+uv run blueprint list
+uv run blueprint describe extract
+uv run blueprint lint
+
+# Validate every example the way CI does
+uv run examples/check.sh
 ```
 
 ### Testing with Real Airflow
 
-You can test with a local Airflow instance using Tilt:
+Run any example against a local Airflow:
 
 ```bash
-cd examples/airflow3   # or examples/airflow2
-tilt up
+cd examples
+./run.sh getting-started      # Airflow 3
+./run.sh getting-started 2    # Airflow 2
 
 # Access Airflow at http://localhost:8080
+```
+
+Or with Tilt, which live-syncs the `blueprint` source into the containers:
+
+```bash
+cd examples/_runtime/airflow3   # or airflow2
+tilt up -- --example=getting-started
+
 # Tilt dashboard at http://localhost:10350
 ```
 
@@ -239,20 +254,51 @@ tests/
 └── test_errors.py       # Error handling tests
 
 examples/
-├── airflow2/            # Airflow 2 infrastructure
-│   ├── Dockerfile
-│   ├── Tiltfile
-│   └── docker-compose.yaml
-├── airflow3/            # Airflow 3 infrastructure
-│   ├── Dockerfile
-│   ├── Tiltfile
-│   └── docker-compose.yaml
-└── dags/                # Shared DAGs directory
-    ├── etl_blueprints.py       # Blueprint class definitions
-    ├── customer_etl.dag.yaml   # DAG composed from steps
-    ├── simple_pipeline.dag.yaml
-    └── loader.py               # DAG loader (build_all)
+├── README.md            # Index of every example
+├── run.sh               # ./run.sh <example> [2|3]
+├── check.sh             # Validates every example; run by CI
+├── _runtime/            # Shared orchestration only (compose + Tiltfile)
+│   ├── airflow2/
+│   └── airflow3/
+└── <example>/           # A real Astro project, one per idea
+    ├── Dockerfile       # FROM astrocrpublic.azurecr.io/runtime:3.3
+    ├── requirements.txt # airflow-blueprint
+    ├── packages.txt
+    ├── README.md
+    ├── dags/            # blueprints.py, loader.py, *.dag.yaml
+    └── package/         # optional, an installable blueprint package
 ```
+
+Each example builds with its own directory as the Docker context, so it is the
+same image a standalone project would produce. Two concessions to this being a
+repository rather than a real project, both confined to the `Dockerfile`: a
+`BASE_IMAGE` build argument so one file covers Airflow 2 and 3, and an install
+of `.wheels/*.whl` when present, which `run.sh` builds from the working tree so
+examples exercise local changes instead of the released package.
+
+### Adding an Example
+
+Each example demonstrates **one** idea. Resist growing an existing example into a
+kitchen sink -- that is what the previous `simple`/`advanced` split turned into.
+
+1. Create `examples/<name>/` as an Astro project: `dags/` with `blueprints.py`,
+   `loader.py` and at least one `*.dag.yaml`, plus `Dockerfile`, `requirements.txt`
+   and `packages.txt`. Copy those three from any existing example -- they are
+   identical unless the example needs extra dependencies. No compose file: the
+   shared runtime is parametrised by the `EXAMPLE` variable and picks the
+   directory up automatically.
+2. Write `examples/<name>/README.md` following the structure the others use: what it
+   shows, why you would do it, a files table, how to run it, a walk-through, what to
+   look at in the Airflow UI, and links to related examples.
+3. Add a row to the table in `examples/README.md`, marking whether it needs Docker or
+   is CLI only.
+4. Support both Airflow 2 and 3 -- use the try/except import shim the other examples
+   use at the top of `blueprints.py`.
+5. Run `uv run examples/check.sh`. It picks up the new directory with no configuration.
+   Two conventions are honoured automatically: a `pytest.ini` means the example's tests
+   are run, and an executable `regenerate-schemas.sh` is invoked with `--check`. If the
+   example deliberately ships invalid YAML, add it to `EXPECT_LINT_FAILURE` in
+   `check.sh`.
 
 ### Key Components
 

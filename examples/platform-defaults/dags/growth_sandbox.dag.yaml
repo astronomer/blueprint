@@ -1,0 +1,16 @@
+dag_id: growth_sandbox
+schedule: "@daily"
+description: Experimental-tier DAG; no retries, no alerting, long timeout
+
+team: growth
+tier: experimental
+
+steps:
+  extract_signups:
+    blueprint: extract
+    source: product_events
+
+  load_signups:
+    blueprint: load
+    depends_on: [extract_signups]
+    target: sandbox.signups

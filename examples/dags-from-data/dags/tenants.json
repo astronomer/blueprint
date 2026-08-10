@@ -1,0 +1,20 @@
+[
+  {
+    "id": "acme",
+    "source": "acme_postgres",
+    "schedule": "@hourly",
+    "datasets": ["customers", "orders", "invoices"]
+  },
+  {
+    "id": "globex",
+    "source": "globex_mysql",
+    "schedule": "@daily",
+    "datasets": ["customers", "orders"]
+  },
+  {
+    "id": "initech",
+    "source": "initech_sftp",
+    "schedule": "@daily",
+    "datasets": ["orders"]
+  }
+]

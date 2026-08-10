@@ -1,0 +1,9 @@
+# Astro Runtime installs these when the image is built.
+airflow-blueprint
+
+# A real consumer repo would also list the platform team's package here:
+#
+#     acme-blueprints==0.2.0
+#
+# In this repository it lives in ./package, so the Dockerfile installs it from
+# source instead.

@@ -1,0 +1,13 @@
+dag_id: healthy_pipeline
+schedule: "@daily"
+description: Builds normally, even though a sibling file in this folder is broken
+
+steps:
+  extract_customers:
+    blueprint: extract
+    source: crm
+
+  load_customers:
+    blueprint: load
+    depends_on: [extract_customers]
+    target: warehouse.customers

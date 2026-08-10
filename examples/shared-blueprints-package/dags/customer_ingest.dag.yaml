@@ -1,0 +1,18 @@
+dag_id: customer_ingest
+schedule: "@daily"
+description: Composed entirely from templates the platform team publishes
+
+steps:
+  # `ingest` and `publish` are not defined anywhere in this repository. They
+  # come from acme-blueprints, and are referenced exactly like local ones.
+  ingest_customers:
+    blueprint: ingest
+    source: crm
+    dataset: customers
+    tier: gold
+
+  publish_customers:
+    blueprint: publish
+    depends_on: [ingest_customers]
+    dataset: customers
+    consumers: [analytics, growth]

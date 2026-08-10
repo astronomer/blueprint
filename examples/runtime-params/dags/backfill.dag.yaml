@@ -1,0 +1,23 @@
+dag_id: events_backfill
+schedule: null
+description: Manually triggered backfill; YAML values are the form defaults
+
+steps:
+  # These values become the pre-filled defaults in the trigger form, exposed
+  # as rebuild_events__target_table, rebuild_events__start_date, and so on.
+  rebuild_events:
+    blueprint: backfill
+    target_table: analytics.events
+    start_date: "2024-01-01"
+    end_date: "2024-01-31"
+    query: |
+      SELECT event_id, user_id, event_at
+      FROM raw.events
+      WHERE event_type = 'purchase'
+    warehouse_size: small
+    dry_run: true
+
+  announce:
+    blueprint: notify
+    depends_on: [rebuild_events]
+    channel: "#data-backfills"
