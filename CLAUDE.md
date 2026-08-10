@@ -64,8 +64,9 @@ Reusable task group templates composed into Airflow DAGs via YAML.
     the `EXAMPLE` variable
   - `<example>/`: A real Astro project -- `Dockerfile`, `requirements.txt`, `packages.txt`,
     `dags/`. The example directory is the Docker build context, so it builds exactly as a
-    standalone project would. The `Dockerfile` installs `.wheels/*.whl` when present, which
-    `run.sh` builds from the working tree.
+    standalone project would, and nothing in it is specific to this repo. Keep it that way:
+    the compose file mounts `blueprint/` over the released package via `PYTHONPATH`, so
+    examples exercise the working tree without any repo-specific lines of their own.
   - Examples target Airflow 3 and use its import paths directly, with no 2/3 compatibility
     shim. The package still supports 2.5.0+; that is covered by the unit test matrix.
   - `<example>/package/`: Optional installable blueprint package (shared-blueprints-package)

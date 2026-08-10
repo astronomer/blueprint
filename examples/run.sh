@@ -36,21 +36,11 @@ if [[ ! -d "${EXAMPLES_DIR}/${EXAMPLE}/dags" ]]; then
     usage
 fi
 
-WHEELS_DIR="${EXAMPLES_DIR}/${EXAMPLE}/.wheels"
-REPO_ROOT="$(cd "${EXAMPLES_DIR}/.." && pwd)"
-
-# Each example installs the released airflow-blueprint through its
-# requirements.txt, exactly as your own project would. For local development we
-# additionally build a wheel from this working tree; the example's Dockerfile
-# installs it over the released version so you are running your changes.
-# Delete .wheels/ (or use a clone without it) to test against the real release.
-if command -v uv >/dev/null 2>&1; then
-    echo "Building airflow-blueprint from the working tree..."
-    rm -rf "${WHEELS_DIR}"
-    uv build --wheel --quiet -o "${WHEELS_DIR}" "${REPO_ROOT}"
-else
-    echo "uv not found; the example will use the released airflow-blueprint." >&2
-fi
+# Each example installs the released airflow-blueprint through its own
+# requirements.txt, exactly as your project would. The compose file then mounts
+# this repository's blueprint/ over it, so you run your working tree rather
+# than the release -- see the comments on the volumes in
+# _runtime/docker-compose.yaml.
 
 export EXAMPLE
 exec docker compose \

@@ -17,8 +17,6 @@ parts/
 sdist/
 var/
 wheels/
-# Working-tree wheels built into an example by examples/run.sh
-.wheels/
 *.egg-info
 .installed.cfg
 *.egg

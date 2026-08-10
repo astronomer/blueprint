@@ -99,19 +99,25 @@ The example directory is the Docker build context, so the image is built exactly
 in a standalone project — Astro Runtime installs `packages.txt` and `requirements.txt` and
 copies the project in.
 
-Exactly one thing is not realistic: below a marked comment, the `Dockerfile` installs a wheel
-from `.wheels/` if one is present. `run.sh` builds that from this repository's working tree so
-the examples exercise local changes rather than the released package. Delete `.wheels/` and the
-example runs against the real `airflow-blueprint` from PyPI.
+Nothing in an example's own files is specific to this repository. You can copy any of these
+directories out, run `astro dev start`, and it works.
 
 Only the orchestration around the projects is shared:
 
 ```
 examples/
-├── run.sh          # launcher: builds the dev wheel, then docker compose
+├── run.sh          # launcher
 ├── check.sh        # validates every example; run by CI
 └── _runtime/       # docker-compose.yaml + Tiltfile
 ```
+
+The one deviation lives here rather than in the examples: `_runtime/docker-compose.yaml` mounts
+this repository's `blueprint/` into the containers and sets `PYTHONPATH` so it shadows the
+released `airflow-blueprint` the image installed from `requirements.txt`. That way an edit to
+the library shows up on the next DAG parse, and the examples verify the working tree rather than
+the last release. Remove those two volume entries and the examples run against PyPI, exactly as
+a reader's project would. (A *new* dependency in `pyproject.toml` is not covered by the mount and
+still needs a rebuild.)
 
 That compose file exists so one command can run any example. In a real project you would use
 `astro dev start` and have no `_runtime/` at all.

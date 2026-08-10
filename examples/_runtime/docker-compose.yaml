@@ -43,8 +43,20 @@ x-airflow-common: &airflow-common
     ASTRONOMER_ENVIRONMENT: local
     OPENLINEAGE_DISABLED: "True"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Repo-only: makes the mounted blueprint source below take precedence over
+    # the released airflow-blueprint the image installed from requirements.txt.
+    PYTHONPATH: /opt/blueprint-src
   volumes:
     - ../${EXAMPLE}/dags:/usr/local/airflow/dags
+    # Repo-only: run the examples against this working tree instead of the
+    # released package, so a change to blueprint/ shows up on the next DAG
+    # parse. Nothing in an example's own files knows about this -- delete these
+    # two entries and the examples run against airflow-blueprint from PyPI,
+    # exactly as a reader's project would.
+    #
+    # A new dependency added to pyproject.toml is not installed by the mount;
+    # that still needs a rebuild.
+    - ../../blueprint:/opt/blueprint-src/blueprint:ro
     - airflow_logs:/usr/local/airflow/logs
 
 networks:

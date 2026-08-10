@@ -3,8 +3,7 @@
 #     tilt up -- --example=getting-started
 #
 # Each example builds from its own directory as the Docker context, exactly as
-# a standalone Astro project would. Its dags/ folder is bind-mounted, so edits
-# to blueprints and YAML take effect on the next DAG parse with no rebuild.
+# a standalone Astro project would.
 
 config.define_string('example')
 cfg = config.parse()
@@ -17,15 +16,9 @@ if not os.path.exists(example_dir + '/dags'):
 os.putenv('EXAMPLE', example)
 print('Running example: ' + example)
 
-# Build airflow-blueprint from the working tree into the example's context, so
-# the image installs local changes over the released version in
-# requirements.txt. Re-run `tilt up` to pick up edits to the blueprint package.
-local(
-    'rm -rf ' + example_dir + '/.wheels && ' +
-    'uv build --wheel --quiet -o ' + example_dir + '/.wheels ../..',
-    quiet=True,
-)
-
+# The compose file mounts this repository's blueprint/ into the containers, so
+# edits to the library and to the example's dags/ both take effect on the next
+# DAG parse -- no rebuild, and nothing to sync here.
 docker_compose('./docker-compose.yaml')
 
 dc_resource('postgres')

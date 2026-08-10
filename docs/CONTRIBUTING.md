@@ -270,10 +270,14 @@ examples/
 ```
 
 Each example builds with its own directory as the Docker context, so it is the
-same image a standalone project would produce. One concession to this being a
-repository rather than a real project, confined to the `Dockerfile`: it installs
-`.wheels/*.whl` when present, which `run.sh` builds from the working tree so
-examples exercise local changes instead of the released package.
+same image a standalone project would produce, and nothing in an example's own
+files is specific to this repository.
+
+The one concession lives in `_runtime/docker-compose.yaml`, which mounts this
+repository's `blueprint/` into the containers and sets `PYTHONPATH` so it
+shadows the released `airflow-blueprint` installed from `requirements.txt`.
+Edits to the library therefore take effect on the next DAG parse, with no
+rebuild -- but a new dependency added to `pyproject.toml` still needs one.
 
 ### Adding an Example
 
