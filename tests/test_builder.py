@@ -15,6 +15,19 @@ from blueprint.errors import (
 )
 from blueprint.registry import BlueprintRegistry
 
+
+def dag_schedule(dag):
+    """Read a built DAG's schedule across Airflow versions.
+
+    Airflow 3 exposes ``DAG.schedule``; Airflow 2 exposes
+    ``DAG.schedule_interval``. Both accept ``schedule=`` on the constructor,
+    which is what the builder passes.
+    """
+    if hasattr(dag, "schedule"):
+        return dag.schedule
+    return dag.schedule_interval
+
+
 # --- Test blueprint classes ---
 
 
@@ -507,7 +520,7 @@ class TestBuilderDefaultDagArgs:
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
         dag = builder.build(config)
-        assert dag.schedule == "@hourly"
+        assert dag_schedule(dag) == "@hourly"
 
     def test_default_start_date_injected(self, builder):
         from datetime import datetime, timezone
@@ -587,7 +600,7 @@ class TestBuilderCustomDagArgs:
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
         dag = builder.build(config)
-        assert dag.schedule == "@daily"
+        assert dag_schedule(dag) == "@daily"
         assert dag.default_args["owner"] == "analytics-team"
         assert dag.default_args["retries"] == 5
 
@@ -976,7 +989,7 @@ steps:
             render_templates=False,
         )
         assert len(dags) == 1
-        assert dags[0].schedule == "@weekly"
+        assert dag_schedule(dags[0]) == "@weekly"
         assert dags[0].default_args["owner"] == "analytics"
 
     def test_build_all_no_yamls(self, tmp_path):
