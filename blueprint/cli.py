@@ -9,6 +9,7 @@ from typing import Any
 import click
 import yaml
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -66,15 +67,15 @@ def _validate_config(
             str(config_path), template_dir=template_dir, discover_entry_points=discover_entry_points
         )
     except Exception as e:
-        console.print(f"[red]FAIL[/red] {config_path}")
+        console.print(f"[red]FAIL[/red] {escape(str(config_path))}")
         if hasattr(e, "_format_message") and callable(e._format_message):
-            console.print(e._format_message())
+            console.print(escape(str(e._format_message())))
         else:
-            console.print(f"  [red]Error:[/red] {e}")
+            console.print(f"  [red]Error:[/red] {escape(str(e))}")
         return False, None
     else:
         dag_id = result.get("dag_id")
-        console.print(f"[green]PASS[/green] {config_path} (dag_id={dag_id})")
+        console.print(f"[green]PASS[/green] {escape(str(config_path))} (dag_id={dag_id})")
         return True, dag_id
 
 
@@ -92,7 +93,7 @@ def _check_duplicate_dag_ids(dag_ids_to_files: dict[str, list[Path]]) -> bool:
             errors_found = True
             console.print("\n[red]Duplicate DAG ID detected:[/red]")
             error = DuplicateDAGIdError(dag_id, config_files)
-            console.print(str(error))
+            console.print(escape(str(error)))
     return errors_found
 
 
@@ -193,7 +194,7 @@ def describe(
             blueprint_name, template_dir, version=version, discover_entry_points=entry_points
         )
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         sys.exit(1)
 
     versions_str = ", ".join(str(v) for v in info["versions"])
@@ -377,7 +378,7 @@ def schema(
     try:
         reg = _get_registry(template_dir, discover_entry_points=entry_points)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         sys.exit(1)
 
     if dag_args:
@@ -388,7 +389,7 @@ def schema(
         try:
             versions_info = reg.get_all_versions_info(blueprint_name)
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             sys.exit(1)
 
         trigger_rule_values = _get_trigger_rule_values()
