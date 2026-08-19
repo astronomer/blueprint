@@ -135,6 +135,9 @@ def lint(
     If PATH is provided, validate a specific file.
     Otherwise, validate all .dag.yaml files in the current directory tree,
     skipping files matched by .airflowignore entries.
+
+    --root scopes the search for blueprint.vars.yaml files only; it does not
+    change which .dag.yaml files are validated.
     """
     vars_root = Path(root) if root else Path.cwd()
     configs_to_check = _get_configs_to_check(path)
@@ -242,9 +245,10 @@ def show_vars(path: str, profile: str | None, unused: bool, root: str | None):
     try:
         config, _ = render_yaml_template(config_path, use_airflow_context=False)
         vars_root = Path(root) if root else Path.cwd()
+        declared = bp_vars.declared_profiles(config_path, search_root=vars_root)
         resolved = bp_vars.collect(config, config_path, profile=profile, search_root=vars_root)
         referenced_known = False
-        if profile is not None or not bp_vars.declared_profiles(config_path, search_root=vars_root):
+        if profile is not None or not declared:
             _remaining, full = bp_vars.resolve(
                 config, config_path, profile=profile, search_root=vars_root
             )
@@ -256,7 +260,6 @@ def show_vars(path: str, profile: str | None, unused: bool, root: str | None):
             console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    declared = bp_vars.declared_profiles(config_path, search_root=vars_root)
     console.print(_vars_table(resolved, config_path, declared))
 
     if unused and not referenced_known:

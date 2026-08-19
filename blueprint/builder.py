@@ -552,6 +552,8 @@ def build_all_airflow_dags(
         discover_entry_points: Whether to also discover blueprints from installed packages
             advertising themselves via the ``airflow_blueprint.blueprints`` entry-point
             group. Ignored when ``bp_registry`` is supplied directly.
+        profile: Active variable profile. Only needed when a referenced variable
+            declares a per-profile value.
 
     Returns:
         List of built DAGs

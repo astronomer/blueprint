@@ -92,6 +92,10 @@ class ResolvedVars:
 def discover_vars_files(start: Path, stop: Path | None = None) -> list[Path]:
     """Find ``blueprint.vars.yaml`` files from the project root down to ``start``.
 
+    ``.airflowignore`` does not apply: a vars file only ever serves DAGs in its
+    own directory or below, so an ignored directory's vars are already unused by
+    everything Airflow loads.
+
     Args:
         start: Directory containing the DAG file.
         stop: Optional outermost directory to search; defaults to the filesystem root.
@@ -103,41 +107,19 @@ def discover_vars_files(start: Path, stop: Path | None = None) -> list[Path]:
     boundary = stop.resolve() if stop is not None else None
 
     found: list[Path] = []
-    has_ignore_file = False
 
     current = start
     while True:
         candidate = current / VARS_FILENAME
         if candidate.is_file():
             found.append(candidate)
-        if (current / ".airflowignore").is_file():
-            has_ignore_file = True
         if boundary is not None and current == boundary:
             break
         if current.parent == current or (boundary is not None and boundary not in current.parents):
             break
         current = current.parent
 
-    found = list(reversed(found))
-
-    # Only pay for the authoritative ignore walk when an .airflowignore is
-    # actually present somewhere in the chain.
-    if has_ignore_file and boundary is not None:
-        allowed = _unignored_vars_files(boundary)
-        found = [f for f in found if f in allowed]
-
-    return found
-
-
-def _unignored_vars_files(root: Path) -> set[Path]:
-    """Return vars files under ``root`` that .airflowignore does not exclude."""
-    from airflow.utils.file import find_path_from_directory
-
-    return {
-        path
-        for raw in find_path_from_directory(str(root), ".airflowignore")
-        if (path := Path(raw)).name == VARS_FILENAME
-    }
+    return list(reversed(found))
 
 
 def _load_vars_file(path: Path) -> tuple[list[str] | None, dict[str, Any]]:
@@ -351,7 +333,7 @@ def _contains_reference(value: Any) -> bool:
 
 def _substitute(text: str, value_of: Any, source: Any, referenced: set[str] | None) -> Any:
     """Substitute ``${...}`` references, preserving type for a whole-value match."""
-    whole = REFERENCE_RE.fullmatch(text.strip()) if text.strip() else None
+    whole = REFERENCE_RE.fullmatch(text)
 
     def lookup(name: str) -> Any:
         if referenced is not None:
@@ -490,7 +472,11 @@ def collect(
 
 
 def declared_profiles(path: Path, search_root: Path | None = None) -> list[str]:
-    """Return the profiles declared for the DAG at ``path``."""
+    """Return the profiles declared for the DAG at ``path``.
+
+    Does not raise on duplicate ``profiles:`` declarations, unlike ``resolve``:
+    the innermost declaration wins here. Call ``resolve`` to validate.
+    """
     profiles: list[str] = []
     for vars_file in discover_vars_files(path.parent, search_root or path.parent):
         declared, _ = _load_vars_file(vars_file)

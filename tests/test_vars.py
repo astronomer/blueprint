@@ -123,6 +123,16 @@ class TestTypePreservation:
 
         assert out["steps"]["s"]["n"] == "days-90"
 
+    def test_padded_reference_stays_a_string(self, tmp_path):
+        p = dag_file(
+            tmp_path,
+            'dag_id: d\nvars:\n  v: 90\nsteps:\n  s:\n    blueprint: b\n    n: "  ${v}  "\n',
+        )
+
+        out, _ = resolve(p)
+
+        assert out["steps"]["s"]["n"] == "  90  "
+
     def test_list_value_preserved(self, tmp_path):
         p = dag_file(
             tmp_path,
@@ -337,14 +347,14 @@ class TestSearchRoot:
 
         assert resolve(p, search_root=tmp_path)[0]["steps"]["s"]["t"] == "outer"
 
-    def test_airflowignored_vars_file_is_skipped(self, tmp_path):
+    def test_airflowignore_does_not_hide_a_vars_file(self, tmp_path):
         write(tmp_path / bp_vars.VARS_FILENAME, "vars:\n  db: root\n")
         (tmp_path / ".airflowignore").write_text("drafts\n")
         drafts = tmp_path / "drafts"
-        write(drafts / bp_vars.VARS_FILENAME, "vars:\n  db: ignored\n")
+        write(drafts / bp_vars.VARS_FILENAME, "vars:\n  db: nearer\n")
         p = dag_file(drafts, "dag_id: d\nsteps:\n  s:\n    blueprint: b\n    t: ${db}\n")
 
-        assert resolve(p, search_root=tmp_path)[0]["steps"]["s"]["t"] == "root"
+        assert resolve(p, search_root=tmp_path)[0]["steps"]["s"]["t"] == "nearer"
 
 
 class TestProfilesDeclaration:

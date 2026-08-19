@@ -523,9 +523,8 @@ blueprint.vars.yaml (search root) → blueprint.vars.yaml (subdirectory) → DAG
 ```
 
 The search root is wherever `build_all_airflow_dags()` builds from; files above
-it are never read, and `.airflowignore`d directories are skipped. `blueprint
-lint` and `blueprint vars` default their root to the current directory -- run
-them from the same place, or pass `--root`.
+it are never read. `blueprint lint` and `blueprint vars` default their root to
+the current directory -- run them from the same place, or pass `--root`.
 
 ### Values
 
