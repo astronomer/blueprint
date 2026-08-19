@@ -27,6 +27,8 @@ Reusable task group templates composed into Airflow DAGs via YAML.
 - **Describe a blueprint**: `uv run blueprint describe extract`
 - **Describe specific version**: `uv run blueprint describe extract -v 1`
 - **Validate DAG YAML**: `uv run blueprint lint path/to/dag.dag.yaml`
+- **Validate one profile**: `uv run blueprint lint --profile prod` (no flag validates every declared profile)
+- **Inspect variables**: `uv run blueprint vars path/to/dag.dag.yaml --profile prod --unused`
 - **Generate JSON schema**: `uv run blueprint schema extract`
 - **Create DAG interactively**: `uv run blueprint new`
 
@@ -54,6 +56,7 @@ Reusable task group templates composed into Airflow DAGs via YAML.
   - `cli.py`: CLI implementation using Click
   - `models.py`: Pydantic model re-exports
   - `errors.py`: Custom exceptions (CyclicDependencyError, InvalidVersionError, etc.)
+  - `vars.py`: Declarative `${...}` variables and profiles resolved from `blueprint.vars.yaml`
   - `utils.py`: Common utilities
 - `tests/`: Test files
 - `examples/`: Example blueprints and YAML DAG definitions

@@ -1,7 +1,12 @@
 dag_id: deep_space_survey
 schedule: "@daily"
-description: "{{ agency }} survey for observation window {{ context.ds_nodash }}"
+description: "${agency} survey for observation window {{ context.ds_nodash }}"
 priority: critical
+
+vars:
+  # only the sim value differs here; flight comes from blueprint.vars.yaml
+  ground_station:
+    sim: SIM-Survey
 
 steps:
   scan_alpha_centauri:
@@ -43,6 +48,6 @@ steps:
   transmit_findings:
     blueprint: transmit
     depends_on: [analyze_results]
-    destination: mission_control
+    destination: ${ground_station}
     protocol: udp
     compression: true

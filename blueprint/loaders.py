@@ -271,6 +271,8 @@ def validate_yaml(
     path: str,
     template_dir: str | None = None,
     discover_entry_points: bool = True,
+    profile: str | None = None,
+    search_root: Path | None = None,
 ) -> dict[str, Any]:
     """Validate a DAG YAML file without building the DAG.
 
@@ -279,14 +281,24 @@ def validate_yaml(
         template_dir: Directory containing blueprint files
         discover_entry_points: Whether to also discover blueprints from installed packages via
             entry points
+        profile: Active variable profile, or None to leave profile-varying vars unresolved
+        search_root: Outermost directory searched for vars files. Must match the root
+            ``build_all_airflow_dags`` uses, or lint and the DAG processor disagree.
+            Defaults to the YAML file's own directory.
 
     Returns:
         The parsed and validated DAGConfig as a dict
     """
+    from blueprint import vars as bp_vars
     from blueprint.builder import Builder, DAGConfig
 
     config_path = Path(path)
-    config, _rendered = render_yaml_template(config_path, use_airflow_context=False)
+    config, _rendered = render_yaml_template(
+        config_path, context={"profile": profile}, use_airflow_context=False
+    )
+    config, _resolved = bp_vars.resolve(
+        config, config_path, profile=profile, search_root=search_root or config_path.parent
+    )
 
     dag_config = DAGConfig.model_validate(config)
 

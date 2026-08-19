@@ -9,6 +9,7 @@ from typing import Any
 import click
 import yaml
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -48,7 +49,11 @@ def _get_configs_to_check(path: str | None) -> list[Path]:
 
 
 def _validate_config(
-    config_path: Path, template_dir: str | None, discover_entry_points: bool = True
+    config_path: Path,
+    template_dir: str | None,
+    discover_entry_points: bool = True,
+    profile: str | None = None,
+    search_root: Path | None = None,
 ) -> tuple[bool, str | None]:
     """Validate a single configuration file.
 
@@ -57,16 +62,22 @@ def _validate_config(
         template_dir: Directory containing blueprint files.
         discover_entry_points: Whether to also discover blueprints from installed packages via
             entry points.
+        profile: Active variable profile.
 
     Returns:
         tuple of (success, dag_id)
     """
+    label = escape(f"{config_path}" + (f" [{profile}]" if profile else ""))
     try:
         result = validate_yaml(
-            str(config_path), template_dir=template_dir, discover_entry_points=discover_entry_points
+            str(config_path),
+            template_dir=template_dir,
+            discover_entry_points=discover_entry_points,
+            profile=profile,
+            search_root=search_root,
         )
     except Exception as e:
-        console.print(f"[red]FAIL[/red] {config_path}")
+        console.print(f"[red]FAIL[/red] {label}")
         if hasattr(e, "_format_message") and callable(e._format_message):
             console.print(e._format_message())
         else:
@@ -74,7 +85,7 @@ def _validate_config(
         return False, None
     else:
         dag_id = result.get("dag_id")
-        console.print(f"[green]PASS[/green] {config_path} (dag_id={dag_id})")
+        console.print(f"[green]PASS[/green] {label} (dag_id={dag_id})")
         return True, dag_id
 
 
@@ -104,13 +115,28 @@ def _check_duplicate_dag_ids(dag_ids_to_files: dict[str, list[Path]]) -> bool:
     default=True,
     help="Discover blueprints from installed packages via entry points.",
 )
-def lint(path: str | None, template_dir: str | None, entry_points: bool):
+@click.option(
+    "--root",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Outermost directory searched for blueprint.vars.yaml. Defaults to the current "
+    "directory; set it to the same path build_all_airflow_dags() uses.",
+)
+@click.option("--profile", default=None, help="Variable profile to resolve against.")
+def lint(
+    path: str | None,
+    template_dir: str | None,
+    entry_points: bool,
+    root: str | None,
+    profile: str | None,
+):
     """Validate DAG YAML definitions.
 
     If PATH is provided, validate a specific file.
     Otherwise, validate all .dag.yaml files in the current directory tree,
     skipping files matched by .airflowignore entries.
     """
+    vars_root = Path(root) if root else Path.cwd()
     configs_to_check = _get_configs_to_check(path)
 
     if not configs_to_check:
@@ -122,15 +148,35 @@ def lint(path: str | None, template_dir: str | None, entry_points: bool):
     valid_count = 0
 
     for config_path in configs_to_check:
-        success, dag_id = _validate_config(
-            config_path, template_dir, discover_entry_points=entry_points
-        )
+        # With no profile named, validate against every profile the project
+        # declares -- strictly more checking than picking one arbitrarily.
+        if profile is not None:
+            profiles_to_check: list[str | None] = [profile]
+        else:
+            from blueprint.vars import declared_profiles
 
-        if success and dag_id:
-            if dag_id in dag_ids_to_files:
-                dag_ids_to_files[dag_id].append(config_path)
-            else:
-                dag_ids_to_files[dag_id] = [config_path]
+            declared = declared_profiles(config_path, search_root=vars_root)
+            profiles_to_check = list(declared) if declared else [None]
+
+        results = [
+            _validate_config(
+                config_path,
+                template_dir,
+                discover_entry_points=entry_points,
+                profile=p,
+                search_root=vars_root,
+            )
+            for p in profiles_to_check
+        ]
+        success = all(ok for ok, _ in results)
+
+        # Record every profile's dag_id: a collision may only exist under one
+        # of them, e.g. when the id itself is built from a variable.
+        seen_ids = {d for ok, d in results if ok and d}
+        for dag_id in seen_ids:
+            dag_ids_to_files.setdefault(dag_id, []).append(config_path)
+
+        if success and seen_ids:
             valid_count += 1
         elif not success:
             errors_found = True
@@ -140,6 +186,89 @@ def lint(path: str | None, template_dir: str | None, entry_points: bool):
 
     if errors_found:
         sys.exit(1)
+
+
+def _vars_table(resolved, config_path: Path, declared: list[str]) -> Table:
+    """Build the table of resolved variables shown by `blueprint vars`."""
+    title = f"Variables for {config_path.name}"
+    if resolved.profile:
+        title += f" (profile: {resolved.profile})"
+    elif declared:
+        title += f" (no profile selected; declared: {', '.join(declared)})"
+
+    table = Table(title=title, show_lines=False)
+    table.add_column("Variable", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green", overflow="fold")
+    table.add_column("Source", style="dim", overflow="fold")
+
+    base = config_path.parent.resolve()
+    for name in sorted(resolved.available):
+        try:
+            value = escape(repr(resolved.resolve_name(name)))
+        except Exception as e:
+            value = f"[red]{type(e).__name__}[/red]"
+            if isinstance(resolved.available[name], dict):
+                value = "[yellow]varies by profile[/yellow]"
+        source = resolved.sources.get(name)
+        source_str = display_path(str(source), base=base) if source else "-"
+        table.add_row(name, value, source_str)
+
+    return table
+
+
+@cli.command("vars")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--root",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Outermost directory searched for blueprint.vars.yaml. Defaults to the current "
+    "directory; set it to the same path build_all_airflow_dags() uses.",
+)
+@click.option("--profile", default=None, help="Variable profile to resolve against.")
+@click.option(
+    "--unused",
+    is_flag=True,
+    default=False,
+    help="Show variables this DAG does not reference.",
+)
+def show_vars(path: str, profile: str | None, unused: bool, root: str | None):
+    """Show resolved variables for a DAG YAML file, and where each came from."""
+    from blueprint import vars as bp_vars
+    from blueprint.loaders import render_yaml_template
+
+    config_path = Path(path)
+
+    try:
+        config, _ = render_yaml_template(config_path, use_airflow_context=False)
+        vars_root = Path(root) if root else Path.cwd()
+        resolved = bp_vars.collect(config, config_path, profile=profile, search_root=vars_root)
+        referenced_known = False
+        if profile is not None or not bp_vars.declared_profiles(config_path, search_root=vars_root):
+            _remaining, full = bp_vars.resolve(
+                config, config_path, profile=profile, search_root=vars_root
+            )
+            resolved, referenced_known = full, True
+    except Exception as e:
+        if hasattr(e, "_format_message") and callable(e._format_message):
+            console.print(e._format_message())
+        else:
+            console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+    declared = bp_vars.declared_profiles(config_path, search_root=vars_root)
+    console.print(_vars_table(resolved, config_path, declared))
+
+    if unused and not referenced_known:
+        console.print(
+            "\n[yellow]Pass --profile to see which variables this DAG references.[/yellow]"
+        )
+    elif unused:
+        never_used = bp_vars.unused_variables(resolved)
+        if never_used:
+            console.print(f"\n[yellow]Not referenced by this DAG:[/yellow] {', '.join(never_used)}")
+        else:
+            console.print("\n[green]Every variable in scope is referenced by this DAG.[/green]")
 
 
 @cli.command("list")
