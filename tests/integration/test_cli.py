@@ -171,3 +171,246 @@ class TestSchema:
         schema = json.loads(result.stdout)
         assert schema["properties"]["schedule"]["type"] == "string"
         assert "schedule" not in schema["required"]
+
+
+def _write_vars_project(
+    root,
+    dag_body,
+    vars_body="profiles: [prod, dev]\nvars:\n  db:\n    prod: analytics\n    dev: sandbox\n",
+):
+    """Create a project with a vars file and one DAG that references it."""
+    (root / "blueprint.vars.yaml").write_text(vars_body)
+    (root / "provided.dag.yaml").write_text(dag_body)
+
+
+DAG_USING_VARS = (
+    "dag_id: vars_demo\nteam: platform\n\n"
+    "vars:\n  suffix: _events\n\n"
+    "steps:\n  load:\n    blueprint: load\n"
+    "    target_table: ${db}.orders${suffix}\n"
+)
+
+
+class TestLintProfiles:
+    """`blueprint lint` resolves declarative variables and profiles."""
+
+    def test_lint_with_profile(self, tmp_path):
+        _write_vars_project(tmp_path, DAG_USING_VARS)
+
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "lint",
+                "provided.dag.yaml",
+                "--profile",
+                "prod",
+                "--template-dir",
+                DAGS_DIR,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+        )
+
+        assert result.returncode == 0, f"lint failed:\n{result.stdout}{result.stderr}"
+        assert "PASS" in result.stdout
+
+    def test_lint_every_declared_profile(self, tmp_path):
+        _write_vars_project(tmp_path, DAG_USING_VARS)
+
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "lint",
+                "provided.dag.yaml",
+                "--template-dir",
+                DAGS_DIR,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+        )
+
+        assert result.returncode == 0, f"lint failed:\n{result.stdout}{result.stderr}"
+        assert result.stdout.count("PASS") == 2
+
+    def test_lint_reports_missing_profile_value(self, tmp_path):
+        _write_vars_project(
+            tmp_path,
+            DAG_USING_VARS,
+            vars_body="profiles: [prod, dev]\nvars:\n  db:\n    prod: analytics\n",
+        )
+
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "lint",
+                "provided.dag.yaml",
+                "--template-dir",
+                DAGS_DIR,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+        )
+
+        assert result.returncode == 1
+        assert "no value under profile 'dev'" in result.stdout
+
+    def test_lint_reports_undefined_variable(self, tmp_path):
+        _write_vars_project(
+            tmp_path,
+            "dag_id: vars_demo\nteam: platform\n\nvars:\n  a: 1\n\n"
+            "steps:\n  load:\n    blueprint: load\n    target_table: ${nope}\n",
+        )
+
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "lint",
+                "provided.dag.yaml",
+                "--profile",
+                "prod",
+                "--template-dir",
+                DAGS_DIR,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+        )
+
+        assert result.returncode == 1
+        assert "Undefined variable 'nope'" in result.stdout
+
+
+class TestVarsCommand:
+    def test_vars_shows_resolved_values_and_sources(self, tmp_path):
+        _write_vars_project(tmp_path, DAG_USING_VARS)
+
+        result = subprocess.run(
+            ["uv", "run", "blueprint", "vars", "provided.dag.yaml", "--profile", "prod"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+            env={**os.environ, "COLUMNS": "200"},
+        )
+
+        assert result.returncode == 0, f"vars failed:\n{result.stdout}{result.stderr}"
+        assert "analytics" in result.stdout
+        assert "blueprint.vars.yaml" in result.stdout
+        assert "_events" in result.stdout
+
+    def test_vars_reports_unused(self, tmp_path):
+        _write_vars_project(
+            tmp_path,
+            "dag_id: vars_demo\nteam: platform\n\nvars:\n  never_used: x\n\n"
+            "steps:\n  load:\n    blueprint: load\n    target_table: ${db}.t\n",
+        )
+
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "vars",
+                "provided.dag.yaml",
+                "--profile",
+                "prod",
+                "--unused",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+            env={**os.environ, "COLUMNS": "200"},
+        )
+
+        assert result.returncode == 0
+        assert "never_used" in result.stdout
+        assert "Not referenced by this DAG" in result.stdout
+
+
+class TestLintDefaultProfile:
+    """With no profile named, lint validates against every declared profile."""
+
+    def _run(self, cwd, *args):
+        return subprocess.run(
+            [
+                "uv",
+                "run",
+                "blueprint",
+                "lint",
+                "provided.dag.yaml",
+                "--template-dir",
+                DAGS_DIR,
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(cwd),
+        )
+
+    def test_bare_lint_checks_every_profile(self, tmp_path):
+        _write_vars_project(tmp_path, DAG_USING_VARS)
+
+        result = self._run(tmp_path)
+
+        assert result.returncode == 0, f"lint failed:\n{result.stdout}{result.stderr}"
+        assert result.stdout.count("PASS") == 2
+
+    def test_bare_lint_fails_if_any_profile_is_broken(self, tmp_path):
+        _write_vars_project(
+            tmp_path,
+            DAG_USING_VARS,
+            vars_body="profiles: [prod, dev]\nvars:\n  db:\n    prod: analytics\n",
+        )
+
+        result = self._run(tmp_path)
+
+        assert result.returncode == 1
+        assert "PASS" in result.stdout
+        assert "no value under profile 'dev'" in result.stdout
+
+    def test_unreferenced_varying_var_needs_no_profile(self, tmp_path):
+        _write_vars_project(
+            tmp_path,
+            "dag_id: vars_demo\nteam: platform\n\n"
+            "steps:\n  load:\n    blueprint: load\n    target_table: ${fixed}.t\n",
+            vars_body="vars:\n  fixed: everywhere\n",
+        )
+
+        result = self._run(tmp_path)
+
+        assert result.returncode == 0, f"lint failed:\n{result.stdout}{result.stderr}"
+        assert "PASS" in result.stdout
+
+    def test_vars_without_profile_shows_varying_markers(self, tmp_path):
+        _write_vars_project(tmp_path, DAG_USING_VARS)
+
+        result = subprocess.run(
+            ["uv", "run", "blueprint", "vars", "provided.dag.yaml"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(tmp_path),
+            env={**os.environ, "COLUMNS": "200"},
+        )
+
+        assert result.returncode == 0, f"vars failed:\n{result.stdout}{result.stderr}"
+        assert "varies by profile" in result.stdout
+        assert "no profile selected" in result.stdout
+        assert "_events" in result.stdout

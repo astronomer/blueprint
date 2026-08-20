@@ -10,6 +10,7 @@ from blueprint.utils import display_path
 
 # Constants
 MAX_SUGGESTION_VALUES = 10
+VARS_FILENAME_HINT = "blueprint.vars.yaml"
 
 
 class BlueprintError(Exception):
@@ -316,6 +317,161 @@ class EntryPointLoadError(BlueprintError):
         message += "\n  • Pass skip_invalid_dags=True to log and skip instead of failing"
 
         super().__init__(message)
+
+
+class UndefinedVariableError(BlueprintError):
+    """Error when a ``${...}`` reference names a variable that does not exist."""
+
+    def __init__(
+        self,
+        name: str,
+        available: list[str],
+        source: Any = None,
+        detail: str | None = None,
+    ):
+        self.name = name
+        self.available = available
+        self.source = source
+        self.detail = detail
+
+        message = f"❌ Undefined variable '{name}'"
+        if source:
+            message += f" in {display_path(str(source))}"
+        if detail:
+            message += f"\n  {detail}"
+
+        suggestions = []
+        similar = difflib.get_close_matches(name, available, n=3, cutoff=0.6)
+        if similar:
+            quoted = [f"'{s}'" for s in similar]
+            suggestions.append(f"Did you mean {' or '.join(quoted)}?")
+        if available:
+            shown = available[:MAX_SUGGESTION_VALUES]
+            listed = ", ".join(shown)
+            if len(available) > MAX_SUGGESTION_VALUES:
+                listed += f", ... ({len(available)} total)"
+            suggestions.append(f"Available variables: {listed}")
+        else:
+            suggestions.append("No variables are in scope for this file")
+
+        suggestions.append(f"Declare it in a `vars:` block or {VARS_FILENAME_HINT}")
+        suggestions.append(f"Or write `$${{{name}}}` if you meant the literal text `${{{name}}}`")
+
+        message += "\n\n💡 Suggestions:"
+        for suggestion in suggestions:
+            message += f"\n  • {suggestion}"
+
+        super().__init__(message)
+
+
+class IncompleteVariableError(BlueprintError):
+    """Error when a variable has no value under the active profile."""
+
+    def __init__(self, name: str, profile: str, defined_for: list[str], source: Any = None):
+        self.name = name
+        self.profile = profile
+        self.defined_for = defined_for
+        self.source = source
+
+        message = f"❌ Variable '{name}' has no value under profile '{profile}'"
+        if source:
+            message += f"\n  Defined in {display_path(str(source))} for: {', '.join(defined_for)}"
+
+        message += "\n\n💡 Suggestions:"
+        message += f"\n  • Add a '{profile}' entry for '{name}'"
+        message += "\n  • Or give it a single value that applies to every profile"
+
+        super().__init__(message)
+
+
+class CyclicVariableError(BlueprintError):
+    """Error when variables reference each other in a cycle."""
+
+    def __init__(self, cycle: list[str], source: Any = None):
+        self.cycle = cycle
+        self.source = source
+
+        message = f"❌ Cyclic variable reference: {' → '.join(cycle)}"
+        if source:
+            message += f"\n  In {display_path(str(source))}"
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Break the cycle by inlining one of the values"
+
+        super().__init__(message)
+
+
+class InvalidVariableValueError(BlueprintError):
+    """Error when a variable value has a shape that is not allowed."""
+
+    def __init__(
+        self, name: str, reason: str, source: Any = None, suggestions: list[str] | None = None
+    ):
+        self.name = name
+        self.reason = reason
+        self.source = source
+
+        message = f"❌ Invalid value for variable '{name}': {reason}"
+        if source:
+            message += f"\n  In {display_path(str(source))}"
+
+        message += "\n\n💡 Suggestions:"
+        for suggestion in suggestions or ["Use a scalar or a list of scalars"]:
+            message += f"\n  • {suggestion}"
+
+        super().__init__(message)
+
+
+class CompositionDepthError(BlueprintError):
+    """Error when variable composition nests deeper than the supported limit."""
+
+    def __init__(self, chain: list[str], limit: int, source: Any = None):
+        self.chain = chain
+        self.limit = limit
+        self.source = source
+
+        message = f"❌ Variable composition nested more than {limit} levels deep"
+        if source:
+            message += f"\n  In {display_path(str(source))}"
+        message += f"\n  Chain began: {' → '.join(chain[:5])} → ..."
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • This is not a cycle; the chain is simply very long"
+        message += "\n  • Inline some intermediate variables to shorten it"
+
+        super().__init__(message)
+
+
+class InvalidVariableNameError(BlueprintError):
+    """Error when a variable name would collide with dotted namespace syntax."""
+
+    def __init__(self, name: str, source: Any = None):
+        self.name = name
+        self.source = source
+
+        message = f"❌ Invalid variable name '{name}'"
+        if source:
+            message += f" in {display_path(str(source))}"
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Names must start with a letter or underscore"
+        message += "\n  • Use letters, digits, underscores and hyphens only"
+        message += "\n  • Periods are reserved for future namespaces (e.g. ${env.FOO})"
+
+        super().__init__(message)
+
+
+class ProfileError(BlueprintError):
+    """Error in profile declaration or selection."""
+
+    def __init__(self, message: str, source: Any = None):
+        self.source = source
+
+        formatted = f"❌ {message}"
+        if source:
+            formatted += f"\n  In {display_path(str(source))}"
+
+        super().__init__(formatted)
 
 
 class InvalidVersionError(BlueprintError):

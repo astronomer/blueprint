@@ -74,6 +74,7 @@ class TransmitConfig(BaseModel):
     destination: str
     protocol: Literal["tcp", "udp"] = "tcp"
     compression: bool = True
+    archive_path: str | None = None
 
 
 class Transmit(Blueprint[TransmitConfig]):
@@ -96,7 +97,8 @@ class Transmit(Blueprint[TransmitConfig]):
                 resolved = self.resolve_config(config, context)
                 print(
                     f"Logged: dest={resolved.destination}, "
-                    f"compression={resolved.compression}"
+                    f"compression={resolved.compression}, "
+                    f"archive={resolved.archive_path}"
                 )
 
             downlink >> log_transmission()

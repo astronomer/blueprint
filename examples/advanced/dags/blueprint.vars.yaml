@@ -1,0 +1,13 @@
+# Project-level variables, resolved by both DAG parsing and `blueprint lint`.
+# Values that differ per environment are keyed by profile; everything else is a
+# plain value shared by every profile.
+profiles: [flight, sim]
+
+vars:
+  ground_station:
+    flight: DSN-Goldstone
+    sim: SIM-Local
+
+  # invariant across profiles
+  archive_prefix: missions/telemetry
+  agency: Deep Space Network

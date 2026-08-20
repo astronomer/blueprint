@@ -39,12 +39,31 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 
 | DAG | Features |
 |---|---|
-| **satellite_telemetry** | Jinja2 `env` access, `var` access, version pinning, context proxy (`{{ context.ds_nodash }}`), custom DAG args |
-| **deep_space_survey** | Custom `template_context` variable (`{{ agency }}`), mixed v1/v2 usage, complex dependency graph, context proxy |
+| **satellite_telemetry** | Per-profile DAG args (`schedule`), variable composition, Jinja2 `env` access, version pinning, context proxy (`{{ context.ds_nodash }}`), custom DAG args |
+| **deep_space_survey** | Project variable (`${agency}`), partial per-profile override, mixed v1/v2 usage, complex dependency graph, context proxy |
+
+### Variables (`dags/blueprint.vars.yaml`)
+
+Declares two profiles, `flight` and `sim`, and the variables every DAG shares.
+`ground_station` differs per profile; `archive_prefix` and `agency` are the
+same everywhere.
+
+`satellite_telemetry` adds DAG-local variables (a per-profile `schedule`, and
+`archive_path` composed from `${archive_prefix}`). `deep_space_survey` overrides
+only the `sim` value of `ground_station`, inheriting `flight` from the project file.
+
+Try both resolutions without running Airflow:
+
+```bash
+blueprint lint
+blueprint vars dags/satellite_telemetry.dag.yaml --profile flight
+```
 
 ### Loader (`dags/loader.py`)
 
-`build_all_airflow_dags()` with `on_dag_built` callback and `template_context`.
+`build_all_airflow_dags()` with an `on_dag_built` callback and a `profile`. The
+only logic in Python is choosing *which* profile is active -- every value lives
+in YAML, so `blueprint lint` resolves exactly what the DAG processor does.
 
 ### Ignoring DAG YAML (`dags/.airflowignore`)
 

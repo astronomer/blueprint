@@ -251,6 +251,8 @@ class Builder:
         path: str | Path,
         render_template: bool = True,
         template_context: dict[str, Any] | None = None,
+        profile: str | None = None,
+        search_root: Path | None = None,
     ) -> "DAG":
         """Load a YAML file and build a DAG.
 
@@ -258,21 +260,31 @@ class Builder:
             path: Path to the .dag.yaml file
             render_template: Whether to render Jinja2 templates
             template_context: Additional Jinja2 context
+            profile: Active variable profile
+            search_root: Outermost directory searched for vars files
+                (defaults to the YAML file's own directory)
 
         Returns:
             The built Airflow DAG
         """
+        from blueprint import vars as bp_vars
         from blueprint.loaders import render_yaml_template
 
         yaml_path = Path(path)
 
         if render_template:
             raw_config, _rendered_yaml = render_yaml_template(
-                yaml_path, context=template_context, use_airflow_context=True
+                yaml_path,
+                context={"profile": profile, **(template_context or {})},
+                use_airflow_context=True,
             )
         else:
             raw_content = yaml_path.read_text()
             raw_config = yaml.safe_load(raw_content)
+
+        raw_config, _resolved = bp_vars.resolve(
+            raw_config, yaml_path, profile=profile, search_root=search_root or yaml_path.parent
+        )
 
         dag_config = DAGConfig.model_validate(raw_config)
         dag = self.build(dag_config)
@@ -506,6 +518,7 @@ def build_all_airflow_dags(
     on_dag_built: OnDagBuilt | None = None,
     skip_invalid_dags: bool = False,
     discover_entry_points: bool = True,
+    profile: str | None = None,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -539,6 +552,8 @@ def build_all_airflow_dags(
         discover_entry_points: Whether to also discover blueprints from installed packages
             advertising themselves via the ``airflow_blueprint.blueprints`` entry-point
             group. Ignored when ``bp_registry`` is supplied directly.
+        profile: Active variable profile. Only needed when a referenced variable
+            declares a per-profile value.
 
     Returns:
         List of built DAGs
@@ -551,6 +566,7 @@ def build_all_airflow_dags(
         build_all_airflow_dags()
         ```
     """
+    from blueprint import vars as bp_vars
     from blueprint.loaders import discover_yaml_files, render_yaml_template
 
     if register_globals is None:
@@ -587,15 +603,21 @@ def build_all_airflow_dags(
         try:
             if render_templates:
                 raw_config, _rendered = render_yaml_template(
-                    yaml_path, context=template_context, use_airflow_context=True
+                    yaml_path,
+                    context={"profile": profile, **(template_context or {})},
+                    use_airflow_context=True,
                 )
             else:
                 raw_content = yaml_path.read_text()
                 raw_config = yaml.safe_load(raw_content)
 
-            if not raw_config or "steps" not in raw_config:
+            if not raw_config or not isinstance(raw_config, dict) or "steps" not in raw_config:
                 logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
                 continue
+
+            raw_config, _resolved = bp_vars.resolve(
+                raw_config, yaml_path, profile=profile, search_root=resolved_path
+            )
 
             dag_config = DAGConfig.model_validate(raw_config)
             _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
