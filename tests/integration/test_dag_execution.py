@@ -242,3 +242,37 @@ class TestParamsExecution:
             f"Expected 400 for invalid param, got {resp.status_code}: {resp.text}"
         )
         assert "minimum" in resp.text.lower()
+
+    def test_explicit_null_optional_param_accepted(self, api_client: AirflowAPI):
+        """`suffix` is unset in the YAML, so its param value is null and must stay valid."""
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(api_client, dag_id, conf={"greet__suffix": None})
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
+
+    def test_overridden_optional_param_execution(self, api_client: AirflowAPI):
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        run_id = _trigger_dag(api_client, dag_id, conf={"greet__suffix": "from-trigger"})
+        result = _wait_for_dag_run(api_client, dag_id, run_id)
+        assert result["state"] == "success", f"DAG run state: {result['state']}"
+
+        resp = api_client.get(f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances")
+        assert resp.status_code == 200
+        task_instances = resp.json().get("task_instances", [])
+        failed = [ti["task_id"] for ti in task_instances if ti.get("state") != "success"]
+        assert not failed, f"Tasks did not succeed: {failed}"
+
+    def test_optional_param_rejects_wrong_type(self, api_client: AirflowAPI):
+        """The nullable type array still constrains the non-null type."""
+        dag_id = "params_test"
+        _unpause_dag(api_client, dag_id)
+        logical_date = datetime.now(tz=timezone.utc).isoformat()
+        resp = api_client.post(
+            f"/dags/{dag_id}/dagRuns",
+            json={"logical_date": logical_date, "conf": {"greet__suffix": 123}},
+        )
+        assert resp.status_code == 400, (
+            f"Expected 400 for wrong-typed optional param, got {resp.status_code}: {resp.text}"
+        )

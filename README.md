@@ -441,6 +441,151 @@ curl -X POST /api/v2/dags/customer_pipeline/dagRuns \
   -d '{"conf": {"load__target_table": "staging.customers", "load__mode": "append"}}'
 ```
 
+## Variables and Profiles
+
+Declare variables once and reference them as `${name}`. They resolve after YAML
+parsing, so a reference occupying an entire value keeps its type.
+
+### Project variables
+
+Put shared values in `blueprint.vars.yaml` next to your DAGs:
+
+```yaml
+# dags/blueprint.vars.yaml
+vars:
+  landing_dataset: raw_events
+  warehouse_db: analytics
+```
+
+### Using them in a DAG
+
+A DAG can add its own variables, and override project ones:
+
+```yaml
+dag_id: customer_etl
+
+vars:
+  stream: customer_events
+  retention_days: 90
+
+steps:
+  load:
+    blueprint: load
+    target_table: ${warehouse_db}.${landing_dataset}.${stream}
+    expiration_days: ${retention_days}
+```
+
+`expiration_days` stays an `int` because the whole value is a single reference.
+Embedding a reference in a larger string produces a string.
+
+### Profiles
+
+Profiles are **optional** -- everything above works without declaring any.
+Declare them when a value must differ between environments, then key that
+variable by profile. Variables that do not vary stay plain values:
+
+```yaml
+# dags/blueprint.vars.yaml
+profiles: [prod, dev]
+
+vars:
+  landing_dataset: raw_events        # same everywhere
+
+  warehouse_db:                      # differs per profile
+    prod: analytics
+    dev: sandbox
+```
+
+A DAG keys its own variables the same way, and may override only the profiles it
+needs to change:
+
+```yaml
+dag_id: customer_etl
+schedule: ${schedule}
+
+vars:
+  stream: customer_events
+  schedule:
+    prod: "@hourly"
+    dev: "@daily"
+  warehouse_db:                      # only dev differs; prod is inherited
+    dev: team_sandbox
+```
+
+A profile-keyed variable must have a value for the profile being resolved, so a
+missing one fails rather than silently falling back to another profile's.
+
+### Selecting a profile
+
+The loader picks which profile is active; every value stays in YAML:
+
+```python
+build_all_airflow_dags(profile="prod" if is_production else "dev")
+```
+
+```bash
+blueprint lint                         # validates against every declared profile
+blueprint lint --profile prod          # narrow to one
+blueprint vars my.dag.yaml --profile prod --unused
+```
+
+A profile only has to be selected for variables a DAG actually references. A DAG
+using only invariant values needs no profile, even when the project declares them.
+
+`profiles:` is declared once, in the outermost vars file; declaring it again in a
+nested file is an error.
+
+### Resolution order
+
+Vars files are read from the search root down to the DAG's own directory, then
+its `vars:` block. Nearest wins:
+
+```
+blueprint.vars.yaml (search root) → blueprint.vars.yaml (subdirectory) → DAG `vars:` block
+```
+
+The search root is wherever `build_all_airflow_dags()` builds from; files above
+it are never read. `blueprint lint` and `blueprint vars` default their root to
+the current directory -- run them from the same place, or pass `--root`.
+
+### Values
+
+A variable is a scalar or a list of scalars. A **map is only ever a set of
+per-profile values** — a map whose keys are not all declared profiles is an
+error rather than literal data, so `${a.b}` never has a second possible meaning.
+
+Group related values in the DAG rather than in a variable:
+
+```yaml
+vars:
+  bucket: s3://data
+steps:
+  load:
+    paths:
+      raw: ${bucket}/raw
+      curated: ${bucket}/curated
+```
+
+### Notes
+
+- Variables may reference other variables (`base: ${db}.${schema}`); cycles are
+  reported as errors.
+- Variable names must start with a letter or underscore, followed by letters,
+  digits, underscores or hyphens: `[A-Za-z_][A-Za-z0-9_-]*`.
+- Write `$${...}` for a literal `${...}` — a shell variable in a `bash_command`,
+  for example. A bare `$$` (the shell PID) is left alone.
+- The active profile is available to Jinja2 as `{{ profile }}`, for the cases
+  that genuinely need a conditional.
+
+### Variables or Jinja2?
+
+Both work in a `.dag.yaml`, and Jinja2 renders first. Reach for `${...}` for
+values that vary by environment: they are resolved before validation, keep their
+type, are checked by `blueprint lint`, and are safe for values containing YAML
+punctuation. Reach for `{{ ... }}` for Airflow runtime context (`{{ context.ds }}`),
+environment variables, and anything computed. Note that `blueprint.vars.yaml` is
+**not** Jinja2-rendered -- only `.dag.yaml` files are.
+
 ## Jinja2 Templating in YAML
 
 YAML files support Jinja2 templates with Airflow context:
@@ -718,8 +863,12 @@ blueprint describe extract
 # Describe a specific version
 blueprint describe extract -v 1
 
-# Validate DAG definitions
+# Validate DAG definitions (every declared profile, unless one is named)
 blueprint lint pipeline.dag.yaml
+blueprint lint --profile prod
+
+# Show resolved variables and where each came from
+blueprint vars pipeline.dag.yaml --profile prod --unused
 
 # Generate JSON schema for editor support
 # (each schema includes a top-level "templateType" field — "blueprint" for a

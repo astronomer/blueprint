@@ -1,8 +1,9 @@
 """A second BlueprintDagArgs template, scoped to this directory.
 
-ProjectDagArgs in ../test_blueprints.py applies to the DAG files beside it. The
-DAG files in this directory get these looser arguments instead, because this
-template is the one defined closest above them. The same loader builds both.
+ProjectDagArgs in ../test_blueprints.py is the project fallback and applies to
+the DAG files beside it. The DAG files in this directory get these looser
+arguments instead, because this template is the one defined closest above them.
+The same loader builds both.
 """
 
 from typing import Any

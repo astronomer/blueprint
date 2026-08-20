@@ -55,7 +55,7 @@ class ProjectDagArgsConfig(BaseModel):
     tier: Literal["critical", "standard", "experimental"] = "standard"
 
 
-class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig]):
+class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig], default=True):
     """Project-wide DAG argument template for integration tests.
 
     Translates high-level team/tier config into Airflow DAG kwargs:
@@ -185,6 +185,7 @@ class Load(Blueprint[LoadConfig]):
 class GreetConfig(BaseModel):
     message: str = Field(default="hello", description="Greeting message")
     repeat: int = Field(default=1, ge=1, description="Times to repeat")
+    suffix: str | None = Field(default=None, description="Optional text appended to the greeting")
 
 
 class Greet(Blueprint[GreetConfig]):
@@ -202,15 +203,17 @@ class Greet(Blueprint[GreetConfig]):
                 task_id="template_greet",
                 bash_command=(
                     f"echo 'message={self.param('message')}' "
-                    f"&& echo 'repeat={self.param('repeat')}'"
+                    f"&& echo 'repeat={self.param('repeat')}' "
+                    f"&& echo 'suffix={self.param('suffix')}'"
                 ),
             )
 
             @task(task_id="resolved_greet")
             def resolved_greet(**context):
                 cfg = self.resolve_config(config, context)
+                greeting = cfg.message if cfg.suffix is None else f"{cfg.message} {cfg.suffix}"
                 for i in range(cfg.repeat):
-                    print(f"Resolved: {cfg.message} ({i + 1}/{cfg.repeat})")
+                    print(f"Resolved: {greeting} ({i + 1}/{cfg.repeat})")
 
             template_task >> resolved_greet()
         return group
