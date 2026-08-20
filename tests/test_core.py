@@ -725,6 +725,40 @@ class TestStripNullable:
         assert "default" not in props["note"]
         assert props["count"]["default"] == 5
 
+    def test_non_null_defaults_preserved(self):
+        class DefaultsConfig(BaseModel):
+            note: str | None = "hello"
+            count: int | None = 0
+            flag: bool | None = False
+            empty: str | None = ""
+
+        class DefaultsBp(Blueprint[DefaultsConfig]):
+            def render(self, config):
+                pass
+
+        props = DefaultsBp.get_schema()["properties"]
+        assert props["note"]["default"] == "hello"
+        assert props["count"]["default"] == 0
+        assert props["flag"]["default"] is False
+        assert props["empty"]["default"] == ""
+
+    def test_optional_field_nested_in_model_stripped(self):
+        class Inner(BaseModel):
+            value: str
+            note: str | None = None
+
+        class OuterConfig(BaseModel):
+            child: Inner
+            children: list[Inner]
+
+        class OuterBp(Blueprint[OuterConfig]):
+            def render(self, config):
+                pass
+
+        props = OuterBp.get_schema()["properties"]
+        assert props["child"]["properties"]["note"]["type"] == "string"
+        assert props["children"]["items"]["properties"]["note"]["type"] == "string"
+
     def test_nullable_field_without_default_stays_required(self):
         class NoDefaultConfig(BaseModel):
             note: str | None
