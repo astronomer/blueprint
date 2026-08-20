@@ -30,7 +30,6 @@ steps:
     blueprint: analyze
     depends_on: [scan_alpha_centauri, scan_proxima, scan_barnard]
     algorithms: [fft, wavelet, bayesian]
-    baseline_run_id: survey_20240101
 
   adjust_orbit:
     blueprint: orbit

@@ -114,10 +114,6 @@ class AnalyzeConfig(BaseModel):
 
     algorithms: list[str]
     confidence_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
-    baseline_run_id: str | None = Field(
-        default=None,
-        description="Optional earlier run to compare results against",
-    )
 
     @field_validator("algorithms")
     @classmethod
@@ -145,14 +141,6 @@ class Analyze(Blueprint[AnalyzeConfig]):
                 if prev:
                     prev >> t
                 prev = t
-
-            if config.baseline_run_id is not None:
-                compare = BashOperator(
-                    task_id="compare_to_baseline",
-                    bash_command=f"echo 'Comparing against {config.baseline_run_id}'",
-                )
-                if prev:
-                    prev >> compare
         return group
 
 
