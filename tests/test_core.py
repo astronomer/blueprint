@@ -10,7 +10,15 @@ from typing import Any, Literal, Optional, Union
 import pytest
 from pydantic import BaseModel, Field
 
-from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup, _resolve_refs
+from blueprint.core import (
+    Blueprint,
+    BlueprintDagArgs,
+    DefaultDagArgs,
+    TaskOrGroup,
+    _collapse_nullable,
+    _resolve_refs,
+    _strip_nullable,
+)
 
 
 class SimpleConfig(BaseModel):
@@ -670,6 +678,112 @@ class TestYamlTypeValidation:
             class BadUnionBp(Blueprint[BadUnionConfig]):
                 def render(self, config):
                     pass
+
+
+class TestStripNullable:
+    """Test that the published schema reduces optional fields to their plain type."""
+
+    def test_optional_fields_are_plain_types(self):
+        class Inner(BaseModel):
+            value: str
+
+        class NullableConfig(BaseModel):
+            name: str
+            note: str | None = None
+            count: int | None = None
+            tags: list[str] | None = None
+            mode: Literal["a", "b"] | None = None
+            child: Inner | None = None
+
+        class NullableBp(Blueprint[NullableConfig]):
+            def render(self, config):
+                pass
+
+        props = NullableBp.get_schema()["properties"]
+
+        assert props["name"]["type"] == "string"
+        assert props["note"]["type"] == "string"
+        assert "anyOf" not in props["note"]
+        assert props["count"]["type"] == "integer"
+        assert props["tags"]["type"] == "array"
+        assert props["tags"]["items"] == {"type": "string"}
+        assert props["mode"]["type"] == "string"
+        assert props["mode"]["enum"] == ["a", "b"]
+        assert props["child"]["type"] == "object"
+        assert props["child"]["properties"] == {"value": {"title": "Value", "type": "string"}}
+
+    def test_null_default_dropped(self):
+        class DefaultsConfig(BaseModel):
+            note: str | None = None
+            count: int = 5
+
+        class DefaultsBp(Blueprint[DefaultsConfig]):
+            def render(self, config):
+                pass
+
+        props = DefaultsBp.get_schema()["properties"]
+        assert "default" not in props["note"]
+        assert props["count"]["default"] == 5
+
+    def test_nullable_field_without_default_stays_required(self):
+        class NoDefaultConfig(BaseModel):
+            note: str | None
+
+        class NoDefaultBp(Blueprint[NoDefaultConfig]):
+            def render(self, config):
+                pass
+
+        schema = NoDefaultBp.get_schema()
+        assert schema["properties"]["note"]["type"] == "string"
+        assert "default" not in schema["properties"]["note"]
+        assert schema["required"] == ["note"]
+
+    def test_optional_fields_stay_out_of_required(self):
+        class OptionalConfig(BaseModel):
+            name: str
+            note: str | None = None
+            count: int = 5
+
+        class RequiredBp(Blueprint[OptionalConfig]):
+            def render(self, config):
+                pass
+
+        assert RequiredBp.get_schema()["required"] == ["name"]
+
+    def test_field_metadata_survives_nested_model_merge(self):
+        class Inner(BaseModel):
+            """Inner model docstring."""
+
+            value: str
+
+        class MetadataConfig(BaseModel):
+            child: Inner | None = Field(default=None, description="The child field")
+            note: str | None = Field(default=None, description="A note")
+
+        class MetadataBp(Blueprint[MetadataConfig]):
+            def render(self, config):
+                pass
+
+        props = MetadataBp.get_schema()["properties"]
+        assert props["child"]["description"] == "The child field"
+        assert props["note"]["description"] == "A note"
+        assert props["note"]["title"] == "Note"
+
+    def test_dag_args_schema_stripped(self):
+        class NullableDagArgsConfig(BaseModel):
+            schedule: str | None = None
+
+        class NullableDagArgs(BlueprintDagArgs[NullableDagArgsConfig]):
+            def render(self, _config):
+                return {}
+
+        schema = NullableDagArgs.get_schema()
+        assert schema["properties"]["schedule"]["type"] == "string"
+
+    def test_unmergeable_branch_left_as_anyof(self):
+        schema = {"properties": {"x": {"anyOf": [{"minimum": 1}, {"type": "null"}]}}}
+        assert _strip_nullable(schema) == schema
+        assert _collapse_nullable(schema) == schema
 
 
 class TestResolveRefs:

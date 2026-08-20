@@ -405,10 +405,23 @@ If your config uses custom validators that enforce important constraints, use `s
 Scalar fields (`str`, `int`, `float`, `bool`) and `Literal` types render as native form controls in the trigger UI (text inputs, number inputs, dropdowns). Complex types work but render as JSON text inputs:
 
 - Nested `BaseModel` fields → JSON object input
-- `Union` types → JSON input with `anyOf` validation
 - `list[...]` fields → JSON array input
 
 For the best trigger form experience, prefer scalar fields for params that users will override frequently.
+
+### Optional fields in JSON Schema
+
+Optionality lives in the schema's `required` array, not in the field's `type`. A field is optional when it has a default, and `blueprint schema` reports that by leaving it out of `required` — so `retries: int | None = None` emits its plain type:
+
+```json
+{"type": "integer"}
+```
+
+Pydantic would spell `int | None` as `anyOf: [{"type": "integer"}, {"type": "null"}]`, and the redundant null branch is dropped, along with a `null` default. Single-valued types keep editors and generated clients simple: an optional field becomes `*int` or `retries?: number` rather than a union wrapper. A field with a non-`None` default (`batch_size: int = 1000`) is optional the same way and keeps its default.
+
+One consequence: an explicit `retries: null` in YAML is accepted by `blueprint lint` (Pydantic allows it) but is not described by the published schema, so a schema-driven editor may flag it. Omit the key instead.
+
+Airflow params are the exception — a param always holds a value, so an unset optional field is validated as an explicit `null` rather than an absent key. There the type keeps its null member (`{"type": ["integer", "null"]}`), matching the form Airflow's own [params documentation](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/params.html) uses.
 
 ### Triggering with overrides
 

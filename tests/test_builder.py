@@ -1446,6 +1446,58 @@ class TestConfigToParams:
         assert params["step__name"].schema.get("description_md") == "**Bold** description"
 
 
+class TestConfigToParamsNullable:
+    class NullableConfig(BaseModel):
+        message: str
+        note: str | None = None
+        count: int | None = None
+        mode: Literal["fast", "slow"] | None = None
+
+    def test_optional_fields_are_nullable_type_arrays(self):
+        params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
+        assert params["step__note"].schema["type"] == ["string", "null"]
+        assert params["step__count"].schema["type"] == ["integer", "null"]
+        assert "anyOf" not in params["step__note"].schema
+
+    def test_unset_optional_field_resolves(self):
+        params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
+        for name in ("step__note", "step__count", "step__mode"):
+            assert params[name].resolve() is None
+
+    def test_optional_field_accepts_typed_override(self):
+        params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
+        assert params["step__note"].resolve(value="hello") == "hello"
+        assert params["step__count"].resolve(value=7) == 7
+        assert params["step__mode"].resolve(value="fast") == "fast"
+
+    def test_optional_field_rejects_wrong_type(self):
+        from airflow.exceptions import ParamValidationError
+
+        params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
+        with pytest.raises(ParamValidationError):
+            params["step__count"].resolve(value="not-a-number")
+
+    def test_required_field_still_rejects_null(self):
+        from airflow.exceptions import ParamValidationError
+
+        params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
+        with pytest.raises(ParamValidationError):
+            params["step__message"].resolve(value=None)
+
+    def test_params_keep_null_legal_where_published_schema_drops_it(self):
+        """A Param always holds a value, so null must stay valid there but not in the schema."""
+
+        class NullableBp(Blueprint[TestConfigToParamsNullable.NullableConfig]):
+            def render(self, config):
+                pass
+
+        published = NullableBp.get_schema()["properties"]["note"]
+        param = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")["step__note"]
+
+        assert published["type"] == "string"
+        assert param.schema["type"] == ["string", "null"]
+
+
 # --- Builder params integration tests ---
 
 
