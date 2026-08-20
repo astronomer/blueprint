@@ -118,6 +118,7 @@ class ExtractV2(Blueprint[ExtractV2Config]):
 
 class LoadConfig(BaseModel):
     target: str
+    retries: int | None = None
 
 class Load(Blueprint[LoadConfig]):
     '''Load data to a target.'''
@@ -186,6 +187,15 @@ class Load(Blueprint[LoadConfig]):
         assert info["version"] == 1
         assert "target" in info["parameters"]
         assert info["parameters"]["target"]["required"] is True
+
+    def test_get_blueprint_info_optional_field_types(self, reg, temp_blueprints, monkeypatch):
+        monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])
+        reg.discover(force=True)
+
+        params = reg.get_blueprint_info("load")["parameters"]
+        assert params["target"]["type"] == "string"
+        assert params["retries"]["type"] == "integer"
+        assert params["retries"]["required"] is False
 
     def test_get_blueprint_info_versioned(self, reg, temp_blueprints, monkeypatch):
         monkeypatch.setattr(reg, "get_template_dirs", lambda: [temp_blueprints])

@@ -79,9 +79,9 @@ def _config_to_params(
     """
     from airflow.models.param import Param
 
-    from blueprint.core import _resolve_refs
+    from blueprint.core import _collapse_nullable, _resolve_refs
 
-    schema = _resolve_refs(config_type.model_json_schema())
+    schema = _collapse_nullable(_resolve_refs(config_type.model_json_schema()))
     properties = schema.get("properties", {})
     params: dict[str, Any] = {}
 

@@ -3,6 +3,7 @@
 import copy
 import inspect
 import re
+from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -97,6 +98,75 @@ def _is_yaml_compatible(annotation: Any, seen: set[int] | None = None) -> str | 
     if isinstance(annotation, type):
         return _check_concrete_type(annotation, seen)
     return f"type {annotation!r} is not YAML-compatible"
+
+
+_NULL_SCHEMA = {"type": "null"}
+
+
+def _rewrite_nullable(schema: dict, rewrite: Callable[[dict, dict], dict]) -> dict:
+    """Apply ``rewrite(field_keys, branch)`` to every ``X | None`` property in a schema.
+
+    ``str | None`` reaches JSON Schema as ``anyOf: [{type: string}, {type: null}]``.
+    Only a single typed non-null branch is rewritten; anything else is left alone.
+    """
+
+    def _walk(node: Any) -> Any:
+        if isinstance(node, list):
+            return [_walk(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+
+        node = {key: _walk(value) for key, value in node.items()}
+        variants = node.get("anyOf")
+        if not isinstance(variants, list) or _NULL_SCHEMA not in variants:
+            return node
+
+        branches = [v for v in variants if v != _NULL_SCHEMA]
+        if len(branches) != 1 or not isinstance(branches[0].get("type"), str):
+            return node
+
+        # Field-level keys win: a nested model's title/description must not displace
+        # the ones the field itself declares.
+        field_keys = {key: value for key, value in node.items() if key != "anyOf"}
+        return rewrite(field_keys, branches[0])
+
+    return _walk(schema)
+
+
+def _strip_nullable(schema: dict) -> dict:
+    """Reduce ``X | None`` to a plain ``X``, leaving optionality to ``required``.
+
+    Absence from ``required`` already marks a field optional, so the published schema
+    does not spell nullability into the type as well. This keeps types single-valued
+    for editors and client generators, which read ``type`` as one string.
+    """
+
+    def _plain(field_keys: dict, branch: dict) -> dict:
+        merged = {**branch, **field_keys, "type": branch["type"]}
+        if "default" in merged and merged["default"] is None:
+            del merged["default"]
+        return merged
+
+    return _rewrite_nullable(schema, _plain)
+
+
+def _collapse_nullable(schema: dict) -> dict:
+    """Rewrite ``X | None`` as a nullable ``type`` array, keeping null a legal value.
+
+    Airflow params always hold a value, so an unset optional field is validated as an
+    explicit null rather than as an absent key. This is the form Airflow's own params
+    documentation uses, and the trigger form dispatches on ``type`` alone.
+    """
+
+    def _nullable(field_keys: dict, branch: dict) -> dict:
+        merged = {**branch, **field_keys, "type": [branch["type"], "null"]}
+        # null must be a permitted enum member too, or it fails validation on its own type.
+        enum = branch.get("enum")
+        if isinstance(enum, list) and None not in enum:
+            merged["enum"] = [*enum, None]
+        return merged
+
+    return _rewrite_nullable(schema, _nullable)
 
 
 def _resolve_refs(schema: dict) -> dict:
@@ -287,7 +357,7 @@ class Blueprint(Generic[T]):
         Returns a flattened schema with all $ref/$defs resolved inline.
         """
         raw = cls.get_config_type().model_json_schema()
-        return _resolve_refs(raw)
+        return _strip_nullable(_resolve_refs(raw))
 
     @classmethod
     def get_source_code(cls) -> str:
@@ -446,7 +516,7 @@ class BlueprintDagArgs(Generic[T]):
     @classmethod
     def get_schema(cls) -> dict:
         raw = cls.get_config_type().model_json_schema()
-        return _resolve_refs(raw)
+        return _strip_nullable(_resolve_refs(raw))
 
 
 class DefaultDagArgsConfig(BaseModel):
