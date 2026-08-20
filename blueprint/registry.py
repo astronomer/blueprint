@@ -375,21 +375,19 @@ class BlueprintRegistry:
         if name in self._dag_args:
             raise DuplicateDagArgsError(name, [self._dag_args_locations[name], location])
 
-        self._dag_args[name] = cls
-        self._dag_args_locations[name] = location
-        if source_dir is not None:
-            self._dag_args_dirs[name] = source_dir.resolve()
-
-        if not cls.is_default:
-            return
-
-        if self._default_dag_args is not None:
+        if cls.is_default and self._default_dag_args is not None:
             existing = self._default_dag_args
             raise MultipleDefaultDagArgsError(
                 {existing: self._dag_args_locations[existing], name: location}
             )
 
-        self._default_dag_args = name
+        self._dag_args[name] = cls
+        self._dag_args_locations[name] = location
+        if source_dir is not None:
+            self._dag_args_dirs[name] = source_dir.resolve()
+
+        if cls.is_default:
+            self._default_dag_args = name
 
     def dag_args_location(self, name: str) -> str:
         """Where a registered DAG args template is defined."""
