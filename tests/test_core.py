@@ -742,6 +742,21 @@ class TestStripNullable:
         assert props["flag"]["default"] is False
         assert props["empty"]["default"] == ""
 
+    def test_optional_dict_and_int_literal(self):
+        class WideConfig(BaseModel):
+            tags: dict[str, str] | None = None
+            level: Literal[1, 2] | None = None
+
+        class WideBp(Blueprint[WideConfig]):
+            def render(self, config):
+                pass
+
+        props = WideBp.get_schema()["properties"]
+        assert props["tags"]["type"] == "object"
+        assert props["tags"]["additionalProperties"] == {"type": "string"}
+        assert props["level"]["type"] == "integer"
+        assert props["level"]["enum"] == [1, 2]
+
     def test_optional_field_nested_in_model_stripped(self):
         class Inner(BaseModel):
             value: str
