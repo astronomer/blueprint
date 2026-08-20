@@ -6,6 +6,7 @@ DAG files and blueprint definitions. No running Airflow instance needed.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 
@@ -151,6 +152,25 @@ class TestSchema:
     def test_schema_nonexistent(self):
         result = _run_blueprint("schema", "nonexistent", "--template-dir", DAGS_DIR)
         assert result.returncode != 0
+
+    def test_optional_field_is_plain_type_and_not_required(self):
+        result = _run_blueprint("schema", "greet", "--template-dir", DAGS_DIR)
+        assert result.returncode == 0, f"blueprint schema failed:\n{result.stderr}"
+
+        schema = json.loads(result.stdout)
+        suffix = schema["properties"]["suffix"]
+        assert suffix["type"] == "string"
+        assert "default" not in suffix
+        assert "suffix" not in schema["required"]
+        assert "anyOf" not in result.stdout
+
+    def test_dag_args_optional_field_is_plain_type(self):
+        result = _run_blueprint("schema", "--dag-args", "--template-dir", DAGS_DIR)
+        assert result.returncode == 0, f"blueprint schema failed:\n{result.stderr}"
+
+        schema = json.loads(result.stdout)
+        assert schema["properties"]["schedule"]["type"] == "string"
+        assert "schedule" not in schema["required"]
 
 
 def _write_vars_project(
