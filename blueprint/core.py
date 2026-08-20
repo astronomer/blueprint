@@ -133,6 +133,26 @@ def _resolve_refs(schema: dict) -> dict:
     return _resolve(schema)
 
 
+def _to_snake_case(class_name: str) -> str:
+    """Convert a CamelCase class name to snake_case."""
+    snake_name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", class_name)
+    snake_name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", snake_name)
+    return snake_name.lower()
+
+
+def _validate_snake_case_name(cls: type, explicit_name: object) -> None:
+    """Reject an explicit ``name`` class attribute that is not snake_case."""
+    if not isinstance(explicit_name, str) or not explicit_name:
+        msg = f"{cls.__name__}: 'name' must be a non-empty string, got {explicit_name!r}"
+        raise ValueError(msg)
+    if not re.match(r"^[a-z][a-z0-9_]*$", explicit_name):
+        msg = (
+            f"{cls.__name__}: 'name' must be snake_case "
+            f"(matching ^[a-z][a-z0-9_]*$), got {explicit_name!r}"
+        )
+        raise ValueError(msg)
+
+
 class Blueprint(Generic[T]):
     """Base class for all Blueprint templates.
 
@@ -321,15 +341,7 @@ class Blueprint(Generic[T]):
         explicit_version = cls.__dict__.get("version")
 
         if explicit_name is not None:
-            if not isinstance(explicit_name, str) or not explicit_name:
-                msg = f"{cls.__name__}: 'name' must be a non-empty string, got {explicit_name!r}"
-                raise ValueError(msg)
-            if not re.match(r"^[a-z][a-z0-9_]*$", explicit_name):
-                msg = (
-                    f"{cls.__name__}: 'name' must be snake_case "
-                    f"(matching ^[a-z][a-z0-9_]*$), got {explicit_name!r}"
-                )
-                raise ValueError(msg)
+            _validate_snake_case_name(cls, explicit_name)
 
         if explicit_version is not None and (
             not isinstance(explicit_version, int)
@@ -351,9 +363,7 @@ class Blueprint(Generic[T]):
             base_name = class_name
             inferred_version = 1
 
-        snake_name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", base_name)
-        snake_name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", snake_name)
-        inferred_name = snake_name.lower()
+        inferred_name = _to_snake_case(base_name)
 
         return (
             explicit_name if explicit_name is not None else inferred_name,
@@ -365,10 +375,8 @@ class BlueprintDagArgs(Generic[T]):
     """Base class for DAG argument templates.
 
     Subclass this to define custom DAG constructor arguments with validated
-    Pydantic config. At most one BlueprintDagArgs subclass may exist per project.
-
-    The render() method receives the validated config and returns a dict of
-    kwargs passed to the Airflow DAG constructor.
+    Pydantic config. The render() method receives the validated config and
+    returns a dict of kwargs passed to the Airflow DAG constructor.
 
     Example:
         class MyDagArgsConfig(BaseModel):
@@ -385,12 +393,30 @@ class BlueprintDagArgs(Generic[T]):
                         "retries": config.retries,
                     },
                 }
+
+    Multiple templates:
+        A DAG uses the template defined closest above it, so a subdirectory
+        overrides its parents. The directory that scopes a template is the one
+        holding the .py file defining it. Two templates in one directory are
+        ambiguous. A DAG with no template above it uses the one declared as the
+        fallback, then the only one defined, then DefaultDagArgs:
+
+        class ProjectDagArgs(BlueprintDagArgs[ProjectConfig], default=True):
+            ...
     """
 
     _config_type: type[BaseModel]
+    name: str | None = None
+    is_default: bool = False
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, default: bool = False, **kwargs: object) -> None:
+        """Extract the config type, and record whether this template is the fallback.
+
+        Args:
+            default: Whether DAGs with no template above them use this one.
+        """
         super().__init_subclass__(**kwargs)
+        cls.is_default = default
 
         orig_bases = getattr(cls, "__orig_bases__", ())
         for base in orig_bases:
@@ -447,6 +473,15 @@ class BlueprintDagArgs(Generic[T]):
     def get_schema(cls) -> dict:
         raw = cls.get_config_type().model_json_schema()
         return _resolve_refs(raw)
+
+    @classmethod
+    def template_name(cls) -> str:
+        """Name this template is registered under, from ``name`` or the class name."""
+        explicit_name = cls.__dict__.get("name")
+        if explicit_name is not None:
+            _validate_snake_case_name(cls, explicit_name)
+            return explicit_name
+        return _to_snake_case(cls.__name__)
 
 
 class DefaultDagArgsConfig(BaseModel):

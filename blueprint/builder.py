@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from blueprint.core import TaskOrGroup
+from blueprint.core import BlueprintDagArgs, TaskOrGroup
 from blueprint.errors import (
     BlueprintError,
     ConfigurationError,
@@ -21,6 +21,7 @@ from blueprint.errors import (
     InvalidDependencyError,
 )
 from blueprint.registry import BlueprintRegistry, registry
+from blueprint.utils import display_path
 
 if TYPE_CHECKING:
     from airflow import DAG
@@ -187,11 +188,15 @@ class Builder:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             dag_kwargs["start_date"] = parsed
 
-    def build(self, config: DAGConfig) -> "DAG":
+    def build(self, config: DAGConfig, source_path: str | Path | None = None) -> "DAG":
         """Build a DAG from a DAGConfig.
 
         Args:
             config: The parsed and validated DAG configuration
+            source_path: Path of the file this DAG is defined in, whose parent
+                directories are searched for the DAG args template. Without it,
+                only the project fallbacks apply, so a Python file building DAGs
+                directly should pass ``source_path=__file__``.
 
         Returns:
             A fully wired Airflow DAG
@@ -200,10 +205,8 @@ class Builder:
 
         self.validate_dependencies(config)
 
-        dag_args_cls = self._registry.get_dag_args()
-        config_type = dag_args_cls.get_config_type()
-        extra = config.get_extra_fields()
-        validated_dag_args = config_type(**extra)
+        dag_args_cls = self._registry.resolve_dag_args(source_path)
+        validated_dag_args = self._validate_against(dag_args_cls, config, source_path)
 
         instance = dag_args_cls()
         dag_kwargs = instance.render(validated_dag_args)
@@ -246,6 +249,51 @@ class Builder:
 
         return dag
 
+    def validate_dag_args(
+        self, config: DAGConfig, source_path: str | Path | None = None
+    ) -> BaseModel:
+        """Validate a DAG's top-level fields against the template that applies to it.
+
+        Args:
+            config: The parsed DAG configuration.
+            source_path: Path of the file this DAG is defined in, whose parent
+                directories are searched for the DAG args template.
+
+        Returns:
+            The validated DAG args config instance.
+
+        Raises:
+            ConfigurationError: If the top-level fields do not match the template.
+        """
+        dag_args_cls = self._registry.resolve_dag_args(source_path)
+        return self._validate_against(dag_args_cls, config, source_path)
+
+    def _validate_against(
+        self,
+        dag_args_cls: type[BlueprintDagArgs],
+        config: DAGConfig,
+        source_path: str | Path | None,
+    ) -> BaseModel:
+        """Validate a DAG's top-level fields against an already-resolved template."""
+        try:
+            return dag_args_cls.get_config_type()(**config.get_extra_fields())
+        except ValidationError as e:
+            name = dag_args_cls.template_name()
+            location = self._registry.dag_args_location(name)
+            where = f" ({display_path(location)})" if location else ""
+
+            lines = [f"DAG arguments rejected by template '{name}'{where}:"]
+            for err in e.errors():
+                field = ".".join(str(loc) for loc in err["loc"])
+                lines.append(f"  - '{field}': {err['msg']}" if field else f"  - {err['msg']}")
+
+            accepted = ", ".join(sorted(dag_args_cls.get_config_type().model_fields))
+            raise ConfigurationError(
+                "\n".join(lines),
+                file_path=Path(source_path) if source_path else None,
+                suggestions=[f"Accepted DAG arguments: {accepted or 'none'}"],
+            ) from e
+
     def build_from_yaml(
         self,
         path: str | Path,
@@ -275,7 +323,7 @@ class Builder:
             raw_config = yaml.safe_load(raw_content)
 
         dag_config = DAGConfig.model_validate(raw_config)
-        dag = self.build(dag_config)
+        dag = self.build(dag_config, source_path=yaml_path)
 
         if self._on_dag_built:
             self._on_dag_built(dag, yaml_path)
@@ -599,7 +647,7 @@ def build_all_airflow_dags(
 
             dag_config = DAGConfig.model_validate(raw_config)
             _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-            dag = builder.build(dag_config)
+            dag = builder.build(dag_config, source_path=yaml_path)
 
             if on_dag_built:
                 on_dag_built(dag, yaml_path)

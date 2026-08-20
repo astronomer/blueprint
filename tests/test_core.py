@@ -897,3 +897,44 @@ class TestDefaultDagArgs:
         config = DefaultDagArgsConfig(schedule="@hourly", description="Test")
         result = DefaultDagArgs().render(config)
         assert result == {"schedule": "@hourly", "description": "Test"}
+
+
+class _EmptyConfig(BaseModel):
+    pass
+
+
+class TestBlueprintDagArgsDeclaration:
+    def test_template_name_from_class_name(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            pass
+
+        assert MissionDagArgs.template_name() == "mission_dag_args"
+        assert MissionDagArgs.is_default is False
+
+    def test_explicit_name_is_honored(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "missions"
+
+        assert MissionDagArgs.template_name() == "missions"
+
+    def test_explicit_name_must_be_snake_case(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "Missions"
+
+        with pytest.raises(ValueError, match="snake_case"):
+            MissionDagArgs.template_name()
+
+    def test_default_keyword_declares_the_fallback(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        assert MissionDagArgs.is_default is True
+
+    def test_the_fallback_is_not_inherited(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        class Derived(MissionDagArgs):
+            pass
+
+        assert Derived.is_default is False

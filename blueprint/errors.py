@@ -278,23 +278,99 @@ class InvalidDependencyError(BlueprintError):
 
 
 class MultipleDagArgsError(BlueprintError):
-    """Error when multiple BlueprintDagArgs templates are found."""
+    """Error when the DAG args template that applies to a DAG is ambiguous."""
 
-    def __init__(self, locations: list[str]):
-        self.locations = locations
-        super().__init__(locations)
+    def __init__(
+        self,
+        candidates: dict[str, str],
+        directory: str | None = None,
+        for_path: str | None = None,
+    ):
+        self.candidates = candidates
+        self.directory = directory
+        self.for_path = for_path
+        super().__init__(candidates, directory, for_path)
 
     def __str__(self) -> str:
-        message = "Multiple BlueprintDagArgs templates found. Only one is allowed per project:"
+        if self.directory:
+            shown = display_path(self.directory)
+            where = "the current directory" if shown == "." else shown
+            message = f"Multiple BlueprintDagArgs templates are defined in {where}:"
+        else:
+            subject = f"'{display_path(self.for_path)}'" if self.for_path else "this DAG"
+            message = (
+                f"No BlueprintDagArgs template is defined in the directory of {subject} or any "
+                "directory above it, and several are registered with none declared as the "
+                "fallback:"
+            )
+
+        for name, loc in sorted(self.candidates.items()):
+            suffix = f" ({display_path(loc)})" if loc else ""
+            message += f"\n  • {name}{suffix}"
+
+        message += "\n\n💡 Suggestions:"
+        if self.directory:
+            message += "\n  • Keep one template per directory"
+            message += "\n  • Move the others into the directories whose DAGs use them"
+        else:
+            message += "\n  • Define a template in the DAG's directory or one above it"
+            message += "\n  • Or declare a fallback: "
+            message += "class MyDagArgs(BlueprintDagArgs[MyConfig], default=True)"
+
+        return message
+
+
+class MultipleDefaultDagArgsError(BlueprintError):
+    """Error when more than one DAG args template is declared with default=True."""
+
+    def __init__(self, candidates: dict[str, str]):
+        self.candidates = candidates
+        super().__init__(candidates)
+
+    def __str__(self) -> str:
+        message = "Multiple BlueprintDagArgs templates are declared with default=True:"
+        for name, loc in sorted(self.candidates.items()):
+            suffix = f" ({display_path(loc)})" if loc else ""
+            message += f"\n  • {name}{suffix}"
+
+        message += "\n\n💡 Suggestions:"
+        message += "\n  • Keep default=True on exactly one template"
+        message += "\n  • Templates in a parent directory of a DAG apply without being declared"
+
+        return message
+
+
+class DuplicateDagArgsError(BlueprintError):
+    """Error when two DAG args templates share a name."""
+
+    def __init__(self, name: str, locations: list[str]):
+        self.name = name
+        self.locations = locations
+        super().__init__(name, locations)
+
+    def __str__(self) -> str:
+        message = f"Duplicate DAG args template '{self.name}' found in multiple locations:"
         for loc in self.locations:
-            if not loc:
-                continue
             message += f"\n  • {display_path(loc)}"
 
         message += "\n\n💡 Suggestions:"
-        message += "\n  • Remove all but one BlueprintDagArgs subclass"
+        message += "\n  • Give each template a distinct class name"
+        message += '\n  • Or set name = "..." on one of them'
 
         return message
+
+
+class DagArgsNotFoundError(BlueprintError):
+    """Error when a requested DAG args template does not exist."""
+
+    def __init__(self, name: str, available: list[str] | None = None):
+        self.name = name
+        self.available = available or []
+
+        message = f"DAG args template '{name}' not found"
+        if self.available:
+            message += f"\n  Available templates: {', '.join(sorted(self.available))}"
+        super().__init__(message)
 
 
 class EntryPointLoadError(BlueprintError):

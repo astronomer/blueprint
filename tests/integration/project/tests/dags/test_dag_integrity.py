@@ -50,6 +50,7 @@ EXPECTED_DAG_IDS = {
     "dag_args_test",
     "explicit_naming",
     "params_test",
+    "sandbox_probe",
 }
 
 
@@ -81,6 +82,15 @@ def test_airflowignore_respected():
     with suppress_logging("airflow"):
         dag_bag = DagBag(include_examples=False)
     assert "airflowignore_excluded" not in dag_bag.dags
+
+
+def test_sandbox_dag_uses_its_own_dag_args_template():
+    """sandbox/dag_args.py is closest to this DAG, so ProjectDagArgs must not apply."""
+    with suppress_logging("airflow"):
+        dag_bag = DagBag(include_examples=False)
+    tags = set(dag_bag.dags["sandbox_probe"].tags)
+    assert "sandbox" in tags, f"Expected 'sandbox' tag, got {tags}"
+    assert "team:platform" not in tags, f"ProjectDagArgs leaked into {tags}"
 
 
 def test_dag_args_team_tag_generated():

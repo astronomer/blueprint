@@ -271,14 +271,20 @@ def validate_yaml(
     path: str,
     template_dir: str | None = None,
     discover_entry_points: bool = True,
+    bp_registry: BlueprintRegistry | None = None,
 ) -> dict[str, Any]:
     """Validate a DAG YAML file without building the DAG.
+
+    Top-level fields are validated against the DAG args template defined closest
+    above the file, matching what the builder uses at DAG-parse time.
 
     Args:
         path: Path to the .dag.yaml file
         template_dir: Directory containing blueprint files
         discover_entry_points: Whether to also discover blueprints from installed packages via
             entry points
+        bp_registry: An already-discovered registry to validate against, avoiding
+            rediscovery when validating many files
 
     Returns:
         The parsed and validated DAGConfig as a dict
@@ -290,14 +296,12 @@ def validate_yaml(
 
     dag_config = DAGConfig.model_validate(config)
 
-    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
+    reg = bp_registry or get_registry(template_dir, discover_entry_points=discover_entry_points)
 
     builder = Builder(bp_registry=reg)
     builder.validate_dependencies(dag_config)
 
-    dag_args_cls = reg.get_dag_args()
-    dag_args_config_type = dag_args_cls.get_config_type()
-    dag_args_config_type(**dag_config.get_extra_fields())
+    builder.validate_dag_args(dag_config, config_path)
 
     for _step_name, step_config in dag_config.steps.items():
         bp_class = reg.get(step_config.blueprint, step_config.version)

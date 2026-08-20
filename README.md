@@ -116,7 +116,7 @@ See the [examples README](examples/README.md) for full setup details.
 
 By default, DAG YAML files support `schedule` and `description` at the top level (alongside `dag_id` and `steps`). For more control over DAG construction, define a `BlueprintDagArgs` template.
 
-A `BlueprintDagArgs` subclass works like a Blueprint but for DAG-level arguments. It defines a Pydantic config model whose fields become the valid top-level YAML fields, and a `render()` method that returns DAG constructor kwargs. At most one may exist per project.
+A `BlueprintDagArgs` subclass works like a Blueprint but for DAG-level arguments. It defines a Pydantic config model whose fields become the valid top-level YAML fields, and a `render()` method that returns DAG constructor kwargs.
 
 ```python
 from datetime import timedelta
@@ -157,6 +157,28 @@ steps:
 ```
 
 When no `BlueprintDagArgs` is defined, the built-in `DefaultDagArgs` provides `schedule` and `description` pass-through.
+
+A project can define several templates. A DAG uses the one defined closest above it, so a subdirectory overrides its parents. The directory that scopes a template is the one holding the `.py` file that defines it:
+
+```
+dags/
+  dag_args.py             ProjectDagArgs
+  customer.dag.yaml       -> ProjectDagArgs
+  sandbox/
+    dag_args.py           SandboxDagArgs
+    probe.dag.yaml        -> SandboxDagArgs
+```
+
+`blueprint lint` prints which template each DAG resolved to.
+
+Two templates in one directory are ambiguous and raise an error, as do two sharing a name — set `name = "..."` on the class to register one under a different name. A DAG with no template above it uses the one declared as the fallback, or the only template defined:
+
+```python
+class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig], default=True):
+    ...
+```
+
+DAGs built directly with the `Builder` API resolve from the Python file that builds them: pass `source_path=__file__` to use the template above it.
 
 ## Template Versioning
 
@@ -703,6 +725,9 @@ blueprint lint pipeline.dag.yaml
 # (each schema includes a top-level "templateType" field — "blueprint" for a
 # step template, or "dag_args" for DAG-level fields via `blueprint schema --dag-args`)
 blueprint schema extract > extract.schema.json
+
+# A project with several DAG args templates has one DAG schema per template
+blueprint schema --dag-args sandbox_dag_args > sandbox.dag.schema.json
 
 # Create new DAG interactively
 blueprint new

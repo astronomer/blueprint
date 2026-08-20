@@ -23,6 +23,7 @@ EXPECTED_DAG_IDS = {
     "dag_args_test",
     "explicit_naming",
     "context_test",
+    "sandbox_probe",
 }
 
 
@@ -295,6 +296,37 @@ class TestDagArgsRendering:
         assert "load" in tasks["extract.validate"]["downstream_task_ids"] or (
             "load" in tasks["extract.extract"]["downstream_task_ids"]
         )
+
+
+class TestMultipleDagArgsTemplates:
+    """Two DAG args templates in one project, resolved by directory.
+
+    One loader builds every DAG. ProjectDagArgs sits in dags/, so it applies to the
+    DAG files beside it; sandbox/dag_args.py sits next to sandbox/orbit_probe.dag.yaml,
+    so that DAG uses SandboxDagArgs instead.
+    """
+
+    def test_sandbox_tags_come_from_its_own_directory_template(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/sandbox_probe")
+        assert resp.status_code == 200
+        tags = api_client.get_tags(resp.json())
+        assert tags == {"sandbox", "experiment:alpha", "ttl:3d", "callback-verified"}
+
+    def test_sandbox_default_args_come_from_its_own_directory_template(
+        self, api_client: AirflowAPI
+    ):
+        resp = api_client.get("/dags/sandbox_probe/tasks")
+        assert resp.status_code == 200
+        tasks = resp.json()["tasks"]
+        assert len(tasks) > 0
+        for task in tasks:
+            assert task.get("owner") == "sandbox"
+            assert task.get("retries") == 0
+
+    def test_root_template_still_applies_to_dags_beside_it(self, api_client: AirflowAPI):
+        resp = api_client.get("/dags/dag_args_test")
+        assert resp.status_code == 200
+        assert "team:analytics" in api_client.get_tags(resp.json())
 
 
 class TestDagArgsDefaults:
