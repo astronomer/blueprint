@@ -1452,6 +1452,7 @@ class TestConfigToParamsNullable:
         note: str | None = None
         count: int | None = None
         mode: Literal["fast", "slow"] | None = None
+        level: Literal[1, 2] | None = None
 
     def test_optional_fields_are_nullable_type_arrays(self):
         params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
@@ -1462,6 +1463,8 @@ class TestConfigToParamsNullable:
     def test_optional_literal_enum_admits_null(self):
         params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
         assert params["step__mode"].schema["enum"] == ["fast", "slow", None]
+        assert params["step__level"].schema["enum"] == [1, 2, None]
+        assert params["step__level"].schema["type"] == ["integer", "null"]
 
     def test_unset_optional_field_resolves(self):
         params = _config_to_params(self.NullableConfig, {"message": "hi"}, "step")
