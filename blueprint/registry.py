@@ -396,6 +396,9 @@ class BlueprintRegistry:
     def _resolve_dag_args_by_location(self, for_path: Path) -> type[BlueprintDagArgs] | None:
         """Find the template defined closest above a DAG file, if any.
 
+        Raised per DAG rather than at discovery so that a contested directory only
+        stops the DAGs resolving to it, leaving the rest of the project buildable.
+
         Args:
             for_path: Path to the DAG file (or the directory it will live in).
 

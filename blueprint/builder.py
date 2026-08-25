@@ -207,6 +207,7 @@ class Builder:
 
         dag_args_cls = self._registry.resolve_dag_args(source_path)
         validated_dag_args = self._validate_against(dag_args_cls, config, source_path)
+        dag_args_yaml = self._dag_args_summary(dag_args_cls)
 
         instance = dag_args_cls()
         dag_kwargs = instance.render(validated_dag_args)
@@ -239,7 +240,7 @@ class Builder:
 
         with dag:
             for step_name, step_config in config.steps.items():
-                rendered[step_name] = self._render_step(step_name, step_config)
+                rendered[step_name] = self._render_step(step_name, step_config, dag_args_yaml)
 
             for step_name, step_config in config.steps.items():
                 for dep_name in step_config.depends_on:
@@ -248,6 +249,17 @@ class Builder:
                     self._apply_trigger_rule(rendered[step_name], step_config.trigger_rule)
 
         return dag
+
+    def _dag_args_summary(self, dag_args_cls: type[BlueprintDagArgs]) -> str:
+        """Describe which DAG args template built a DAG, for the Airflow task view."""
+        name = dag_args_cls.template_name()
+        summary = {"template": name}
+
+        location = self._registry.dag_args_location(name)
+        if location:
+            summary["defined_in"] = display_path(location)
+
+        return yaml.dump(summary, default_flow_style=False, sort_keys=False)
 
     def validate_dag_args(
         self, config: DAGConfig, source_path: str | Path | None = None
@@ -420,6 +432,7 @@ class Builder:
         self,
         step_name: str,
         step_config: StepConfig,
+        dag_args_yaml: str,
     ) -> TaskOrGroup:
         """Render a single step by instantiating its blueprint."""
         from pydantic import ValidationError
@@ -484,7 +497,7 @@ class Builder:
 
         source_code = bp_class.get_source_code()
 
-        self._inject_step_context(result, step_yaml, source_code)
+        self._inject_step_context(result, step_yaml, source_code, dag_args_yaml)
 
         return result
 
@@ -493,6 +506,7 @@ class Builder:
         rendered: TaskOrGroup,
         step_yaml: str,
         source_code: str,
+        dag_args_yaml: str,
     ) -> None:
         """Inject step config and blueprint source into all tasks for Airflow UI visibility."""
         from airflow.models import BaseOperator
@@ -518,10 +532,15 @@ class Builder:
         for task in tasks:
             task.blueprint_step_config = step_yaml  # type: ignore[attr-defined]
             task.blueprint_step_code = source_code  # type: ignore[attr-defined]
+            task.blueprint_dag_args = dag_args_yaml  # type: ignore[attr-defined]
 
             existing_fields = getattr(task, "template_fields", ()) or ()
             new_fields = []
-            for field_name in ("blueprint_step_config", "blueprint_step_code"):
+            for field_name in (
+                "blueprint_step_config",
+                "blueprint_step_code",
+                "blueprint_dag_args",
+            ):
                 if field_name not in existing_fields:
                     new_fields.append(field_name)
             if new_fields:
@@ -531,6 +550,7 @@ class Builder:
                 **getattr(task, "template_fields_renderers", {}),
                 "blueprint_step_config": "yaml",
                 "blueprint_step_code": "py",
+                "blueprint_dag_args": "yaml",
             }
 
     def _apply_trigger_rule(self, rendered: TaskOrGroup, trigger_rule: str) -> None:

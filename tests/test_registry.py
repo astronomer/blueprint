@@ -575,6 +575,20 @@ class TestDagArgsDiscovery:
         assert "first_dag_args" in str(excinfo.value)
         assert "second_dag_args" in str(excinfo.value)
 
+    def test_a_contested_directory_leaves_a_sibling_directory_resolvable(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "messy", "FirstDagArgs", file_name="first.py")
+        write_dag_args(tmp_path / "dags" / "messy", "SecondDagArgs", file_name="second.py")
+        write_dag_args(tmp_path / "dags" / "clean", "CleanDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "clean" / "ok.dag.yaml")
+        assert resolved.template_name() == "clean_dag_args"
+
+        with pytest.raises(MultipleDagArgsError):
+            reg.resolve_dag_args(tmp_path / "dags" / "messy" / "bad.dag.yaml")
+
     def test_no_template_above_falls_back_to_the_declared_fallback(self, tmp_path):
         write_dag_args(tmp_path / "dags" / "a", "ADagArgs", default=True)
         write_dag_args(tmp_path / "dags" / "b", "BDagArgs")

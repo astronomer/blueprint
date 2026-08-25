@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError as PydanticValidationError
 
 from blueprint.core import (
     Blueprint,
@@ -1101,3 +1102,38 @@ class TestBlueprintDagArgsDeclaration:
             pass
 
         assert Derived.is_default is False
+
+    def test_undeclared_fields_are_rejected_by_default(self):
+        class StrictConfig(BaseModel):
+            retries: int = 2
+
+        class StrictDagArgs(BlueprintDagArgs[StrictConfig]):
+            pass
+
+        with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+            StrictDagArgs.get_config_type()(retires=9)
+
+    def test_allow_extra_leaves_undeclared_fields_alone(self):
+        class LooseConfig(BaseModel):
+            retries: int = 2
+
+        class LooseDagArgs(BlueprintDagArgs[LooseConfig], allow_extra=True):
+            pass
+
+        validated = LooseDagArgs.get_config_type()(retires=9)
+
+        assert validated.retries == 2
+        assert not hasattr(validated, "retires")
+
+    def test_an_explicit_extra_policy_is_respected(self):
+        class OpenConfig(BaseModel):
+            model_config = ConfigDict(extra="allow")
+
+            retries: int = 2
+
+        class OpenDagArgs(BlueprintDagArgs[OpenConfig]):
+            pass
+
+        validated = OpenDagArgs.get_config_type()(retires=9)
+
+        assert validated.retires == 9

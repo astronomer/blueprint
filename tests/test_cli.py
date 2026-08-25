@@ -769,6 +769,44 @@ class TestMultipleDagArgsCLI:
         assert result.exit_code == 0
         assert "dag_args=only_dag_args" in result.output
 
+    def test_lint_contested_directory_fails_only_its_own_dags(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        write_stub_blueprint(template_dir)
+        write_dag_args(template_dir / "clean", "CleanDagArgs", field="clean_only")
+        write_dag_args(template_dir / "messy", "FirstDagArgs", field="first", file_name="first.py")
+        write_dag_args(
+            template_dir / "messy", "SecondDagArgs", field="second", file_name="second.py"
+        )
+        write_dag_yaml(template_dir / "clean", "clean")
+        write_dag_yaml(template_dir / "messy", "messy")
+
+        runner = CliRunner()
+        clean = runner.invoke(
+            cli,
+            [
+                "lint",
+                str(template_dir / "clean" / "clean.dag.yaml"),
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert clean.exit_code == 0
+        assert "PASS" in clean.output
+
+        messy = runner.invoke(
+            cli,
+            [
+                "lint",
+                str(template_dir / "messy" / "messy.dag.yaml"),
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert messy.exit_code == 1
+        assert "are defined in" in messy.output
+
     def test_lint_ambiguous_dag_args_names_the_file(self, tmp_path):
         template_dir = _write_nested_dag_args(tmp_path, with_fallback=False)
         yaml_file = write_dag_yaml(template_dir, "orphan")

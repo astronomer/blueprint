@@ -17,11 +17,10 @@ class Stub(Blueprint[StubConfig]):
 
 DAG_ARGS_SOURCE = """
 from typing import Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from blueprint.core import BlueprintDagArgs
 
 class {cls}Config(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     {field}: str = "unset"
 
 class {cls}(BlueprintDagArgs[{cls}Config]{default}):

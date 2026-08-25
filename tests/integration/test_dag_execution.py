@@ -176,6 +176,14 @@ class TestContextProxyExecution:
             f"Expected YYYYMMDD date, got {partition_value!r} in: {bash_cmd}"
         )
 
+    def test_dag_args_template_is_recorded_on_the_task(self, api_client: AirflowAPI):
+        """The template that built the DAG is visible in the task's rendered fields."""
+        run_id = self._run_dag(api_client)
+        rendered = self._get_rendered_fields(api_client, run_id, "ctx.echo_partition")
+        recorded = rendered.get("blueprint_dag_args", "")
+        assert "template: project_dag_args" in recorded, f"Unexpected value: {recorded!r}"
+        assert "test_blueprints.py" in recorded, f"Unexpected value: {recorded!r}"
+
     def test_ds_rendered_in_path(self, api_client: AirflowAPI):
         """Verify {{ context.ds }} was rendered to a YYYY-MM-DD date inside the path."""
         run_id = self._run_dag(api_client)

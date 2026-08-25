@@ -441,6 +441,21 @@ class Blueprint(Generic[T]):
         )
 
 
+def _forbid_extra_fields(config_type: type[BaseModel]) -> None:
+    """Reject undeclared top-level YAML fields unless the model already chose a policy.
+
+    A DAG args config model is the DAG YAML's top-level surface, so a field it does
+    not declare is a mistake rather than something to drop silently. Pydantic keeps
+    only explicit settings in ``model_config``, so an author who set ``extra`` is
+    left alone.
+    """
+    if "extra" in config_type.model_config:
+        return
+
+    config_type.model_config["extra"] = "forbid"
+    config_type.model_rebuild(force=True)
+
+
 class BlueprintDagArgs(Generic[T]):
     """Base class for DAG argument templates.
 
@@ -473,17 +488,29 @@ class BlueprintDagArgs(Generic[T]):
 
         class ProjectDagArgs(BlueprintDagArgs[ProjectConfig], default=True):
             ...
+
+    Undeclared fields:
+        A config model's fields are the DAG YAML's top-level surface, so a field it
+        does not declare is rejected. Pass allow_extra=True to leave the decision to
+        the model's own ``extra`` setting, which by default ignores them:
+
+        class LooseDagArgs(BlueprintDagArgs[LooseConfig], allow_extra=True):
+            ...
     """
 
     _config_type: type[BaseModel]
     name: str | None = None
     is_default: bool = False
 
-    def __init_subclass__(cls, default: bool = False, **kwargs: object) -> None:
+    def __init_subclass__(
+        cls, default: bool = False, allow_extra: bool = False, **kwargs: object
+    ) -> None:
         """Extract the config type, and record whether this template is the fallback.
 
         Args:
             default: Whether DAGs with no template above them use this one.
+            allow_extra: Whether to leave undeclared top-level YAML fields to the
+                config model's own ``extra`` policy instead of rejecting them.
         """
         super().__init_subclass__(**kwargs)
         cls.is_default = default
@@ -495,6 +522,8 @@ class BlueprintDagArgs(Generic[T]):
                 if isinstance(config_type, type) and issubclass(config_type, BaseModel):
                     cls._config_type = config_type
                     cls._validate_yaml_compatible_fields()
+                    if not allow_extra:
+                        _forbid_extra_fields(config_type)
                     break
 
     def render(self, config: T) -> dict[str, Any]:

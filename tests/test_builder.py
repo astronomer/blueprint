@@ -617,6 +617,21 @@ class TestBuilderCustomDagArgs:
         with pytest.raises(ConfigurationError, match="rejected by template 'custom_dag_args'"):
             builder.build(config)
 
+    def test_step_context_names_the_dag_args_template(self, custom_dag_args_registry):
+        builder = Builder(bp_registry=custom_dag_args_registry)
+        config = DAGConfig(
+            dag_id="context_dag",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        dag = builder.build(config)
+        task = dag.task_dict["s"]
+
+        assert "blueprint_dag_args" in task.template_fields
+        assert yaml.safe_load(task.blueprint_dag_args) == {
+            "template": "custom_dag_args",
+            "defined_in": "test.py",
+        }
+
     def test_custom_dag_args_start_date_default(self, custom_dag_args_registry):
         from datetime import datetime, timezone
 
@@ -1027,6 +1042,42 @@ steps:
                 register_globals={},
                 render_templates=False,
             )
+
+    def test_build_all_skips_only_the_dags_under_a_contested_directory(self, tmp_path):
+        """A directory defining two templates stops its own DAGs, not a sibling's."""
+        from blueprint.builder import build_all_airflow_dags
+
+        write_stub_blueprint(tmp_path)
+        write_dag_args(tmp_path / "clean", "CleanDagArgs", field="clean_only")
+        write_dag_args(tmp_path / "messy", "FirstDagArgs", field="first", file_name="first.py")
+        write_dag_args(tmp_path / "messy", "SecondDagArgs", field="second", file_name="second.py")
+        for subdir in ("clean", "messy"):
+            write_dag_yaml(tmp_path / subdir, f"{subdir}_one")
+            write_dag_yaml(tmp_path / subdir, f"{subdir}_two")
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+
+        assert {dag.dag_id for dag in dags} == {"clean_one", "clean_two"}
+
+    def test_build_all_skips_a_dag_with_no_template_above_it(self, tmp_path):
+        """Only the DAGs that cannot resolve are skipped; the rest still build."""
+        from blueprint.builder import build_all_airflow_dags
+
+        _write_dag_args_project(tmp_path, with_default=False)
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+
+        assert {dag.dag_id for dag in dags} == {"missions_dag", "observatory_dag"}
 
     def test_source_path_resolves_a_programmatic_dag(self, tmp_path):
         _write_dag_args_project(tmp_path)
