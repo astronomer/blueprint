@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 
 from click.testing import CliRunner
+from conftest import (
+    write_dag_args,
+    write_dag_yaml,
+    write_stub_blueprint,
+)
 
 from blueprint.cli import cli
 
@@ -26,7 +31,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["list", "--template-dir", str(tmp_path), "--no-entry-points"])
         assert result.exit_code == 0
-        assert "No blueprints found" in result.output
+        assert "No blueprints or DAG args templates found" in result.output
 
     def test_list_command_with_blueprints(self, tmp_path):
         template_dir = tmp_path / "dags"
@@ -628,3 +633,190 @@ class Out(Blueprint[OutConfig]):
         assert result.exit_code == 0
         schema = json.loads(out_file.read_text())
         assert schema["title"] == "out"
+
+
+def _write_nested_dag_args(tmp_path: Path, with_fallback: bool = True) -> Path:
+    """Write a template dir where mission/ and sandbox/ each define their own template."""
+    template_dir = tmp_path / "dags"
+    write_stub_blueprint(template_dir)
+    write_dag_args(template_dir / "mission", "MissionDagArgs", "priority", default=with_fallback)
+    write_dag_args(template_dir / "sandbox", "SandboxDagArgs", "telescope")
+    return template_dir
+
+
+class TestMultipleDagArgsCLI:
+    """CLI behaviour when a project defines more than one DAG args template."""
+
+    def test_list_shows_dag_args_templates(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["list", "--template-dir", str(template_dir), "--no-entry-points"]
+        )
+        assert result.exit_code == 0
+        assert "DAG Args Templates" in result.output
+        assert "mission_dag_args" in result.output
+        assert "sandbox_dag_args" in result.output
+
+    def test_list_reports_discovery_failure_without_a_traceback(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        write_dag_args(template_dir / "a", "ADagArgs", default=True)
+        write_dag_args(template_dir / "b", "BDagArgs", default=True)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["list", "--template-dir", str(template_dir), "--no-entry-points"]
+        )
+        assert result.exit_code == 1
+        assert "default=True" in result.output
+
+    def test_schema_dag_args_by_name(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "schema",
+                "--dag-args",
+                "sandbox_dag_args",
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert result.exit_code == 0
+        emitted = json.loads(result.output)
+        assert emitted["templateType"] == "dag_args"
+        assert "telescope" in emitted["properties"]
+        assert "priority" not in emitted["properties"]
+
+    def test_schema_dag_args_falls_back_to_the_declared_fallback(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["schema", "--dag-args", "--template-dir", str(template_dir), "--no-entry-points"]
+        )
+        assert result.exit_code == 0
+        assert "priority" in json.loads(result.output)["properties"]
+
+    def test_schema_dag_args_ambiguous_errors(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path, with_fallback=False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["schema", "--dag-args", "--template-dir", str(template_dir), "--no-entry-points"]
+        )
+        assert result.exit_code == 1
+        assert "No BlueprintDagArgs template" in result.output
+        assert "mission_dag_args" in result.output
+        assert "Or name one with --dag-args NAME" in result.output
+
+    def test_schema_dag_args_unknown_name_errors(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "schema",
+                "--dag-args",
+                "nope",
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_lint_uses_the_template_above_each_dag(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path)
+        in_sandbox = write_dag_yaml(
+            template_dir / "sandbox", "probe", top_level="telescope: keck\n"
+        )
+        in_mission = write_dag_yaml(
+            template_dir / "mission", "probe", top_level="telescope: keck\n"
+        )
+
+        runner = CliRunner()
+        base = ["lint", "--template-dir", str(template_dir), "--no-entry-points"]
+
+        sandbox_run = runner.invoke(cli, [*base, str(in_sandbox)])
+        assert sandbox_run.exit_code == 0
+        assert "PASS" in sandbox_run.output
+        assert "dag_args=sandbox_dag_args" in sandbox_run.output
+
+        mission_run = runner.invoke(cli, [*base, str(in_mission)])
+        assert mission_run.exit_code == 1
+        assert "FAIL" in mission_run.output
+        assert "rejected by template 'mission_dag_args'" in mission_run.output
+        assert "'telescope': Extra inputs are not permitted" in mission_run.output
+        assert "Accepted DAG arguments: priority" in mission_run.output
+
+    def test_lint_names_the_template_in_a_single_template_project(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        write_stub_blueprint(template_dir)
+        write_dag_args(template_dir, "OnlyDagArgs")
+        yaml_file = write_dag_yaml(template_dir, "solo")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["lint", str(yaml_file), "--template-dir", str(template_dir), "--no-entry-points"]
+        )
+        assert result.exit_code == 0
+        assert "dag_args=only_dag_args" in result.output
+
+    def test_lint_contested_directory_fails_only_its_own_dags(self, tmp_path):
+        template_dir = tmp_path / "dags"
+        write_stub_blueprint(template_dir)
+        write_dag_args(template_dir / "clean", "CleanDagArgs", field="clean_only")
+        write_dag_args(template_dir / "messy", "FirstDagArgs", field="first", file_name="first.py")
+        write_dag_args(
+            template_dir / "messy", "SecondDagArgs", field="second", file_name="second.py"
+        )
+        write_dag_yaml(template_dir / "clean", "clean")
+        write_dag_yaml(template_dir / "messy", "messy")
+
+        runner = CliRunner()
+        clean = runner.invoke(
+            cli,
+            [
+                "lint",
+                str(template_dir / "clean" / "clean.dag.yaml"),
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert clean.exit_code == 0
+        assert "PASS" in clean.output
+
+        messy = runner.invoke(
+            cli,
+            [
+                "lint",
+                str(template_dir / "messy" / "messy.dag.yaml"),
+                "--template-dir",
+                str(template_dir),
+                "--no-entry-points",
+            ],
+        )
+        assert messy.exit_code == 1
+        assert "are defined in" in messy.output
+
+    def test_lint_ambiguous_dag_args_names_the_file(self, tmp_path):
+        template_dir = _write_nested_dag_args(tmp_path, with_fallback=False)
+        yaml_file = write_dag_yaml(template_dir, "orphan")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["lint", str(yaml_file), "--template-dir", str(template_dir), "--no-entry-points"],
+        )
+        assert result.exit_code == 1
+        assert "No BlueprintDagArgs template" in result.output
+        assert "mission_dag_args" in result.output
+        assert "sandbox_dag_args" in result.output

@@ -6,15 +6,19 @@ import logging
 from pathlib import Path
 
 import pytest
+from conftest import write_dag_args, write_stub_blueprint
 from pydantic import BaseModel
 
 from blueprint.core import Blueprint, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
+    DagArgsNotFoundError,
     DuplicateBlueprintError,
+    DuplicateDagArgsError,
     EntryPointLoadError,
     InvalidVersionError,
     MultipleDagArgsError,
+    MultipleDefaultDagArgsError,
     NonContiguousVersionError,
 )
 from blueprint.registry import BlueprintRegistry, _defines_blueprint_subclass
@@ -486,138 +490,227 @@ class MyExtractorV2(Blueprint[Cfg2]):
 
 class TestDagArgsDiscovery:
     def test_no_dag_args_returns_default(self, tmp_path):
-        template_dir = tmp_path / "dags"
-        template_dir.mkdir()
+        write_stub_blueprint(tmp_path / "dags")
 
-        (template_dir / "bp.py").write_text("""
-from pydantic import BaseModel
-from blueprint.core import Blueprint
-
-class XConfig(BaseModel):
-    x: str = "a"
-
-class X(Blueprint[XConfig]):
-    def render(self, config):
-        pass
-""")
-
-        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
         reg.discover(force=True)
-        assert reg.get_dag_args() is DefaultDagArgs
+
+        assert reg.resolve_dag_args(tmp_path / "dags" / "x.dag.yaml") is DefaultDagArgs
 
     def test_custom_dag_args_discovered(self, tmp_path):
-        template_dir = tmp_path / "dags"
-        template_dir.mkdir()
+        write_dag_args(tmp_path / "dags", "MyDagArgs")
 
-        (template_dir / "dag_args.py").write_text("""
-from typing import Any
-from pydantic import BaseModel, ConfigDict
-from blueprint.core import BlueprintDagArgs
-
-class MyConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    schedule: str | None = None
-
-class MyDagArgs(BlueprintDagArgs[MyConfig]):
-    def render(self, config) -> dict[str, Any]:
-        return {"schedule": config.schedule} if config.schedule else {}
-""")
-
-        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
         reg.discover(force=True)
 
-        dag_args_cls = reg.get_dag_args()
-        assert dag_args_cls is not DefaultDagArgs
-        assert dag_args_cls.__name__ == "MyDagArgs"
+        assert [t["name"] for t in reg.list_dag_args()] == ["my_dag_args"]
+        assert reg.get_dag_args("my_dag_args").__name__ == "MyDagArgs"
 
-    def test_multiple_dag_args_raises(self, tmp_path):
-        template_dir = tmp_path / "dags"
-        template_dir.mkdir()
+    def test_lookup_by_unknown_name_raises(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "MyDagArgs")
 
-        (template_dir / "aaa_first.py").write_text("""
-from typing import Any
-from pydantic import BaseModel
-from blueprint.core import BlueprintDagArgs
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
 
-class Config1(BaseModel):
-    x: str = "a"
+        with pytest.raises(DagArgsNotFoundError, match="nope"):
+            reg.get_dag_args("nope")
 
-class DagArgs1(BlueprintDagArgs[Config1]):
-    def render(self, config) -> dict[str, Any]:
-        return {}
-""")
+    def test_a_v_suffix_is_part_of_the_name(self, tmp_path):
+        """DAG args templates are not versioned, unlike blueprints."""
+        write_dag_args(tmp_path / "dags", "MissionDagArgs")
+        write_dag_args(tmp_path / "dags" / "next", "MissionDagArgsV2")
 
-        (template_dir / "zzz_second.py").write_text("""
-from typing import Any
-from pydantic import BaseModel
-from blueprint.core import BlueprintDagArgs
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
 
-class Config2(BaseModel):
-    y: str = "b"
+        assert [t["name"] for t in reg.list_dag_args()] == [
+            "mission_dag_args",
+            "mission_dag_args_v2",
+        ]
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "next" / "x.dag.yaml")
+        assert resolved.__name__ == "MissionDagArgsV2"
 
-class DagArgs2(BlueprintDagArgs[Config2]):
-    def render(self, config) -> dict[str, Any]:
-        return {}
-""")
+    def test_nearest_template_above_the_dag_wins(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "RootDagArgs")
+        write_dag_args(tmp_path / "dags" / "sandbox", "SandboxDagArgs")
 
-        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "sandbox" / "probe.dag.yaml")
+        assert resolved.__name__ == "SandboxDagArgs"
+
+    def test_parent_template_applies_to_subdirectories_without_one(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "RootDagArgs")
+        write_dag_args(tmp_path / "dags" / "elsewhere", "ElsewhereDagArgs")
+        (tmp_path / "dags" / "reports").mkdir()
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "reports" / "weekly.dag.yaml")
+        assert resolved.__name__ == "RootDagArgs"
+
+    def test_deepest_template_wins_over_intermediate(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "RootDagArgs")
+        write_dag_args(tmp_path / "dags" / "sandbox", "SandboxDagArgs")
+        deep = tmp_path / "dags" / "sandbox" / "experiments"
+        write_dag_args(deep, "DeepDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        assert reg.resolve_dag_args(deep / "probe.dag.yaml").__name__ == "DeepDagArgs"
+
+    def test_two_templates_in_one_directory_is_ambiguous(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "FirstDagArgs", file_name="first.py")
+        write_dag_args(tmp_path / "dags", "SecondDagArgs", default=True, file_name="second.py")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        with pytest.raises(MultipleDagArgsError, match="are defined in") as excinfo:
+            reg.resolve_dag_args(tmp_path / "dags" / "some.dag.yaml")
+
+        assert "first_dag_args" in str(excinfo.value)
+        assert "second_dag_args" in str(excinfo.value)
+
+    def test_a_contested_directory_leaves_a_sibling_directory_resolvable(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "messy", "FirstDagArgs", file_name="first.py")
+        write_dag_args(tmp_path / "dags" / "messy", "SecondDagArgs", file_name="second.py")
+        write_dag_args(tmp_path / "dags" / "clean", "CleanDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "clean" / "ok.dag.yaml")
+        assert resolved.template_name() == "clean_dag_args"
+
         with pytest.raises(MultipleDagArgsError):
+            reg.resolve_dag_args(tmp_path / "dags" / "messy" / "bad.dag.yaml")
+
+    def test_no_template_above_falls_back_to_the_declared_fallback(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "a", "ADagArgs", default=True)
+        write_dag_args(tmp_path / "dags" / "b", "BDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        orphan = tmp_path / "dags" / "orphan.dag.yaml"
+        assert reg.resolve_dag_args(orphan).__name__ == "ADagArgs"
+
+    def test_no_template_above_and_no_fallback_is_ambiguous(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "a", "ADagArgs")
+        write_dag_args(tmp_path / "dags" / "b", "BDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        orphan = tmp_path / "dags" / "orphan.dag.yaml"
+        with pytest.raises(MultipleDagArgsError, match="orphan.dag.yaml"):
+            reg.resolve_dag_args(orphan)
+
+    def test_resolving_without_a_path_uses_the_fallbacks_only(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "a", "ADagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        assert reg.resolve_dag_args().__name__ == "ADagArgs"
+
+    def test_two_fallbacks_raise(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "a", "ADagArgs", default=True)
+        write_dag_args(tmp_path / "dags" / "b", "BDagArgs", default=True)
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        with pytest.raises(MultipleDefaultDagArgsError, match="default=True"):
             reg.discover(force=True)
 
-    def test_clear_resets_dag_args(self, tmp_path):
-        template_dir = tmp_path / "dags"
-        template_dir.mkdir()
+    def test_duplicate_name_raises(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "a", "SameDagArgs")
+        write_dag_args(tmp_path / "dags" / "b", "SameDagArgs")
 
-        (template_dir / "dag_args.py").write_text("""
-from typing import Any
-from pydantic import BaseModel
-from blueprint.core import BlueprintDagArgs
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        with pytest.raises(DuplicateDagArgsError, match="'same_dag_args'") as excinfo:
+            reg.discover(force=True)
 
-class ClearConfig(BaseModel):
-    x: str = "a"
+        assert "distinct class name" in str(excinfo.value)
 
-class ClearDagArgs(BlueprintDagArgs[ClearConfig]):
-    def render(self, config) -> dict[str, Any]:
-        return {}
-""")
+    def test_a_template_without_a_directory_is_fallback_only(self, tmp_path):
+        """Entry-point templates have no directory, so they never win by location."""
+        from blueprint.core import BlueprintDagArgs
 
-        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
+        class PackagedConfig(BaseModel):
+            pass
+
+        class PackagedDagArgs(BlueprintDagArgs[PackagedConfig]):
+            def render(self, config) -> dict:  # noqa: ARG002
+                return {}
+
+        write_dag_args(tmp_path / "dags", "LocalDagArgs")
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
         reg.discover(force=True)
-        assert reg.get_dag_args() is not DefaultDagArgs
+        reg._register_dag_args(PackagedDagArgs, "packaged.dag_args", source_dir=None)
+
+        by_name = {t["name"]: t for t in reg.list_dag_args()}
+        assert by_name["packaged_dag_args"]["directory"] == ""
+        resolved = reg.resolve_dag_args(tmp_path / "dags" / "x.dag.yaml")
+        assert resolved.__name__ == "LocalDagArgs"
+
+    def test_clear_resets_dag_args(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "ClearDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+        assert reg.list_dag_args()
 
         reg.clear()
-        assert reg._dag_args is None
+        reg._discovered = True
+        assert reg.list_dag_args() == []
+        assert reg.resolve_dag_args() is DefaultDagArgs
 
     def test_dag_args_not_in_list_blueprints(self, tmp_path):
-        template_dir = tmp_path / "dags"
-        template_dir.mkdir()
+        write_stub_blueprint(tmp_path / "dags")
+        write_dag_args(tmp_path / "dags", "MyDagArgs")
 
-        (template_dir / "all.py").write_text("""
-from typing import Any
-from pydantic import BaseModel
-from blueprint.core import Blueprint, BlueprintDagArgs
-
-class BpConfig(BaseModel):
-    x: str = "a"
-
-class MyBp(Blueprint[BpConfig]):
-    def render(self, config):
-        pass
-
-class DaConfig(BaseModel):
-    y: str = "b"
-
-class MyDa(BlueprintDagArgs[DaConfig]):
-    def render(self, config) -> dict[str, Any]:
-        return {}
-""")
-
-        reg = BlueprintRegistry(template_dirs=[template_dir], discover_entry_points=False)
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
         reg.discover(force=True)
 
-        bp_names = [bp["name"] for bp in reg.list_blueprints()]
-        assert "my_bp" in bp_names
-        assert "my_da" not in bp_names
+        assert [bp["name"] for bp in reg.list_blueprints()] == ["stub"]
+        assert [t["name"] for t in reg.list_dag_args()] == ["my_dag_args"]
+
+    def test_list_dag_args_reports_scope_and_fallback(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "RootDagArgs", default=True)
+        write_dag_args(tmp_path / "dags" / "sandbox", "SandboxDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        by_name = {t["name"]: t for t in reg.list_dag_args()}
+        assert by_name["root_dag_args"]["is_default"] is True
+        assert by_name["sandbox_dag_args"]["is_default"] is False
+        assert by_name["sandbox_dag_args"]["directory"].endswith("sandbox")
+        assert by_name["sandbox_dag_args"]["location"].endswith("dag_args.py")
+        assert not any(t["ambiguous"] for t in reg.list_dag_args())
+
+    def test_list_dag_args_reports_a_sole_template_as_the_fallback(self, tmp_path):
+        write_dag_args(tmp_path / "dags" / "lib", "OnlyDagArgs")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        [template] = reg.list_dag_args()
+        assert template["is_default"] is False
+        assert template["is_fallback"] is True
+
+    def test_list_dag_args_flags_a_contested_directory(self, tmp_path):
+        write_dag_args(tmp_path / "dags", "FirstDagArgs", file_name="first.py")
+        write_dag_args(tmp_path / "dags", "SecondDagArgs", file_name="second.py")
+
+        reg = BlueprintRegistry(template_dirs=[tmp_path / "dags"], discover_entry_points=False)
+        reg.discover(force=True)
+
+        assert all(t["ambiguous"] for t in reg.list_dag_args())
 
 
 class TestNonBlueprintFileFiltering:

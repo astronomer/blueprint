@@ -5,6 +5,11 @@ from typing import Literal
 
 import pytest
 import yaml
+from conftest import (
+    write_dag_args,
+    write_dag_yaml,
+    write_stub_blueprint,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from blueprint.builder import Builder, DAGConfig, StepConfig, _config_to_params
@@ -528,14 +533,14 @@ class TestBuilderDefaultDagArgs:
         assert dag.catchup is False
 
     def test_unknown_extra_field_rejected(self, builder):
-        from pydantic import ValidationError
+        from blueprint.errors import ConfigurationError
 
         config = DAGConfig(
             dag_id="bad_dag",
             unknown_field="oops",
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        with pytest.raises(ValidationError):
+        with pytest.raises(ConfigurationError, match="DAG arguments rejected"):
             builder.build(config)
 
 
@@ -572,8 +577,7 @@ class TestBuilderCustomDagArgs:
         reg._blueprint_locations = {
             "load": {1: "test.py"},
         }
-        reg._dag_args = CustomDagArgs
-        reg._dag_args_location = "test.py"
+        reg._register_dag_args(CustomDagArgs, "test.py")
         reg._discovered = True
         return reg
 
@@ -602,16 +606,31 @@ class TestBuilderCustomDagArgs:
         assert dag.default_args["retries"] == 2
 
     def test_custom_dag_args_rejects_unknown_fields(self, custom_dag_args_registry):
-        from pydantic import ValidationError
+        from blueprint.errors import ConfigurationError
 
         builder = Builder(bp_registry=custom_dag_args_registry)
         config = DAGConfig(
             dag_id="bad_dag",
-            tags=["oops"],
+            unknown_thing="x",
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
-        with pytest.raises(ValidationError):
+        with pytest.raises(ConfigurationError, match="rejected by template 'custom_dag_args'"):
             builder.build(config)
+
+    def test_step_context_names_the_dag_args_template(self, custom_dag_args_registry):
+        builder = Builder(bp_registry=custom_dag_args_registry)
+        config = DAGConfig(
+            dag_id="context_dag",
+            steps={"s": StepConfig(blueprint="load", target_table="out")},
+        )
+        dag = builder.build(config)
+        task = dag.task_dict["s"]
+
+        assert "blueprint_dag_args" in task.template_fields
+        assert yaml.safe_load(task.blueprint_dag_args) == {
+            "template": "custom_dag_args",
+            "defined_in": "test.py",
+        }
 
     def test_custom_dag_args_start_date_default(self, custom_dag_args_registry):
         from datetime import datetime, timezone
@@ -643,8 +662,7 @@ class TestDagArgsRejectsParams:
         reg = BlueprintRegistry()
         reg._blueprints = {"load": {1: Load}}
         reg._blueprint_locations = {"load": {1: "test.py"}}
-        reg._dag_args = ParamsDagArgs
-        reg._dag_args_location = "test.py"
+        reg._register_dag_args(ParamsDagArgs, "test.py")
         reg._discovered = True
 
         builder = Builder(bp_registry=reg)
@@ -734,6 +752,23 @@ class TestResolveSearchPath:
 
         result = _resolve_search_path("/some/path")
         assert result == Path("/some/path")
+
+
+def _write_dag_args_project(tmp_path: Path, with_default: bool = True) -> None:
+    """Write a project whose subdirectories each define their own DAG args template.
+
+    Blueprints live at the root; missions/ and observatory/ define one template each,
+    and orphan/ defines none so it falls through to the fallback.
+    """
+    write_stub_blueprint(tmp_path)
+
+    write_dag_args(
+        tmp_path / "missions", "MissionDagArgs", field="mission_only", default=with_default
+    )
+    write_dag_args(tmp_path / "observatory", "ObservatoryDagArgs", field="observatory_only")
+
+    for subdir in ("missions", "observatory", "orphan"):
+        write_dag_yaml(tmp_path / subdir, f"{subdir}_dag")
 
 
 class TestBuildAll:
@@ -978,6 +1013,87 @@ steps:
         assert len(dags) == 1
         assert dags[0].schedule == "@weekly"
         assert dags[0].default_args["owner"] == "analytics"
+
+    def test_build_all_dag_args_from_nearest_directory(self, tmp_path):
+        """Each subdirectory's template wins; a subdirectory without one falls back."""
+        from blueprint.builder import build_all_airflow_dags
+
+        _write_dag_args_project(tmp_path)
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+        )
+        tags_by_dag = {dag.dag_id: set(dag.tags) for dag in dags}
+        assert tags_by_dag["missions_dag"] == {"MissionDagArgs"}
+        assert tags_by_dag["observatory_dag"] == {"ObservatoryDagArgs"}
+        assert tags_by_dag["orphan_dag"] == {"MissionDagArgs"}
+
+    def test_build_all_ambiguous_dag_args_raises(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+        from blueprint.errors import MultipleDagArgsError
+
+        _write_dag_args_project(tmp_path, with_default=False)
+
+        with pytest.raises(MultipleDagArgsError):
+            build_all_airflow_dags(
+                search_path=tmp_path,
+                register_globals={},
+                render_templates=False,
+            )
+
+    def test_build_all_skips_only_the_dags_under_a_contested_directory(self, tmp_path):
+        """A directory defining two templates stops its own DAGs, not a sibling's."""
+        from blueprint.builder import build_all_airflow_dags
+
+        write_stub_blueprint(tmp_path)
+        write_dag_args(tmp_path / "clean", "CleanDagArgs", field="clean_only")
+        write_dag_args(tmp_path / "messy", "FirstDagArgs", field="first", file_name="first.py")
+        write_dag_args(tmp_path / "messy", "SecondDagArgs", field="second", file_name="second.py")
+        for subdir in ("clean", "messy"):
+            write_dag_yaml(tmp_path / subdir, f"{subdir}_one")
+            write_dag_yaml(tmp_path / subdir, f"{subdir}_two")
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+
+        assert {dag.dag_id for dag in dags} == {"clean_one", "clean_two"}
+
+    def test_build_all_skips_a_dag_with_no_template_above_it(self, tmp_path):
+        """Only the DAGs that cannot resolve are skipped; the rest still build."""
+        from blueprint.builder import build_all_airflow_dags
+
+        _write_dag_args_project(tmp_path, with_default=False)
+
+        dags = build_all_airflow_dags(
+            search_path=tmp_path,
+            register_globals={},
+            render_templates=False,
+            skip_invalid_dags=True,
+        )
+
+        assert {dag.dag_id for dag in dags} == {"missions_dag", "observatory_dag"}
+
+    def test_source_path_resolves_a_programmatic_dag(self, tmp_path):
+        _write_dag_args_project(tmp_path)
+
+        registry = BlueprintRegistry(template_dirs=[tmp_path], discover_entry_points=False)
+        registry.discover(force=True)
+        builder = Builder(bp_registry=registry)
+        config = DAGConfig(dag_id="programmatic", steps={"s1": StepConfig(blueprint="stub")})
+
+        in_observatory = builder.build(
+            config, source_path=tmp_path / "observatory" / "generated.py"
+        )
+        assert set(in_observatory.tags) == {"ObservatoryDagArgs"}
+
+        without_a_path = builder.build(config)
+        assert set(without_a_path.tags) == {"MissionDagArgs"}
 
     def test_build_all_no_yamls(self, tmp_path):
         from blueprint.builder import build_all_airflow_dags

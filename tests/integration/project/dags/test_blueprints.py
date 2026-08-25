@@ -55,7 +55,7 @@ class ProjectDagArgsConfig(BaseModel):
     tier: Literal["critical", "standard", "experimental"] = "standard"
 
 
-class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig]):
+class ProjectDagArgs(BlueprintDagArgs[ProjectDagArgsConfig], default=True):
     """Project-wide DAG argument template for integration tests.
 
     Translates high-level team/tier config into Airflow DAG kwargs:

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError as PydanticValidationError
 
 from blueprint.core import (
     Blueprint,
@@ -1060,3 +1061,79 @@ class TestDefaultDagArgs:
         config = DefaultDagArgsConfig(schedule="@hourly", description="Test")
         result = DefaultDagArgs().render(config)
         assert result == {"schedule": "@hourly", "description": "Test"}
+
+
+class _EmptyConfig(BaseModel):
+    pass
+
+
+class TestBlueprintDagArgsDeclaration:
+    def test_template_name_from_class_name(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            pass
+
+        assert MissionDagArgs.template_name() == "mission_dag_args"
+        assert MissionDagArgs.is_default is False
+
+    def test_explicit_name_is_honored(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "missions"
+
+        assert MissionDagArgs.template_name() == "missions"
+
+    def test_explicit_name_must_be_snake_case(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "Missions"
+
+        with pytest.raises(ValueError, match="snake_case"):
+            MissionDagArgs.template_name()
+
+    def test_default_keyword_declares_the_fallback(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        assert MissionDagArgs.is_default is True
+
+    def test_the_fallback_is_not_inherited(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        class Derived(MissionDagArgs):
+            pass
+
+        assert Derived.is_default is False
+
+    def test_undeclared_fields_are_rejected_by_default(self):
+        class StrictConfig(BaseModel):
+            retries: int = 2
+
+        class StrictDagArgs(BlueprintDagArgs[StrictConfig]):
+            pass
+
+        with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+            StrictDagArgs.get_config_type()(retires=9)
+
+    def test_allow_extra_leaves_undeclared_fields_alone(self):
+        class LooseConfig(BaseModel):
+            retries: int = 2
+
+        class LooseDagArgs(BlueprintDagArgs[LooseConfig], allow_extra=True):
+            pass
+
+        validated = LooseDagArgs.get_config_type()(retires=9)
+
+        assert validated.retries == 2
+        assert not hasattr(validated, "retires")
+
+    def test_an_explicit_extra_policy_is_respected(self):
+        class OpenConfig(BaseModel):
+            model_config = ConfigDict(extra="allow")
+
+            retries: int = 2
+
+        class OpenDagArgs(BlueprintDagArgs[OpenConfig]):
+            pass
+
+        validated = OpenDagArgs.get_config_type()(retires=9)
+
+        assert validated.retires == 9
