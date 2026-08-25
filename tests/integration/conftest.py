@@ -35,6 +35,7 @@ EXPECTED_DAG_IDS = {
     "params_test",
     "context_test",
     "entry_point_test",
+    "sandbox_probe",
 }
 
 

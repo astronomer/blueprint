@@ -1,0 +1,17 @@
+dag_id: sandbox_probe
+description: "Uses SandboxDagArgs from this directory, not ProjectDagArgs from dags/"
+experiment: alpha
+ttl_days: 3
+
+steps:
+  extract:
+    blueprint: extract
+    version: 1
+    source_table: raw.sandbox_data
+    batch_size: 10
+
+  load:
+    blueprint: load
+    depends_on: [extract]
+    target_table: sandbox.probe_output
+    mode: append

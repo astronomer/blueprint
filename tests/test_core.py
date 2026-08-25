@@ -8,9 +8,18 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError as PydanticValidationError
 
-from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs, TaskOrGroup, _resolve_refs
+from blueprint.core import (
+    Blueprint,
+    BlueprintDagArgs,
+    DefaultDagArgs,
+    TaskOrGroup,
+    _collapse_nullable,
+    _resolve_refs,
+    _strip_nullable,
+)
 
 
 class SimpleConfig(BaseModel):
@@ -672,6 +681,161 @@ class TestYamlTypeValidation:
                     pass
 
 
+class TestStripNullable:
+    """Test that the published schema reduces optional fields to their plain type."""
+
+    def test_optional_fields_are_plain_types(self):
+        class Inner(BaseModel):
+            value: str
+
+        class NullableConfig(BaseModel):
+            name: str
+            note: str | None = None
+            count: int | None = None
+            tags: list[str] | None = None
+            mode: Literal["a", "b"] | None = None
+            child: Inner | None = None
+
+        class NullableBp(Blueprint[NullableConfig]):
+            def render(self, config):
+                pass
+
+        props = NullableBp.get_schema()["properties"]
+
+        assert props["name"]["type"] == "string"
+        assert props["note"]["type"] == "string"
+        assert "anyOf" not in props["note"]
+        assert props["count"]["type"] == "integer"
+        assert props["tags"]["type"] == "array"
+        assert props["tags"]["items"] == {"type": "string"}
+        assert props["mode"]["type"] == "string"
+        assert props["mode"]["enum"] == ["a", "b"]
+        assert props["child"]["type"] == "object"
+        assert props["child"]["properties"] == {"value": {"title": "Value", "type": "string"}}
+
+    def test_null_default_dropped(self):
+        class DefaultsConfig(BaseModel):
+            note: str | None = None
+            count: int = 5
+
+        class DefaultsBp(Blueprint[DefaultsConfig]):
+            def render(self, config):
+                pass
+
+        props = DefaultsBp.get_schema()["properties"]
+        assert "default" not in props["note"]
+        assert props["count"]["default"] == 5
+
+    def test_non_null_defaults_preserved(self):
+        class DefaultsConfig(BaseModel):
+            note: str | None = "hello"
+            count: int | None = 0
+            flag: bool | None = False
+            empty: str | None = ""
+
+        class DefaultsBp(Blueprint[DefaultsConfig]):
+            def render(self, config):
+                pass
+
+        props = DefaultsBp.get_schema()["properties"]
+        assert props["note"]["default"] == "hello"
+        assert props["count"]["default"] == 0
+        assert props["flag"]["default"] is False
+        assert props["empty"]["default"] == ""
+
+    def test_optional_dict_and_int_literal(self):
+        class WideConfig(BaseModel):
+            tags: dict[str, str] | None = None
+            level: Literal[1, 2] | None = None
+
+        class WideBp(Blueprint[WideConfig]):
+            def render(self, config):
+                pass
+
+        props = WideBp.get_schema()["properties"]
+        assert props["tags"]["type"] == "object"
+        assert props["tags"]["additionalProperties"] == {"type": "string"}
+        assert props["level"]["type"] == "integer"
+        assert props["level"]["enum"] == [1, 2]
+
+    def test_optional_field_nested_in_model_stripped(self):
+        class Inner(BaseModel):
+            value: str
+            note: str | None = None
+
+        class OuterConfig(BaseModel):
+            child: Inner
+            children: list[Inner]
+
+        class OuterBp(Blueprint[OuterConfig]):
+            def render(self, config):
+                pass
+
+        props = OuterBp.get_schema()["properties"]
+        assert props["child"]["properties"]["note"]["type"] == "string"
+        assert props["children"]["items"]["properties"]["note"]["type"] == "string"
+
+    def test_nullable_field_without_default_stays_required(self):
+        class NoDefaultConfig(BaseModel):
+            note: str | None
+
+        class NoDefaultBp(Blueprint[NoDefaultConfig]):
+            def render(self, config):
+                pass
+
+        schema = NoDefaultBp.get_schema()
+        assert schema["properties"]["note"]["type"] == "string"
+        assert "default" not in schema["properties"]["note"]
+        assert schema["required"] == ["note"]
+
+    def test_optional_fields_stay_out_of_required(self):
+        class OptionalConfig(BaseModel):
+            name: str
+            note: str | None = None
+            count: int = 5
+
+        class RequiredBp(Blueprint[OptionalConfig]):
+            def render(self, config):
+                pass
+
+        assert RequiredBp.get_schema()["required"] == ["name"]
+
+    def test_field_metadata_survives_nested_model_merge(self):
+        class Inner(BaseModel):
+            """Inner model docstring."""
+
+            value: str
+
+        class MetadataConfig(BaseModel):
+            child: Inner | None = Field(default=None, description="The child field")
+            note: str | None = Field(default=None, description="A note")
+
+        class MetadataBp(Blueprint[MetadataConfig]):
+            def render(self, config):
+                pass
+
+        props = MetadataBp.get_schema()["properties"]
+        assert props["child"]["description"] == "The child field"
+        assert props["note"]["description"] == "A note"
+        assert props["note"]["title"] == "Note"
+
+    def test_dag_args_schema_stripped(self):
+        class NullableDagArgsConfig(BaseModel):
+            schedule: str | None = None
+
+        class NullableDagArgs(BlueprintDagArgs[NullableDagArgsConfig]):
+            def render(self, _config):
+                return {}
+
+        schema = NullableDagArgs.get_schema()
+        assert schema["properties"]["schedule"]["type"] == "string"
+
+    def test_unmergeable_branch_left_as_anyof(self):
+        schema = {"properties": {"x": {"anyOf": [{"minimum": 1}, {"type": "null"}]}}}
+        assert _strip_nullable(schema) == schema
+        assert _collapse_nullable(schema) == schema
+
+
 class TestResolveRefs:
     """Test that $ref/$defs resolution inlines definitions."""
 
@@ -897,3 +1061,79 @@ class TestDefaultDagArgs:
         config = DefaultDagArgsConfig(schedule="@hourly", description="Test")
         result = DefaultDagArgs().render(config)
         assert result == {"schedule": "@hourly", "description": "Test"}
+
+
+class _EmptyConfig(BaseModel):
+    pass
+
+
+class TestBlueprintDagArgsDeclaration:
+    def test_template_name_from_class_name(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            pass
+
+        assert MissionDagArgs.template_name() == "mission_dag_args"
+        assert MissionDagArgs.is_default is False
+
+    def test_explicit_name_is_honored(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "missions"
+
+        assert MissionDagArgs.template_name() == "missions"
+
+    def test_explicit_name_must_be_snake_case(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig]):
+            name = "Missions"
+
+        with pytest.raises(ValueError, match="snake_case"):
+            MissionDagArgs.template_name()
+
+    def test_default_keyword_declares_the_fallback(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        assert MissionDagArgs.is_default is True
+
+    def test_the_fallback_is_not_inherited(self):
+        class MissionDagArgs(BlueprintDagArgs[_EmptyConfig], default=True):
+            pass
+
+        class Derived(MissionDagArgs):
+            pass
+
+        assert Derived.is_default is False
+
+    def test_undeclared_fields_are_rejected_by_default(self):
+        class StrictConfig(BaseModel):
+            retries: int = 2
+
+        class StrictDagArgs(BlueprintDagArgs[StrictConfig]):
+            pass
+
+        with pytest.raises(PydanticValidationError, match="Extra inputs are not permitted"):
+            StrictDagArgs.get_config_type()(retires=9)
+
+    def test_allow_extra_leaves_undeclared_fields_alone(self):
+        class LooseConfig(BaseModel):
+            retries: int = 2
+
+        class LooseDagArgs(BlueprintDagArgs[LooseConfig], allow_extra=True):
+            pass
+
+        validated = LooseDagArgs.get_config_type()(retires=9)
+
+        assert validated.retries == 2
+        assert not hasattr(validated, "retires")
+
+    def test_an_explicit_extra_policy_is_respected(self):
+        class OpenConfig(BaseModel):
+            model_config = ConfigDict(extra="allow")
+
+            retries: int = 2
+
+        class OpenDagArgs(BlueprintDagArgs[OpenConfig]):
+            pass
+
+        validated = OpenDagArgs.get_config_type()(retires=9)
+
+        assert validated.retires == 9

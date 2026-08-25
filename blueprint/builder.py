@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from blueprint.core import TaskOrGroup
+from blueprint.core import BlueprintDagArgs, TaskOrGroup
 from blueprint.errors import (
     BlueprintError,
     ConfigurationError,
@@ -21,6 +21,7 @@ from blueprint.errors import (
     InvalidDependencyError,
 )
 from blueprint.registry import BlueprintRegistry, registry
+from blueprint.utils import display_path
 
 if TYPE_CHECKING:
     from airflow import DAG
@@ -79,9 +80,9 @@ def _config_to_params(
     """
     from airflow.models.param import Param
 
-    from blueprint.core import _resolve_refs
+    from blueprint.core import _collapse_nullable, _resolve_refs
 
-    schema = _resolve_refs(config_type.model_json_schema())
+    schema = _collapse_nullable(_resolve_refs(config_type.model_json_schema()))
     properties = schema.get("properties", {})
     params: dict[str, Any] = {}
 
@@ -187,11 +188,15 @@ class Builder:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             dag_kwargs["start_date"] = parsed
 
-    def build(self, config: DAGConfig) -> "DAG":
+    def build(self, config: DAGConfig, source_path: str | Path | None = None) -> "DAG":
         """Build a DAG from a DAGConfig.
 
         Args:
             config: The parsed and validated DAG configuration
+            source_path: Path of the file this DAG is defined in, whose parent
+                directories are searched for the DAG args template. Without it,
+                only the project fallbacks apply, so a Python file building DAGs
+                directly should pass ``source_path=__file__``.
 
         Returns:
             A fully wired Airflow DAG
@@ -200,10 +205,9 @@ class Builder:
 
         self.validate_dependencies(config)
 
-        dag_args_cls = self._registry.get_dag_args()
-        config_type = dag_args_cls.get_config_type()
-        extra = config.get_extra_fields()
-        validated_dag_args = config_type(**extra)
+        dag_args_cls = self._registry.resolve_dag_args(source_path)
+        validated_dag_args = self._validate_against(dag_args_cls, config, source_path)
+        dag_args_yaml = self._dag_args_summary(dag_args_cls)
 
         instance = dag_args_cls()
         dag_kwargs = instance.render(validated_dag_args)
@@ -236,7 +240,7 @@ class Builder:
 
         with dag:
             for step_name, step_config in config.steps.items():
-                rendered[step_name] = self._render_step(step_name, step_config)
+                rendered[step_name] = self._render_step(step_name, step_config, dag_args_yaml)
 
             for step_name, step_config in config.steps.items():
                 for dep_name in step_config.depends_on:
@@ -246,11 +250,69 @@ class Builder:
 
         return dag
 
+    def _dag_args_summary(self, dag_args_cls: type[BlueprintDagArgs]) -> str:
+        """Describe which DAG args template built a DAG, for the Airflow task view."""
+        name = dag_args_cls.template_name()
+        summary = {"template": name}
+
+        location = self._registry.dag_args_location(name)
+        if location:
+            summary["defined_in"] = display_path(location)
+
+        return yaml.dump(summary, default_flow_style=False, sort_keys=False)
+
+    def validate_dag_args(
+        self, config: DAGConfig, source_path: str | Path | None = None
+    ) -> BaseModel:
+        """Validate a DAG's top-level fields against the template that applies to it.
+
+        Args:
+            config: The parsed DAG configuration.
+            source_path: Path of the file this DAG is defined in, whose parent
+                directories are searched for the DAG args template.
+
+        Returns:
+            The validated DAG args config instance.
+
+        Raises:
+            ConfigurationError: If the top-level fields do not match the template.
+        """
+        dag_args_cls = self._registry.resolve_dag_args(source_path)
+        return self._validate_against(dag_args_cls, config, source_path)
+
+    def _validate_against(
+        self,
+        dag_args_cls: type[BlueprintDagArgs],
+        config: DAGConfig,
+        source_path: str | Path | None,
+    ) -> BaseModel:
+        """Validate a DAG's top-level fields against an already-resolved template."""
+        try:
+            return dag_args_cls.get_config_type()(**config.get_extra_fields())
+        except ValidationError as e:
+            name = dag_args_cls.template_name()
+            location = self._registry.dag_args_location(name)
+            where = f" ({display_path(location)})" if location else ""
+
+            lines = [f"DAG arguments rejected by template '{name}'{where}:"]
+            for err in e.errors():
+                field = ".".join(str(loc) for loc in err["loc"])
+                lines.append(f"  - '{field}': {err['msg']}" if field else f"  - {err['msg']}")
+
+            accepted = ", ".join(sorted(dag_args_cls.get_config_type().model_fields))
+            raise ConfigurationError(
+                "\n".join(lines),
+                file_path=Path(source_path) if source_path else None,
+                suggestions=[f"Accepted DAG arguments: {accepted or 'none'}"],
+            ) from e
+
     def build_from_yaml(
         self,
         path: str | Path,
         render_template: bool = True,
         template_context: dict[str, Any] | None = None,
+        profile: str | None = None,
+        search_root: Path | None = None,
     ) -> "DAG":
         """Load a YAML file and build a DAG.
 
@@ -258,24 +320,34 @@ class Builder:
             path: Path to the .dag.yaml file
             render_template: Whether to render Jinja2 templates
             template_context: Additional Jinja2 context
+            profile: Active variable profile
+            search_root: Outermost directory searched for vars files
+                (defaults to the YAML file's own directory)
 
         Returns:
             The built Airflow DAG
         """
+        from blueprint import vars as bp_vars
         from blueprint.loaders import render_yaml_template
 
         yaml_path = Path(path)
 
         if render_template:
             raw_config, _rendered_yaml = render_yaml_template(
-                yaml_path, context=template_context, use_airflow_context=True
+                yaml_path,
+                context={"profile": profile, **(template_context or {})},
+                use_airflow_context=True,
             )
         else:
             raw_content = yaml_path.read_text()
             raw_config = yaml.safe_load(raw_content)
 
+        raw_config, _resolved = bp_vars.resolve(
+            raw_config, yaml_path, profile=profile, search_root=search_root or yaml_path.parent
+        )
+
         dag_config = DAGConfig.model_validate(raw_config)
-        dag = self.build(dag_config)
+        dag = self.build(dag_config, source_path=yaml_path)
 
         if self._on_dag_built:
             self._on_dag_built(dag, yaml_path)
@@ -360,6 +432,7 @@ class Builder:
         self,
         step_name: str,
         step_config: StepConfig,
+        dag_args_yaml: str,
     ) -> TaskOrGroup:
         """Render a single step by instantiating its blueprint."""
         from pydantic import ValidationError
@@ -424,7 +497,7 @@ class Builder:
 
         source_code = bp_class.get_source_code()
 
-        self._inject_step_context(result, step_yaml, source_code)
+        self._inject_step_context(result, step_yaml, source_code, dag_args_yaml)
 
         return result
 
@@ -433,6 +506,7 @@ class Builder:
         rendered: TaskOrGroup,
         step_yaml: str,
         source_code: str,
+        dag_args_yaml: str,
     ) -> None:
         """Inject step config and blueprint source into all tasks for Airflow UI visibility."""
         from airflow.models import BaseOperator
@@ -458,10 +532,15 @@ class Builder:
         for task in tasks:
             task.blueprint_step_config = step_yaml  # type: ignore[attr-defined]
             task.blueprint_step_code = source_code  # type: ignore[attr-defined]
+            task.blueprint_dag_args = dag_args_yaml  # type: ignore[attr-defined]
 
             existing_fields = getattr(task, "template_fields", ()) or ()
             new_fields = []
-            for field_name in ("blueprint_step_config", "blueprint_step_code"):
+            for field_name in (
+                "blueprint_step_config",
+                "blueprint_step_code",
+                "blueprint_dag_args",
+            ):
                 if field_name not in existing_fields:
                     new_fields.append(field_name)
             if new_fields:
@@ -471,6 +550,7 @@ class Builder:
                 **getattr(task, "template_fields_renderers", {}),
                 "blueprint_step_config": "yaml",
                 "blueprint_step_code": "py",
+                "blueprint_dag_args": "yaml",
             }
 
     def _apply_trigger_rule(self, rendered: TaskOrGroup, trigger_rule: str) -> None:
@@ -506,6 +586,7 @@ def build_all_airflow_dags(
     on_dag_built: OnDagBuilt | None = None,
     skip_invalid_dags: bool = False,
     discover_entry_points: bool = True,
+    profile: str | None = None,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -539,6 +620,8 @@ def build_all_airflow_dags(
         discover_entry_points: Whether to also discover blueprints from installed packages
             advertising themselves via the ``airflow_blueprint.blueprints`` entry-point
             group. Ignored when ``bp_registry`` is supplied directly.
+        profile: Active variable profile. Only needed when a referenced variable
+            declares a per-profile value.
 
     Returns:
         List of built DAGs
@@ -551,6 +634,7 @@ def build_all_airflow_dags(
         build_all_airflow_dags()
         ```
     """
+    from blueprint import vars as bp_vars
     from blueprint.loaders import discover_yaml_files, render_yaml_template
 
     if register_globals is None:
@@ -587,19 +671,25 @@ def build_all_airflow_dags(
         try:
             if render_templates:
                 raw_config, _rendered = render_yaml_template(
-                    yaml_path, context=template_context, use_airflow_context=True
+                    yaml_path,
+                    context={"profile": profile, **(template_context or {})},
+                    use_airflow_context=True,
                 )
             else:
                 raw_content = yaml_path.read_text()
                 raw_config = yaml.safe_load(raw_content)
 
-            if not raw_config or "steps" not in raw_config:
+            if not raw_config or not isinstance(raw_config, dict) or "steps" not in raw_config:
                 logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
                 continue
 
+            raw_config, _resolved = bp_vars.resolve(
+                raw_config, yaml_path, profile=profile, search_root=resolved_path
+            )
+
             dag_config = DAGConfig.model_validate(raw_config)
             _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
-            dag = builder.build(dag_config)
+            dag = builder.build(dag_config, source_path=yaml_path)
 
             if on_dag_built:
                 on_dag_built(dag, yaml_path)

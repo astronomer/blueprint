@@ -16,10 +16,13 @@ from typing import Any
 from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
+    DagArgsNotFoundError,
     DuplicateBlueprintError,
+    DuplicateDagArgsError,
     EntryPointLoadError,
     InvalidVersionError,
     MultipleDagArgsError,
+    MultipleDefaultDagArgsError,
     NonContiguousVersionError,
 )
 
@@ -87,8 +90,10 @@ class BlueprintRegistry:
     ) -> None:
         self._blueprints: dict[str, dict[int, type[Blueprint]]] = {}
         self._blueprint_locations: dict[str, dict[int, str]] = {}
-        self._dag_args: type[BlueprintDagArgs] | None = None
-        self._dag_args_location: str | None = None
+        self._dag_args: dict[str, type[BlueprintDagArgs]] = {}
+        self._dag_args_locations: dict[str, str] = {}
+        self._dag_args_dirs: dict[str, Path] = {}
+        self._default_dag_args: str | None = None
         self._discovered = False
         self._discovery_in_progress = False
         self._template_dirs = template_dirs
@@ -127,8 +132,10 @@ class BlueprintRegistry:
 
         self._blueprints.clear()
         self._blueprint_locations.clear()
-        self._dag_args = None
-        self._dag_args_location = None
+        self._dag_args.clear()
+        self._dag_args_locations.clear()
+        self._dag_args_dirs.clear()
+        self._default_dag_args = None
 
         self._discovery_in_progress = True
         try:
@@ -164,9 +171,16 @@ class BlueprintRegistry:
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
                     spec.loader.exec_module(module)
-                    self._register_module_classes(module, str(py_file.resolve()))
+                    self._register_module_classes(
+                        module, str(py_file.resolve()), source_dir=py_file.parent
+                    )
 
-            except (DuplicateBlueprintError, MultipleDagArgsError, ValueError):
+            except (
+                DuplicateBlueprintError,
+                DuplicateDagArgsError,
+                MultipleDefaultDagArgsError,
+                ValueError,
+            ):
                 raise
             except (ImportError, SyntaxError) as e:
                 logger.warning("Failed to load %s: %s", py_file, e)
@@ -283,7 +297,9 @@ class BlueprintRegistry:
                 continue
             yield submodule
 
-    def _register_module_classes(self, module: ModuleType, location: str) -> None:
+    def _register_module_classes(
+        self, module: ModuleType, location: str, source_dir: Path | None = None
+    ) -> None:
         """Register any Blueprint/BlueprintDagArgs subclasses defined directly in module.
 
         Args:
@@ -291,6 +307,8 @@ class BlueprintRegistry:
             location: Human-readable source of this module (a resolved file path for
                 directory-scanned modules, a dotted module name for entry-point-discovered
                 ones), recorded for error messages and `blueprint list` output.
+            source_dir: Directory the module was discovered in, which scopes any DAG args
+                template it defines. None for entry-point modules, which have no directory.
         """
         module_name = module.__name__
         for name in dir(module):
@@ -308,7 +326,7 @@ class BlueprintRegistry:
                 and obj not in (BlueprintDagArgs, DefaultDagArgs)
                 and obj.__module__ == module_name
             ):
-                self._register_dag_args(obj, location)
+                self._register_dag_args(obj, location, source_dir)
 
     def _register_class(self, cls: type[Blueprint], location: str) -> None:
         """Register a blueprint class with its parsed name and version.
@@ -336,30 +354,164 @@ class BlueprintRegistry:
         self._blueprints[bp_name][version] = cls
         self._blueprint_locations[bp_name][version] = location
 
-    def _register_dag_args(self, cls: type[BlueprintDagArgs], location: str) -> None:
-        """Register the single BlueprintDagArgs template, tracking its location.
+    def _register_dag_args(
+        self, cls: type[BlueprintDagArgs], location: str, source_dir: Path | None = None
+    ) -> None:
+        """Register a BlueprintDagArgs template under its name.
 
         Args:
             cls: The BlueprintDagArgs subclass to register.
-            location: Human-readable source of this class, recorded for error messages.
+            location: Human-readable source of this class, recorded for error messages
+                and `blueprint list` output.
+            source_dir: Directory the class was discovered in, which is the directory
+                its DAGs are resolved from. None for entry-point templates.
 
         Raises:
-            MultipleDagArgsError: If a BlueprintDagArgs template is already registered.
+            DuplicateDagArgsError: If a template with the same name is already registered.
+            MultipleDefaultDagArgsError: If another template is already the fallback.
         """
-        if self._dag_args is not None:
-            raise MultipleDagArgsError([self._dag_args_location or "", location])
+        name = cls.template_name()
 
-        self._dag_args = cls
-        self._dag_args_location = location
+        if name in self._dag_args:
+            raise DuplicateDagArgsError(name, [self._dag_args_locations[name], location])
 
-    def get_dag_args(self) -> type[BlueprintDagArgs]:
-        """Get the DAG arguments template class.
+        if cls.is_default and self._default_dag_args is not None:
+            existing = self._default_dag_args
+            raise MultipleDefaultDagArgsError(
+                {existing: self._dag_args_locations[existing], name: location}
+            )
 
-        Returns the user-defined BlueprintDagArgs subclass if one was discovered,
-        otherwise returns DefaultDagArgs.
+        self._dag_args[name] = cls
+        self._dag_args_locations[name] = location
+        if source_dir is not None:
+            self._dag_args_dirs[name] = source_dir.resolve()
+
+        if cls.is_default:
+            self._default_dag_args = name
+
+    def dag_args_location(self, name: str) -> str:
+        """Where a registered DAG args template is defined."""
+        return self._dag_args_locations.get(name, "")
+
+    def _resolve_dag_args_by_location(self, for_path: Path) -> type[BlueprintDagArgs] | None:
+        """Find the template defined closest above a DAG file, if any.
+
+        Raised per DAG rather than at discovery so that a contested directory only
+        stops the DAGs resolving to it, leaving the rest of the project buildable.
+
+        Args:
+            for_path: Path to the DAG file (or the directory it will live in).
+
+        Returns:
+            The nearest template, or None when no ancestor directory defines one.
+
+        Raises:
+            MultipleDagArgsError: If the nearest directory defines more than one.
+        """
+        start = for_path.resolve()
+        search_dirs = [start, *start.parents] if start.is_dir() else list(start.parents)
+
+        for directory in search_dirs:
+            names = [name for name, home in self._dag_args_dirs.items() if home == directory]
+            if not names:
+                continue
+            if len(names) > 1:
+                raise MultipleDagArgsError(
+                    {name: self._dag_args_locations[name] for name in names},
+                    directory=str(directory),
+                )
+            return self._dag_args[names[0]]
+
+        return None
+
+    def resolve_dag_args(self, for_path: str | Path | None = None) -> type[BlueprintDagArgs]:
+        """Resolve which DAG arguments template a DAG file is built with.
+
+        A DAG uses the template defined closest above it: the search starts in the
+        DAG file's own directory and walks up, so a subdirectory overrides its
+        parents. A DAG with no template above it falls back to the one declared
+        with ``default=True``, then to the sole registered template, then to
+        DefaultDagArgs when a project defines none.
+
+        Args:
+            for_path: Path to the DAG file, or to the directory it will live in.
+                None resolves only from the fallbacks.
+
+        Returns:
+            The BlueprintDagArgs subclass to build DAGs with.
+
+        Raises:
+            MultipleDagArgsError: If the nearest directory defines several templates,
+                or if the fallback is ambiguous.
         """
         self.discover()
-        return self._dag_args or DefaultDagArgs
+
+        if not self._dag_args:
+            return DefaultDagArgs
+
+        if for_path is not None:
+            nearest = self._resolve_dag_args_by_location(Path(for_path))
+            if nearest is not None:
+                return nearest
+
+        if self._default_dag_args is not None:
+            return self._dag_args[self._default_dag_args]
+
+        if len(self._dag_args) == 1:
+            return next(iter(self._dag_args.values()))
+
+        raise MultipleDagArgsError(
+            dict(self._dag_args_locations),
+            for_path=str(for_path) if for_path is not None else None,
+        )
+
+    def get_dag_args(self, name: str | None = None) -> type[BlueprintDagArgs]:
+        """Get a DAG arguments template by name.
+
+        Args:
+            name: Template name (snake_case). None resolves from the fallbacks.
+
+        Returns:
+            The BlueprintDagArgs class
+
+        Raises:
+            DagArgsNotFoundError: If the name is not registered.
+        """
+        self.discover()
+
+        if name is None:
+            return self.resolve_dag_args()
+
+        if name not in self._dag_args:
+            raise DagArgsNotFoundError(name, list(self._dag_args.keys()))
+
+        return self._dag_args[name]
+
+    def list_dag_args(self) -> list[dict[str, Any]]:
+        """List all registered DAG arguments templates with metadata.
+
+        Returns:
+            List of template information dictionaries
+        """
+        self.discover()
+
+        claimed = list(self._dag_args_dirs.values())
+        sole_template = len(self._dag_args) == 1 and self._default_dag_args is None
+
+        return [
+            {
+                "name": name,
+                "description": cls.__doc__ or "No description",
+                "is_default": name == self._default_dag_args,
+                "is_fallback": name == self._default_dag_args or sole_template,
+                "directory": str(self._dag_args_dirs.get(name, "")),
+                "ambiguous": claimed.count(self._dag_args_dirs[name]) > 1
+                if name in self._dag_args_dirs
+                else False,
+                "location": self._dag_args_locations.get(name, ""),
+            }
+            for name, cls in sorted(self._dag_args.items())
+        ]
 
     def _validate_version_sequences(self) -> None:
         """Validate that each blueprint's versions form a contiguous 1..N sequence."""
@@ -512,8 +664,10 @@ class BlueprintRegistry:
         """Clear the registry and force re-discovery on next access."""
         self._blueprints.clear()
         self._blueprint_locations.clear()
-        self._dag_args = None
-        self._dag_args_location = None
+        self._dag_args.clear()
+        self._dag_args_locations.clear()
+        self._dag_args_dirs.clear()
+        self._default_dag_args = None
         self._discovered = False
         self._discovery_in_progress = False
 

@@ -271,33 +271,49 @@ def validate_yaml(
     path: str,
     template_dir: str | None = None,
     discover_entry_points: bool = True,
+    profile: str | None = None,
+    search_root: Path | None = None,
+    bp_registry: BlueprintRegistry | None = None,
 ) -> dict[str, Any]:
     """Validate a DAG YAML file without building the DAG.
+
+    Top-level fields are validated against the DAG args template defined closest
+    above the file, matching what the builder uses at DAG-parse time.
 
     Args:
         path: Path to the .dag.yaml file
         template_dir: Directory containing blueprint files
         discover_entry_points: Whether to also discover blueprints from installed packages via
             entry points
+        profile: Active variable profile, or None to leave profile-varying vars unresolved
+        search_root: Outermost directory searched for vars files. Must match the root
+            ``build_all_airflow_dags`` uses, or lint and the DAG processor disagree.
+            Defaults to the YAML file's own directory.
+        bp_registry: An already-discovered registry to validate against, avoiding
+            rediscovery when validating many files
 
     Returns:
         The parsed and validated DAGConfig as a dict
     """
+    from blueprint import vars as bp_vars
     from blueprint.builder import Builder, DAGConfig
 
     config_path = Path(path)
-    config, _rendered = render_yaml_template(config_path, use_airflow_context=False)
+    config, _rendered = render_yaml_template(
+        config_path, context={"profile": profile}, use_airflow_context=False
+    )
+    config, _resolved = bp_vars.resolve(
+        config, config_path, profile=profile, search_root=search_root or config_path.parent
+    )
 
     dag_config = DAGConfig.model_validate(config)
 
-    reg = get_registry(template_dir, discover_entry_points=discover_entry_points)
+    reg = bp_registry or get_registry(template_dir, discover_entry_points=discover_entry_points)
 
     builder = Builder(bp_registry=reg)
     builder.validate_dependencies(dag_config)
 
-    dag_args_cls = reg.get_dag_args()
-    dag_args_config_type = dag_args_cls.get_config_type()
-    dag_args_config_type(**dag_config.get_extra_fields())
+    builder.validate_dag_args(dag_config, config_path)
 
     for _step_name, step_config in dag_config.steps.items():
         bp_class = reg.get(step_config.blueprint, step_config.version)
