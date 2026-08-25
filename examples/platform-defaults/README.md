@@ -58,13 +58,18 @@ it out of the config.
 Note `team` has no default, which makes it required. That single line is how you guarantee
 every DAG in the repository is attributable:
 
+```console
+FAIL dags/noteam.dag.yaml
+❌ Configuration Error in noteam.dag.yaml
+  DAG arguments rejected by template 'project_dag_args' (dags/dag_args.py):
+  - 'team': Field required
+
+  💡 Suggestions:
+    • Accepted DAG arguments: description, schedule, team, tier
 ```
-FAIL noteam.dag.yaml
-  Error: 1 validation error for ProjectDagArgsConfig
-team
-  Field required [type=missing, input_value={'schedule': '@daily'},
-input_type=dict]
-```
+
+The error names the template doing the rejecting and lists the whole accepted surface, which is
+also the fastest way to see what a DAG in this directory is allowed to set.
 
 `render()` then maps those fields onto real DAG kwargs:
 
@@ -92,8 +97,9 @@ every critical DAG in the company is a one-line edit to `TIER_POLICY`.
 Only pass through what was actually set. Writing `"schedule": config.schedule` unconditionally
 would push `None` into every DAG that omitted it, which is not the same as leaving it alone.
 
-At most one `BlueprintDagArgs` may exist per project; a second raises `MultipleDagArgsError`.
-With none defined, the built-in `DefaultDagArgs` allows just `schedule` and `description`.
+One template covers the whole project, as here. When different areas of a repository need
+different standards, define one per directory — see [scoped-dag-args](../scoped-dag-args/). With
+none defined, the built-in `DefaultDagArgs` allows just `schedule` and `description`.
 
 ### Layer 2: the settings authors never see
 
@@ -146,6 +152,7 @@ The **Docs** panel on each DAG is the `doc_md` from `on_dag_built`.
 
 ## Related
 
+- [scoped-dag-args](../scoped-dag-args/) — a different template per directory
 - [composing-blueprints](../composing-blueprints/) — the same instinct, applied inside a step
 - [config-validation](../config-validation/) — constraining what the fields accept
 - [dags-from-data](../dags-from-data/) — DAG args when building without YAML

@@ -98,6 +98,22 @@ Markdown. A `Literal` becomes a dropdown on its own; `values_display` only makes
 
 Field descriptions become the help text under each input, so they are worth writing.
 
+An optional field becomes a nullable param, so the form will accept it being left empty:
+
+```python
+ticket: str | None = Field(default=None, description="Change ticket to record")
+```
+
+```
+rebuild__ticket    type=['string', 'null']    default=None
+```
+
+Every other field here carries a single type. A param always holds a value, so an unset optional
+field is validated as an explicit null rather than as a missing key — which is why the type
+gains `null` rather than the field disappearing from the form. Note this differs from
+`blueprint schema`, where an optional field emits a plain type and optionality is carried by
+`required` instead.
+
 ### Which validation the form enforces
 
 Constraints that map to JSON Schema are enforced everywhere. Custom validators are not — the

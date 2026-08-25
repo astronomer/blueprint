@@ -2,27 +2,11 @@
   "additionalProperties": false,
   "properties": {
     "schedule": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
+      "type": "string",
       "title": "Schedule"
     },
     "description": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
+      "type": "string",
       "title": "Description"
     },
     "dag_id": {

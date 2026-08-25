@@ -28,6 +28,8 @@ look for in the Airflow UI.
 | Example | What it shows | |
 |---|---|---|
 | [platform-defaults](platform-defaults/) | Enforcing DAG-level standards: `BlueprintDagArgs` for the fields authors may set, `on_dag_built` for the ones they never see. | Docker |
+| [scoped-dag-args](scoped-dag-args/) | Several DAG args templates in one project, each governing a directory — production standards at the root, looser ones under `sandbox/`. | Docker |
+| [variables-and-profiles](variables-and-profiles/) | Declaring a value once as `${name}` and letting it differ per environment. Project and per-directory vars files, profiles, and `blueprint vars`. | Docker |
 | [shared-blueprints-package](shared-blueprints-package/) | Publishing blueprints as an installable package so many repos share one set of templates. Entry points, scoping them, collisions, and cross-version imports. | Docker |
 | [resilient-loading](resilient-loading/) | Stopping one bad YAML file from unloading every DAG beside it — `skip_invalid_dags` for accidents, `.airflowignore` for drafts. | Docker |
 
@@ -35,7 +37,7 @@ look for in the Airflow UI.
 
 | Example | What it shows | |
 |---|---|---|
-| [templating](templating/) | Jinja2 in YAML, and the two evaluation times that cause most confusion: parse time (`env`, `var`, loader context) versus run time (`context.*`). | Docker |
+| [templating](templating/) | Jinja2 in YAML, and the two evaluation times that cause most confusion: parse time (`env`, `var`, loader context) versus run time (`context.*`). Also when to prefer `${...}` variables. | Docker |
 | [dags-from-data](dags-from-data/) | Generating one DAG per tenant from a data file with the `Builder` API, instead of a YAML file each. | Docker |
 | [python-dag-interop](python-dag-interop/) | Using blueprints inside hand-written Python DAGs, for incremental adoption in an existing codebase. | Docker |
 
@@ -71,9 +73,10 @@ tilt up -- --example=runtime-params
 Every example also works without Docker for the CLI parts. From an example directory:
 
 ```bash
-blueprint list          # blueprints this example defines
+blueprint list          # blueprints and DAG args templates this example defines
 blueprint describe <name>
-blueprint lint          # validate its DAG YAML
+blueprint lint          # validate its DAG YAML, under every declared profile
+blueprint vars <file>   # resolved variables and where each came from
 ```
 
 > `blueprint lint` **fails on purpose** in `resilient-loading`, which ships a deliberately
@@ -91,7 +94,8 @@ examples/<example>/
 ├── requirements.txt    # airflow-blueprint
 ├── packages.txt        # OS packages (empty in most examples)
 ├── README.md
-├── dags/               # blueprints.py, loader.py, *.dag.yaml
+├── dags/               # blueprints.py, loader.py, *.dag.yaml, dag_args.py,
+│                       # blueprint.vars.yaml -- whichever the example needs
 └── package/            # only in shared-blueprints-package
 ```
 

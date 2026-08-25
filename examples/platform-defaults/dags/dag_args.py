@@ -1,7 +1,8 @@
 """Project-wide DAG arguments.
 
 A BlueprintDagArgs subclass defines which top-level fields a DAG YAML may set,
-and turns them into DAG constructor kwargs. At most one may exist per project.
+and turns them into DAG constructor kwargs. This one covers the whole project;
+a directory may define its own to override it.
 """
 
 from datetime import timedelta

@@ -229,7 +229,10 @@ def _vars_table(resolved, config_path: Path, declared: list[str]) -> Table:
     table.add_column("Value", style="green", overflow="fold")
     table.add_column("Source", style="dim", overflow="fold")
 
-    base = config_path.parent.resolve()
+    # Relative to the working directory, not the DAG's own directory: a project
+    # vars file sits *above* a DAG in a subdirectory, and rendering that
+    # relative to the DAG would print the whole absolute path.
+    base = Path.cwd()
     for name in sorted(resolved.available):
         try:
             value = escape(repr(resolved.resolve_name(name)))

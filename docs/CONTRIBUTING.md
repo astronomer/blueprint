@@ -139,8 +139,9 @@ When adding features to the Blueprint framework:
 2. Update `core.py` if the Blueprint base class is affected
 3. Update `builder.py` if DAG building logic changes
 4. Update `registry.py` if discovery/versioning is affected
-5. Update CLI commands in `cli.py` if user-facing
-6. Demonstrate the feature in `examples/` -- either in the example whose idea it
+5. Update `vars.py` if variable resolution or profiles are affected
+6. Update CLI commands in `cli.py` if user-facing
+7. Demonstrate the feature in `examples/` -- either in the example whose idea it
    belongs to, or a new directory if it is a distinct idea (see
    [Adding an Example](#adding-an-example))
 
@@ -160,6 +161,11 @@ cd examples/getting-started
 uv run blueprint list
 uv run blueprint describe extract
 uv run blueprint lint
+
+# Variables and profiles
+cd ../variables-and-profiles
+uv run blueprint lint --profile prod
+uv run blueprint vars dags/clickstream.dag.yaml --profile prod --unused
 
 # Validate every example the way CI does
 uv run examples/check.sh
@@ -244,6 +250,7 @@ blueprint/
 ├── cli.py               # CLI using Click
 ├── errors.py            # Custom exceptions
 ├── models.py            # Pydantic re-exports
+├── vars.py              # ${...} variables and profiles from blueprint.vars.yaml
 └── utils.py             # Common utilities
 
 tests/
@@ -253,6 +260,7 @@ tests/
 ├── test_registry.py     # Version-aware registry tests
 ├── test_loaders.py      # YAML loading, discovery tests
 ├── test_cli.py          # CLI command tests
+├── test_vars.py         # Variable resolution and profile tests
 └── test_errors.py       # Error handling tests
 
 examples/
@@ -265,7 +273,8 @@ examples/
     ├── requirements.txt # airflow-blueprint
     ├── packages.txt
     ├── README.md
-    ├── dags/            # blueprints.py, loader.py, *.dag.yaml
+    ├── dags/            # blueprints.py, loader.py, *.dag.yaml, and whichever
+    │                    # of dag_args.py / blueprint.vars.yaml it needs
     └── package/         # optional, an installable blueprint package
 ```
 

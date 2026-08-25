@@ -18,6 +18,7 @@ With Blueprint, you can:
 - Define **reusable task group templates** with type-safe, validated configurations
 - **Compose DAGs from YAML** by assembling blueprint instances as steps
 - **Version blueprints** so DAGs can pin to specific template versions
+- Keep **environment differences in YAML** with `${...}` variables and per-environment profiles
 - Get **clear error messages** when configs are invalid
 - Use a **CLI** to list blueprints, validate YAML, and generate schemas
 - See **step config and blueprint source code** in Airflow's rendered templates UI
@@ -178,6 +179,8 @@ cd examples
 | [versioning](examples/versioning/) | Shipping a breaking config change without breaking DAGs |
 | [runtime-params](examples/runtime-params/) | `supports_params`, `self.param()`, `self.resolve_config()`, trigger forms |
 | [platform-defaults](examples/platform-defaults/) | `BlueprintDagArgs` and the `on_dag_built` callback |
+| [scoped-dag-args](examples/scoped-dag-args/) | A different DAG args template per directory |
+| [variables-and-profiles](examples/variables-and-profiles/) | `${...}` variables, per-environment profiles, `blueprint vars` |
 | [shared-blueprints-package](examples/shared-blueprints-package/) | Publishing blueprints as an installable package |
 | [resilient-loading](examples/resilient-loading/) | `skip_invalid_dags` and `.airflowignore` |
 | [templating](examples/templating/) | Jinja2 in YAML: parse-time vs run-time evaluation |
@@ -192,7 +195,7 @@ index and setup details.
 ## CLI Commands
 
 ```bash
-# List available blueprints
+# List available blueprints and DAG args templates
 blueprint list
 
 # Describe a blueprint's config schema
@@ -202,11 +205,18 @@ blueprint describe extract -v 1
 # Validate DAG definitions
 blueprint lint                     # everything below the current directory
 blueprint lint pipeline.dag.yaml   # one file
+blueprint lint --profile prod      # one profile; without this, every declared one
+
+# Show resolved variables and where each came from
+blueprint vars pipeline.dag.yaml --profile prod --unused
 
 # Generate JSON schema for editor support
 # (each schema includes a top-level "templateType" field -- "blueprint" for a
 # step template, or "dag_args" for DAG-level fields via `blueprint schema --dag-args`)
 blueprint schema extract > extract.schema.json
+
+# A project with several DAG args templates has one DAG schema per template
+blueprint schema --dag-args sandbox_dag_args > sandbox.dag.schema.json
 
 # Create a new DAG interactively
 blueprint new

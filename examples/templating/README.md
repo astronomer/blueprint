@@ -5,12 +5,18 @@ and how to keep the two apart.
 
 ## Why you'd do this
 
-The same pipeline usually has to differ slightly per environment, per region, or per run. A
-bucket name changes between dev and prod; a partition path depends on the run date.
+A partition path depends on the run date; a DAG ID depends on which deployment it is loaded in.
+Neither value can be written literally in the YAML.
 
 Blueprint renders each YAML file through Jinja2 before parsing it, so one file can cover all of
 them. Two different evaluation times are involved and the syntax does not clearly distinguish
 them, which accounts for most templating errors.
+
+For values that simply differ between environments — a database name, a schedule — reach for
+`${...}` variables instead, covered in
+[variables-and-profiles](../variables-and-profiles/). They are checked by `blueprint lint` and
+keep their type. Jinja2 is for run-time context and anything computed; see
+[Variables or Jinja2?](#variables-or-jinja2) below.
 
 ## Files
 
@@ -150,8 +156,24 @@ and path, because those were still macros in the DAG and Airflow resolved them f
 Compare with **blueprint_step_config**, which shows the config as the DAG stored it, macros and
 all. That side-by-side is the clearest picture of the two evaluation times.
 
+## Variables or Jinja2?
+
+Both work in a `.dag.yaml`, and Jinja2 renders first, so a `${...}` produced by a template is
+still resolved afterwards.
+
+Use `${...}` for values that vary by environment. They resolve before validation, keep their
+type (an `int` stays an `int`), are checked by `blueprint lint` under every declared profile, and
+are safe for values containing YAML punctuation.
+
+Use `{{ ... }}` for Airflow runtime context, environment variables, and anything computed —
+which is everything on this page. The active variable profile is available as `{{ profile }}`
+for the cases that genuinely need a conditional.
+
+Note that `blueprint.vars.yaml` files are not Jinja2-rendered; only `.dag.yaml` files are.
+
 ## Related
 
+- [variables-and-profiles](../variables-and-profiles/) — `${...}` for environment-varying values
 - [runtime-params](../runtime-params/) — a third timing: values chosen when a run is triggered
 - [platform-defaults](../platform-defaults/) — computing settings in Python rather than YAML
 - [editor-and-ci](../editor-and-ci/) — linting templated YAML in CI

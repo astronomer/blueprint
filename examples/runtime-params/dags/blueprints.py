@@ -48,6 +48,12 @@ class BackfillConfig(BaseModel):
     )
     dry_run: bool = Field(default=True, description="Plan the rebuild without writing")
 
+    # An optional field is offered as a nullable param, so the form accepts a
+    # value or nothing at all rather than demanding a string.
+    ticket: str | None = Field(
+        default=None, description="Change ticket to record against this run"
+    )
+
 
 class Backfill(Blueprint[BackfillConfig]):
     """Rebuild a table over a date range. Overridable at trigger time."""
@@ -85,6 +91,8 @@ class Backfill(Blueprint[BackfillConfig]):
                     f"[{resolved.start_date}..{resolved.end_date}] "
                     f"on {resolved.warehouse_size}: {resolved.query}"
                 )
+                if resolved.ticket:
+                    print(f"Recorded against {resolved.ticket}")
 
             plan >> execute()
         return group

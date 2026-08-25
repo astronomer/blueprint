@@ -52,6 +52,35 @@ apart.
 
 Note the output directory must already exist; `-o` will not create it.
 
+A project with several `BlueprintDagArgs` templates gets one DAG schema per template, since each
+describes a different set of top-level fields. Name the one you want, and point each directory's
+editor config at the matching file:
+
+```bash
+blueprint schema --dag-args project_dag_args -o schemas/dag.schema.json
+blueprint schema --dag-args sandbox_dag_args -o schemas/sandbox.dag.schema.json
+```
+
+Bare `--dag-args` resolves whichever template covers `--template-dir`, which is unambiguous only
+when the project has one. See [scoped-dag-args](../scoped-dag-args/).
+
+### Optional fields carry a single type
+
+An optional field — `schedule: str | None` — reaches JSON Schema as an `anyOf` of `string` and
+`null`. Generated schemas collapse that to a plain type:
+
+```json
+"schedule": { "type": "string", "title": "Schedule" }
+```
+
+Absence from `required` already marks the field optional, so the type does not spell nullability
+out a second time. This matters because editors, form builders and client generators read `type`
+as a single string and handle an `anyOf` poorly or not at all — a nullable `anyOf` is a common
+reason a field renders as an untyped text box.
+
+Params work the other way round: a param always holds a value, so an unset optional field is an
+explicit null and the type keeps `null` in it. See [runtime-params](../runtime-params/).
+
 ### Wiring the editor
 
 Per file, with a modeline:
@@ -118,6 +147,10 @@ Bare `blueprint lint` also honours `.airflowignore`, so drafts stay excluded —
   package, and lint cannot resolve `blueprint:` names without it.
 - `blueprint lint` catches unknown blueprints, invalid configs, unknown or cyclic dependencies,
   and duplicate DAG IDs across files. It exits non-zero on any of them.
+- With no `--profile`, it validates each file against **every** declared variable profile, so a
+  value defined for `prod` but missing for `dev` fails in CI rather than at deploy. Pass
+  `--root` if your loader builds from somewhere other than the working directory. See
+  [variables-and-profiles](../variables-and-profiles/).
 - No Airflow instance, no database, no scheduler. It runs in seconds, which is what makes it
   usable as a required check.
 
@@ -135,3 +168,5 @@ structure a blueprint renders, see [testing-blueprints](../testing-blueprints/).
 - [config-validation](../config-validation/) — the errors this surfaces earlier
 - [testing-blueprints](../testing-blueprints/) — the layer of checking above lint
 - [resilient-loading](../resilient-loading/) — the safety net for what still gets through
+- [scoped-dag-args](../scoped-dag-args/) — one DAG schema per directory
+- [variables-and-profiles](../variables-and-profiles/) — what lint checks across profiles
