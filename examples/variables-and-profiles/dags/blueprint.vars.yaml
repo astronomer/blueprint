@@ -1,0 +1,14 @@
+# Project variables, in scope for every DAG at or below this directory.
+#
+# Values that differ between environments are keyed by profile. Values that do
+# not are written plainly -- keying something by profile that never varies just
+# adds two lines to keep in sync.
+profiles: [prod, dev]
+
+vars:
+  warehouse_db:
+    prod: analytics
+    dev: analytics_dev
+
+  landing_schema: raw
+  retention_days: 90

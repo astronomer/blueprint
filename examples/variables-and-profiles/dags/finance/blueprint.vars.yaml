@@ -1,0 +1,12 @@
+# Variables for the DAGs in this directory only.
+#
+# Finance publishes into its own database, so this file overrides the project
+# value of warehouse_db. Nearest file wins, and only the names it declares are
+# affected -- landing_schema and retention_days still come from the project.
+#
+# profiles: is declared once, in the outermost vars file. Declaring it again
+# here is an error.
+vars:
+  warehouse_db:
+    prod: finance
+    dev: finance_dev

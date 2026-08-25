@@ -1,0 +1,20 @@
+dag_id: finance_revenue
+schedule: "@daily"
+description: Materialises the invoices model into the finance database
+
+vars:
+  stream: invoices
+
+steps:
+  stage_invoices:
+    blueprint: stage
+    source_table: ${landing_schema}.${stream}
+
+  materialize_invoices:
+    blueprint: materialize
+    depends_on: [stage_invoices]
+
+    # warehouse_db resolves to the finance override; landing_schema above came
+    # from the project file.
+    target_table: ${warehouse_db}.reporting.${stream}
+    expire_after_days: 365

@@ -1,0 +1,18 @@
+dag_id: customer_orders
+schedule: "@hourly"
+description: Production DAG; built with dags/dag_args.py
+
+# team and sla_minutes come from ProjectDagArgsConfig. Setting `expires` here
+# fails: that field belongs to the sandbox template, which does not apply.
+team: orders
+sla_minutes: 30
+
+steps:
+  read_orders:
+    blueprint: read
+    dataset: raw.orders
+
+  write_orders:
+    blueprint: write
+    depends_on: [read_orders]
+    table: analytics.orders

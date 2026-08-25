@@ -1,0 +1,30 @@
+dag_id: clickstream_events
+schedule: ${schedule}
+description: Stages the clickstream landing table and materialises the events model
+
+vars:
+  # DAG-local, and differs per environment
+  schedule:
+    prod: "@hourly"
+    dev: "@daily"
+
+  # DAG-local and invariant
+  stream: clickstream
+
+steps:
+  stage_events:
+    blueprint: stage
+    source_table: ${landing_schema}.${stream}
+    batch_size: 5000
+
+  materialize_events:
+    blueprint: materialize
+    depends_on: [stage_events]
+    target_table: ${warehouse_db}.events.${stream}
+
+    # A whole-value reference keeps its type, so this stays an int and passes
+    # the field's ge=1 constraint. "${retention_days} days" would be a string.
+    expire_after_days: ${retention_days}
+
+    # $${...} is a literal ${...}: this reaches the shell with TABLE intact.
+    post_hook: 'echo "published $${TABLE:-unknown}"'
