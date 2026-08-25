@@ -27,8 +27,8 @@ look for in the Airflow UI.
 
 | Example | What it shows | |
 |---|---|---|
-| [platform-defaults](platform-defaults/) | Enforcing DAG-level standards: `BlueprintDagArgs` for the fields authors may set, `on_dag_built` for the ones they never see. | Docker |
-| [scoped-dag-args](scoped-dag-args/) | Several DAG args templates in one project, each governing a directory — production standards at the root, looser ones under `sandbox/`. | Docker |
+| [dag-arguments](dag-arguments/) | What a DAG YAML may set at its top level: `BlueprintDagArgs` as the contract, and one template per directory when different areas need different standards. | Docker |
+| [dag-post-processing](dag-post-processing/) | The `on_dag_built` callback, for settings authors never see — provenance, ownership derived from the file's location, generated docs. | Docker |
 | [variables-and-profiles](variables-and-profiles/) | Declaring a value once as `${name}` and letting it differ per environment. Project and per-directory vars files, profiles, and `blueprint vars`. | Docker |
 | [shared-blueprints-package](shared-blueprints-package/) | Publishing blueprints as an installable package so many repos share one set of templates. Entry points, scoping them, collisions, and cross-version imports. | Docker |
 | [resilient-loading](resilient-loading/) | Stopping one bad YAML file from unloading every DAG beside it — `skip_invalid_dags` for accidents, `.airflowignore` for drafts. | Docker |

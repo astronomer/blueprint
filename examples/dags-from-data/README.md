@@ -108,6 +108,6 @@ Add a fourth tenant to the JSON and a fourth DAG appears at the next parse, with
 
 ## Related
 
-- [platform-defaults](../platform-defaults/) — applying policy to generated DAGs too
+- [dag-post-processing](../dag-post-processing/) — applying policy to generated DAGs too
 - [python-dag-interop](../python-dag-interop/) — blueprints inside hand-written DAGs
 - [testing-blueprints](../testing-blueprints/) — asserting generated DAGs are what you expect

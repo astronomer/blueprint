@@ -62,7 +62,7 @@ blueprint schema --dag-args sandbox_dag_args -o schemas/sandbox.dag.schema.json
 ```
 
 Bare `--dag-args` resolves whichever template covers `--template-dir`, which is unambiguous only
-when the project has one. See [scoped-dag-args](../scoped-dag-args/).
+when the project has one. See [dag-arguments](../dag-arguments/).
 
 ### Optional fields carry a single type
 
@@ -168,5 +168,5 @@ structure a blueprint renders, see [testing-blueprints](../testing-blueprints/).
 - [config-validation](../config-validation/) — the errors this surfaces earlier
 - [testing-blueprints](../testing-blueprints/) — the layer of checking above lint
 - [resilient-loading](../resilient-loading/) — the safety net for what still gets through
-- [scoped-dag-args](../scoped-dag-args/) — one DAG schema per directory
+- [dag-arguments](../dag-arguments/) — one DAG schema per directory
 - [variables-and-profiles](../variables-and-profiles/) — what lint checks across profiles

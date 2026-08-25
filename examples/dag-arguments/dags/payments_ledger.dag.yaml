@@ -2,7 +2,6 @@ dag_id: payments_ledger
 schedule: "@hourly"
 description: Critical-tier DAG; gets 5 retries, a 2h timeout and failure email
 
-# team is required by ProjectDagArgsConfig -- omitting it fails the build.
 team: payments
 tier: critical
 

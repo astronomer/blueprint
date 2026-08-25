@@ -178,8 +178,8 @@ cd examples
 | [composing-blueprints](examples/composing-blueprints/) | Building a high-level blueprint from lower-level ones |
 | [versioning](examples/versioning/) | Shipping a breaking config change without breaking DAGs |
 | [runtime-params](examples/runtime-params/) | `supports_params`, `self.param()`, `self.resolve_config()`, trigger forms |
-| [platform-defaults](examples/platform-defaults/) | `BlueprintDagArgs` and the `on_dag_built` callback |
-| [scoped-dag-args](examples/scoped-dag-args/) | A different DAG args template per directory |
+| [dag-arguments](examples/dag-arguments/) | `BlueprintDagArgs`, and one template per directory |
+| [dag-post-processing](examples/dag-post-processing/) | The `on_dag_built` callback |
 | [variables-and-profiles](examples/variables-and-profiles/) | `${...}` variables, per-environment profiles, `blueprint vars` |
 | [shared-blueprints-package](examples/shared-blueprints-package/) | Publishing blueprints as an installable package |
 | [resilient-loading](examples/resilient-loading/) | `skip_invalid_dags` and `.airflowignore` |

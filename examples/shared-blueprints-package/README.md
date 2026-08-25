@@ -139,5 +139,5 @@ does, that is the answer, without them cloning the platform repo.
 ## Related
 
 - [versioning](../versioning/) — rolling out a breaking change to consumers you do not control
-- [platform-defaults](../platform-defaults/) — the other half of a platform team's surface area
+- [dag-arguments](../dag-arguments/) — the other half of a platform team's surface area
 - [editor-and-ci](../editor-and-ci/) — giving consumers schemas for published templates

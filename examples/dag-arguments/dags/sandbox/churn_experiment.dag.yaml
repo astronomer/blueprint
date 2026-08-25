@@ -1,0 +1,21 @@
+dag_id: churn_experiment
+schedule: "@daily"
+description: Prototype; built with dags/sandbox/dag_args.py
+
+# expires and author come from SandboxDagArgsConfig. There is no `team` or
+# `tier` here -- this directory's template does not define them.
+#
+# expires is quoted because an unquoted YAML date parses as a date object,
+# and the field is a string.
+expires: "2026-12-31"
+author: dana
+
+steps:
+  extract_signals:
+    blueprint: extract
+    source: product_events
+
+  load_scores:
+    blueprint: load
+    depends_on: [extract_signals]
+    target: sandbox.churn_scores

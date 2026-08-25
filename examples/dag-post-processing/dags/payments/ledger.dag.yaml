@@ -1,0 +1,19 @@
+dag_id: payments_ledger
+schedule: "@hourly"
+description: Owned by whichever directory it sits in, not by anything in this file
+
+# No team, no owner, no tags. Only dag_id, schedule, description and steps --
+# the fields DefaultDagArgs allows. Everything else is applied afterwards.
+steps:
+  extract_transactions:
+    blueprint: extract
+    source: payments_api
+
+  extract_refunds:
+    blueprint: extract
+    source: refunds_api
+
+  load_ledger:
+    blueprint: load
+    depends_on: [extract_transactions, extract_refunds]
+    target: analytics.ledger

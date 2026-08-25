@@ -1,0 +1,18 @@
+dag_id: customer_orders
+schedule: "@hourly"
+description: Standard-tier DAG; tier is omitted, so it defaults
+
+# team is required by ProjectDagArgsConfig -- omitting it fails the build.
+# Setting `expires` here fails too: that field belongs to the sandbox template,
+# which does not apply to this directory.
+team: orders
+
+steps:
+  extract_orders:
+    blueprint: extract
+    source: orders_api
+
+  load_orders:
+    blueprint: load
+    depends_on: [extract_orders]
+    target: analytics.orders

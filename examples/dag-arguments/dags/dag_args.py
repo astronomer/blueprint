@@ -1,8 +1,11 @@
-"""Project-wide DAG arguments.
+"""DAG-level arguments for the whole project.
 
-A BlueprintDagArgs subclass defines which top-level fields a DAG YAML may set,
-and turns them into DAG constructor kwargs. This one covers the whole project;
-a directory may define its own to override it.
+A BlueprintDagArgs subclass works like a Blueprint but for the top level of a
+DAG YAML: its config model defines the permitted fields, and render() turns
+them into DAG constructor kwargs.
+
+This one scopes the directory holding this file -- dags/ -- and every directory
+below it, unless one of those defines its own.
 """
 
 from datetime import timedelta
@@ -19,7 +22,7 @@ TIER_POLICY = {
 
 
 class ProjectDagArgsConfig(BaseModel):
-    """The complete set of top-level fields a DAG YAML may set.
+    """The complete set of top-level fields a production DAG YAML may set.
 
     Anything not listed here is not available to DAG authors -- which is the
     point. There is no way to reach past this into the DAG constructor.

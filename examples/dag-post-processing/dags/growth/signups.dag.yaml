@@ -1,9 +1,6 @@
-dag_id: growth_sandbox
+dag_id: growth_signups
 schedule: "@daily"
-description: Experimental-tier DAG; no retries, no alerting, long timeout
-
-team: growth
-tier: experimental
+description: Identical in shape to the payments DAG, and owned by a different team
 
 steps:
   extract_signups:
@@ -13,4 +10,4 @@ steps:
   load_signups:
     blueprint: load
     depends_on: [extract_signups]
-    target: sandbox.signups
+    target: analytics.signups

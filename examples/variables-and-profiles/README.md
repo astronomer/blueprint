@@ -235,5 +235,5 @@ genuinely need a conditional.
 
 - [templating](../templating/) -- Jinja2 in YAML, and its two evaluation times
 - [runtime-params](../runtime-params/) -- values chosen when a run is triggered
-- [platform-defaults](../platform-defaults/) -- settings computed in Python instead of YAML
+- [dag-arguments](../dag-arguments/) -- settings computed in Python instead of YAML
 - [editor-and-ci](../editor-and-ci/) -- running `blueprint lint` in CI

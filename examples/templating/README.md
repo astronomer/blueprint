@@ -175,5 +175,5 @@ Note that `blueprint.vars.yaml` files are not Jinja2-rendered; only `.dag.yaml` 
 
 - [variables-and-profiles](../variables-and-profiles/) — `${...}` for environment-varying values
 - [runtime-params](../runtime-params/) — a third timing: values chosen when a run is triggered
-- [platform-defaults](../platform-defaults/) — computing settings in Python rather than YAML
+- [dag-arguments](../dag-arguments/) — computing settings in Python rather than YAML
 - [editor-and-ci](../editor-and-ci/) — linting templated YAML in CI

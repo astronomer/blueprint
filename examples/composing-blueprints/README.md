@@ -108,4 +108,4 @@ the group boundary in a different place.
 
 - [tasks-and-taskgroups](../tasks-and-taskgroups/) — nesting groups, which this relies on
 - [step-dependencies](../step-dependencies/) — the alternative: let YAML do the wiring
-- [platform-defaults](../platform-defaults/) — standardising DAG-level settings the same way
+- [dag-arguments](../dag-arguments/) — standardising DAG-level settings the same way
