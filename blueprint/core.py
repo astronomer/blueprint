@@ -17,6 +17,8 @@ from typing import (
 
 from pydantic import BaseModel, ConfigDict
 
+from blueprint.conditions import ConditionSchemaGenerator, check, declaration_errors
+
 if TYPE_CHECKING:
     from airflow.models import BaseOperator
     from airflow.utils.task_group import TaskGroup
@@ -203,6 +205,18 @@ def _resolve_refs(schema: dict) -> dict:
     return _resolve(schema)
 
 
+def _validate_field_conditions(owner: type, config_type: type[BaseModel]) -> None:
+    """Reject invalid ``applies_when`` declarations as soon as a template class is defined."""
+    errors = declaration_errors(config_type)
+    if errors:
+        details = "\n".join(f"  {error}" for error in errors)
+        msg = (
+            f"{owner.__name__} config model {config_type.__name__} has "
+            f"invalid field conditions:\n{details}"
+        )
+        raise TypeError(msg)
+
+
 def _to_snake_case(class_name: str) -> str:
     """Convert a CamelCase class name to snake_case."""
     snake_name = re.sub("([A-Z]+)([A-Z][a-z])", r"\1_\2", class_name)
@@ -272,6 +286,7 @@ class Blueprint(Generic[T]):
                 if isinstance(config_type, type) and issubclass(config_type, BaseModel):
                     cls._config_type = config_type
                     cls._validate_yaml_compatible_fields()
+                    _validate_field_conditions(cls, config_type)
                     break
 
     def render(self, config: T) -> TaskOrGroup:
@@ -338,7 +353,9 @@ class Blueprint(Generic[T]):
                 field_name = key[len(prefix) :]
                 if field_name in config_dict:
                     config_dict[field_name] = value
-        return type(config).model_validate(config_dict)
+        resolved = type(config).model_validate(config_dict)
+        check(resolved)
+        return resolved
 
     @classmethod
     def _validate_yaml_compatible_fields(cls) -> None:
@@ -376,7 +393,7 @@ class Blueprint(Generic[T]):
 
         Returns a flattened schema with all $ref/$defs resolved inline.
         """
-        raw = cls.get_config_type().model_json_schema()
+        raw = cls.get_config_type().model_json_schema(schema_generator=ConditionSchemaGenerator)
         return _strip_nullable(_resolve_refs(raw))
 
     @classmethod
@@ -522,6 +539,7 @@ class BlueprintDagArgs(Generic[T]):
                 if isinstance(config_type, type) and issubclass(config_type, BaseModel):
                     cls._config_type = config_type
                     cls._validate_yaml_compatible_fields()
+                    _validate_field_conditions(cls, config_type)
                     if not allow_extra:
                         _forbid_extra_fields(config_type)
                     break
@@ -570,7 +588,7 @@ class BlueprintDagArgs(Generic[T]):
 
     @classmethod
     def get_schema(cls) -> dict:
-        raw = cls.get_config_type().model_json_schema()
+        raw = cls.get_config_type().model_json_schema(schema_generator=ConditionSchemaGenerator)
         return _strip_nullable(_resolve_refs(raw))
 
     @classmethod

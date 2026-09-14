@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from blueprint import conditions
 from blueprint.core import Blueprint
 from blueprint.errors import ConfigurationError, YAMLParseError
 from blueprint.registry import BlueprintRegistry, registry
@@ -319,7 +320,7 @@ def validate_yaml(
         bp_class = reg.get(step_config.blueprint, step_config.version)
         config_type = bp_class.get_config_type()
         blueprint_config = step_config.get_blueprint_config()
-        config_type(**blueprint_config)
+        conditions.check(config_type(**blueprint_config))
 
     return dag_config.model_dump()
 

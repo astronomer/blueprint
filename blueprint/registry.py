@@ -13,6 +13,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from blueprint.conditions import APPLIES_WHEN_KEY, MANDATORY_KEY
 from blueprint.core import Blueprint, BlueprintDagArgs, DefaultDagArgs
 from blueprint.errors import (
     BlueprintNotFoundError,
@@ -615,6 +616,8 @@ class BlueprintRegistry:
                     "minimum": param_schema.get("minimum"),
                     "maximum": param_schema.get("maximum"),
                     "enum": param_schema.get("enum"),
+                    "applies_when": param_schema.get(APPLIES_WHEN_KEY),
+                    "mandatory": bool(param_schema.get(MANDATORY_KEY)),
                 }
 
         all_versions = sorted(self._blueprints.get(name, {}).keys())

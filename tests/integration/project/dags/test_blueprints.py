@@ -12,7 +12,7 @@ from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
 from pydantic import ConfigDict
 
-from blueprint import BaseModel, Blueprint, BlueprintDagArgs, Field
+from blueprint import BaseModel, Blueprint, BlueprintDagArgs, Condition, Field
 
 
 # --- Custom DAG arguments template ---
@@ -241,3 +241,38 @@ class ContextTest(Blueprint[ContextTestConfig]):
                 bash_command=f"echo 'path={config.output_path}'",
             )
         return group
+
+
+# --- Alert (conditional field integration test) ---
+
+
+class AlertConfig(BaseModel):
+    channel: Literal["email", "slack"] = "email"
+    recipients: list[str] | None = Field(
+        default=None,
+        applies_when=Condition("channel", "==", "email"),
+        mandatory=True,
+        description="Addresses to email",
+    )
+    webhook: str | None = Field(
+        default=None,
+        applies_when=Condition("channel", "==", "slack"),
+        mandatory=True,
+        description="Slack webhook to post to",
+    )
+    retries: int | None = Field(
+        default=None,
+        applies_when=Condition("channel", "==", "slack"),
+        description="Posting retries, only meaningful for a webhook",
+    )
+
+
+class Alert(Blueprint[AlertConfig]):
+    """Integration test for fields that apply only under another field's value."""
+
+    def render(self, config: AlertConfig) -> BashOperator:
+        target = ", ".join(config.recipients) if config.recipients else config.webhook
+        return BashOperator(
+            task_id=self.step_id,
+            bash_command=f"echo 'Notifying {config.channel}: {target} (retries={config.retries})'",
+        )

@@ -83,6 +83,13 @@ class TestDescribe:
         result = _run_blueprint("describe", "nonexistent", "--template-dir", DAGS_DIR)
         assert result.returncode != 0
 
+    def test_describe_shows_field_conditions(self):
+        result = _run_blueprint("describe", "alert", "--template-dir", DAGS_DIR, columns=200)
+        assert result.returncode == 0, f"blueprint describe failed:\n{result.stderr}"
+        assert "Applies when" in result.stdout
+        assert "channel == 'slack'" in result.stdout
+        assert "When applicable" in result.stdout
+
 
 class TestLint:
     def test_lint_valid_yaml(self):
@@ -105,6 +112,34 @@ class TestLint:
         )
         assert result.returncode == 0, f"blueprint lint failed:\n{result.stdout}"
         assert "PASS" in result.stdout
+
+    def test_lint_rejects_inapplicable_field(self, tmp_path):
+        yaml_path = tmp_path / "bad_conditional.dag.yaml"
+        yaml_path.write_text(
+            "dag_id: bad_conditional\n"
+            "steps:\n"
+            "  alert_email:\n"
+            "    blueprint: alert\n"
+            "    channel: email\n"
+            "    recipients: [ops@example.com]\n"
+            "    webhook: https://hooks.example.com/abc\n"
+        )
+        result = _run_blueprint("lint", str(yaml_path), "--template-dir", DAGS_DIR, columns=200)
+        assert result.returncode != 0
+        assert "only applicable when channel == 'slack'" in result.stdout
+
+    def test_lint_requires_mandatory_field(self, tmp_path):
+        yaml_path = tmp_path / "missing_mandatory.dag.yaml"
+        yaml_path.write_text(
+            "dag_id: missing_mandatory\n"
+            "steps:\n"
+            "  alert_slack:\n"
+            "    blueprint: alert\n"
+            "    channel: slack\n"
+        )
+        result = _run_blueprint("lint", str(yaml_path), "--template-dir", DAGS_DIR, columns=200)
+        assert result.returncode != 0
+        assert "required when channel == 'slack'" in result.stdout
 
     def test_lint_versioned_yaml(self):
         result = _run_blueprint(
@@ -152,6 +187,24 @@ class TestSchema:
     def test_schema_nonexistent(self):
         result = _run_blueprint("schema", "nonexistent", "--template-dir", DAGS_DIR)
         assert result.returncode != 0
+
+    def test_schema_publishes_field_conditions(self):
+        result = _run_blueprint("schema", "alert", "--template-dir", DAGS_DIR)
+        assert result.returncode == 0, f"blueprint schema failed:\n{result.stderr}"
+
+        schema = json.loads(result.stdout)
+        webhook = schema["properties"]["webhook"]
+        assert webhook["x-blueprint-applies-when"] == {
+            "field": "channel",
+            "op": "==",
+            "value": "slack",
+        }
+        assert webhook["x-blueprint-mandatory"] is True
+        assert webhook["type"] == "string"
+        assert "webhook" not in schema["required"]
+
+        clause = next(c for c in schema["allOf"] if c["else"]["not"]["required"] == ["webhook"])
+        assert clause["then"] == {"required": ["webhook"]}
 
     def test_optional_field_is_plain_type_and_not_required(self):
         result = _run_blueprint("schema", "greet", "--template-dir", DAGS_DIR)

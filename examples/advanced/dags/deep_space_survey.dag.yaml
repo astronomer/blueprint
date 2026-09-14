@@ -51,3 +51,11 @@ steps:
     destination: ${ground_station}
     protocol: udp
     compression: true
+
+  relay_findings:
+    blueprint: relay
+    depends_on: [transmit_findings]
+    link: satellite
+    relay_sat: SAT-200
+    hop_limit: 4
+    backup_station: ${ground_station}

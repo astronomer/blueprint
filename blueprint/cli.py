@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+from blueprint.conditions import APPLIES_WHEN_KEY, MANDATORY_KEY, applies, from_json
 from blueprint.core import BlueprintDagArgs, DefaultDagArgs
 from blueprint.errors import DagArgsNotFoundError, MultipleDagArgsError
 from blueprint.loaders import discover_yaml_files, get_blueprint_info, validate_yaml
@@ -341,6 +342,19 @@ def list_blueprints(template_dir: str | None, entry_points: bool):
     console.print(table)
 
 
+def _required_label(param_info: dict[str, Any]) -> str:
+    if param_info["required"]:
+        return "Yes"
+    if param_info.get("mandatory"):
+        return "When applicable"
+    return "No"
+
+
+def _condition_label(param_info: dict[str, Any]) -> str:
+    condition = param_info.get("applies_when")
+    return escape(from_json(condition).describe()) if condition else "-"
+
+
 @cli.command()
 @click.argument("blueprint_name")
 @click.option("--version", "-v", type=int, default=None, help="Specific version (default: latest)")
@@ -373,21 +387,28 @@ def describe(
     )
 
     if info["parameters"]:
+        conditional = any(p.get("applies_when") for p in info["parameters"].values())
+
         table = Table(title="Parameters")
         table.add_column("Name", style="cyan")
         table.add_column("Type", style="green")
         table.add_column("Required", style="yellow")
         table.add_column("Default", style="magenta")
         table.add_column("Description")
+        if conditional:
+            table.add_column("Applies when", style="blue")
 
         for param_name, param_info in info["parameters"].items():
-            table.add_row(
+            row = [
                 param_name,
                 param_info["type"],
-                "Yes" if param_info["required"] else "No",
+                _required_label(param_info),
                 str(param_info.get("default", "-")),
                 param_info.get("description", "-") or "-",
-            )
+            ]
+            if conditional:
+                row.append(_condition_label(param_info))
+            table.add_row(*row)
 
         console.print(table)
 
@@ -396,8 +417,12 @@ def describe(
     example_step: dict[str, object] = {"blueprint": blueprint_name}
     if version:
         example_step["version"] = version
+    defaults = {name: p.get("default") for name, p in info["parameters"].items()}
     for param_name, param_info in info["parameters"].items():
-        if param_info["required"]:
+        condition = param_info.get("applies_when")
+        if condition is not None and not applies(condition, defaults):
+            continue
+        if param_info["required"] or param_info.get("mandatory"):
             example_step[param_name] = f"<{param_info['type']}>"
         elif param_info.get("default") is not None:
             example_step[param_name] = param_info["default"]
@@ -661,21 +686,34 @@ def _convert_param_value(value: object, param_info: dict[str, Any]) -> object:
 
 
 def _collect_parameters(info: dict[str, Any]) -> dict[str, object]:
-    """Collect parameter values from user input."""
+    """Collect parameter values from user input, skipping inapplicable fields.
+
+    A field whose ``applies_when`` condition the answers so far do not satisfy is
+    never asked about, mirroring how an editor hides it.
+    """
     config: dict[str, object] = {}
+    answered: dict[str, object] = {
+        name: param.get("default") for name, param in info["parameters"].items()
+    }
 
     console.print("\n[bold]Enter configuration values:[/bold]")
     for param_name, param_info in info["parameters"].items():
+        condition = param_info.get("applies_when")
+        if condition is not None and not applies(condition, answered):
+            continue
+
+        required = param_info["required"] or param_info.get("mandatory", False)
+
         prompt = f"{param_name}"
         if param_info.get("description"):
             prompt += f" ({param_info['description']})"
 
-        if not param_info["required"] and param_info.get("default") is not None:
+        if not required and param_info.get("default") is not None:
             prompt += f" [default: {param_info['default']}]"
 
         prompt += ": "
 
-        if param_info["required"]:
+        if required:
             while True:
                 value = console.input(prompt)
                 if value:
@@ -683,10 +721,13 @@ def _collect_parameters(info: dict[str, Any]) -> dict[str, object]:
                 console.print("[red]This field is required[/red]")
         else:
             value = console.input(prompt)
-            if not value and param_info.get("default") is not None:
+            if not value:
+                if param_info.get("default") is None:
+                    continue
                 value = param_info["default"]
 
         config[param_name] = _convert_param_value(value, param_info)
+        answered[param_name] = config[param_name]
 
     return config
 
@@ -742,6 +783,8 @@ def new(template_dir: str | None, output_dir: str, entry_points: bool):
                     "description": prop.get("description", ""),
                     "default": prop.get("default"),
                     "required": name in dag_args_schema.get("required", []),
+                    "applies_when": prop.get(APPLIES_WHEN_KEY),
+                    "mandatory": bool(prop.get(MANDATORY_KEY)),
                 }
                 for name, prop in dag_args_params.items()
             }

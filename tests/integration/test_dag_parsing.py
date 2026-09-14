@@ -41,6 +41,25 @@ class TestDagParsing:
             bad_yaml.unlink(missing_ok=True)
             _wait_for_clean_dags(api_client)
 
+    def test_inapplicable_field_causes_failure(self, api_client: AirflowAPI):
+        """A field whose applies_when condition does not hold should fail the parse."""
+        bad_yaml = PROJECT_DIR / "dags" / "_bad_conditional.dag.yaml"
+        bad_yaml.write_text(
+            "dag_id: bad_conditional\n"
+            "steps:\n"
+            "  alert_email:\n"
+            "    blueprint: alert\n"
+            "    channel: email\n"
+            "    recipients: [ops@example.com]\n"
+            "    webhook: https://hooks.example.com/abc\n"
+        )
+        try:
+            result = _run_astro("dev", "pytest", "--standalone", check=False)
+            assert result.returncode != 0, "Expected failure for inapplicable field 'webhook'"
+        finally:
+            bad_yaml.unlink(missing_ok=True)
+            _wait_for_clean_dags(api_client)
+
     def test_invalid_dag_args_field_causes_failure(self, api_client: AirflowAPI):
         """A YAML with fields not in the DagArgs config should cause a parse failure."""
         bad_yaml = PROJECT_DIR / "dags" / "_bad_dag_args.dag.yaml"

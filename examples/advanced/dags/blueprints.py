@@ -11,8 +11,10 @@ from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
 
 from blueprint import (
+    AnyOf,
     BaseModel,
     Blueprint,
+    Condition,
     ConfigDict,
     Field,
     TaskOrGroup,
@@ -191,4 +193,60 @@ class Orbit(Blueprint[OrbitConfig]):
                 bash_command=f"echo 'Executing maneuver for {config.satellite_id}'",
             )
             calculate >> execute
+        return group
+
+
+# --- Relay: conditional fields driven by the chosen link type ---
+
+
+class RelayConfig(BaseModel):
+    link: Literal["ground_station", "satellite"] = "ground_station"
+    station_id: str | None = Field(
+        default=None,
+        applies_when=Condition("link", "==", "ground_station"),
+        mandatory=True,
+        description="Ground station to relay through",
+    )
+    relay_sat: str | None = Field(
+        default=None,
+        applies_when=Condition("link", "==", "satellite"),
+        mandatory=True,
+        description="Satellite to relay through",
+    )
+    hop_limit: int | None = Field(
+        default=None,
+        ge=1,
+        applies_when=Condition("link", "==", "satellite"),
+        description="Maximum hops, which only a satellite relay has",
+    )
+    backup_station: str | None = Field(
+        default=None,
+        applies_when=AnyOf(
+            Condition("link", "==", "ground_station"),
+            Condition("hop_limit", ">=", 3),
+        ),
+        description="Fallback station, for a direct link or a long satellite path",
+    )
+
+
+class Relay(Blueprint[RelayConfig]):
+    """Relay results onward, through a ground station or another satellite.
+
+    The fields that apply depend on ``link``: the condition is published in the
+    blueprint's JSON Schema, so an editor can hide the ones that do not apply
+    and ``blueprint lint`` rejects them if they are set anyway.
+    """
+
+    def render(self, config: RelayConfig) -> TaskOrGroup:
+        target = config.station_id or f"{config.relay_sat} (max {config.hop_limit} hops)"
+        with TaskGroup(group_id=self.step_id) as group:
+            send = BashOperator(
+                task_id="send",
+                bash_command=f"echo 'Relaying via {config.link}: {target}'",
+            )
+            if config.backup_station:
+                send >> BashOperator(
+                    task_id="verify_backup",
+                    bash_command=f"echo 'Backup ready: {config.backup_station}'",
+                )
         return group

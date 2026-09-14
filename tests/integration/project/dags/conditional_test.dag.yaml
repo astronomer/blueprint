@@ -1,0 +1,16 @@
+dag_id: conditional_test
+team: platform
+
+steps:
+  alert_email:
+    blueprint: alert
+    channel: email
+    recipients:
+      - ops@example.com
+
+  alert_slack:
+    blueprint: alert
+    channel: slack
+    webhook: https://hooks.example.com/abc
+    retries: 2
+    depends_on: [alert_email]

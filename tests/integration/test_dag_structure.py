@@ -24,6 +24,7 @@ EXPECTED_DAG_IDS = {
     "explicit_naming",
     "context_test",
     "sandbox_probe",
+    "conditional_test",
 }
 
 
@@ -158,6 +159,23 @@ class TestVersionedETL:
     def test_default_trigger_rule(self, api_client: AirflowAPI):
         tasks = self._get_tasks(api_client)
         assert tasks["transform.dedupe"]["trigger_rule"] == "all_success"
+
+
+class TestConditionalFields:
+    """Both branches of a conditional config build, each with only its own fields set."""
+
+    def _get_tasks(self, api_client: AirflowAPI) -> dict:
+        resp = api_client.get("/dags/conditional_test/tasks")
+        assert resp.status_code == 200
+        return {t["task_id"]: t for t in resp.json()["tasks"]}
+
+    def test_both_branches_build(self, api_client: AirflowAPI):
+        tasks = self._get_tasks(api_client)
+        assert set(tasks.keys()) == {"alert_email", "alert_slack"}
+
+    def test_branches_are_chained(self, api_client: AirflowAPI):
+        tasks = self._get_tasks(api_client)
+        assert tasks["alert_email"]["downstream_task_ids"] == ["alert_slack"]
 
 
 class TestExplicitNaming:

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from blueprint import conditions
 from blueprint.core import BlueprintDagArgs, TaskOrGroup
 from blueprint.errors import (
     BlueprintError,
@@ -288,7 +289,8 @@ class Builder:
     ) -> BaseModel:
         """Validate a DAG's top-level fields against an already-resolved template."""
         try:
-            return dag_args_cls.get_config_type()(**config.get_extra_fields())
+            validated = dag_args_cls.get_config_type()(**config.get_extra_fields())
+            conditions.check(validated)
         except ValidationError as e:
             name = dag_args_cls.template_name()
             location = self._registry.dag_args_location(name)
@@ -305,6 +307,8 @@ class Builder:
                 file_path=Path(source_path) if source_path else None,
                 suggestions=[f"Accepted DAG arguments: {accepted or 'none'}"],
             ) from e
+        else:
+            return validated
 
     def build_from_yaml(
         self,
@@ -448,6 +452,7 @@ class Builder:
 
         try:
             validated_config = config_type(**blueprint_config)
+            conditions.check(validated_config)
         except ValidationError as e:
             error_lines = []
             for err in e.errors():

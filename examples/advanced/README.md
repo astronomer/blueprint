@@ -1,6 +1,6 @@
 # Advanced Example
 
-Space-themed example demonstrating many Blueprint features across two YAML DAGs, a set of programmatically-built DAGs, and five blueprints.
+Space-themed example demonstrating many Blueprint features across two YAML DAGs, a set of programmatically-built DAGs, and six blueprints.
 
 ## Quick Start
 
@@ -30,6 +30,7 @@ Airflow UI: http://localhost:8080
 | **Transmit** | `supports_params`, `self.param()` for template fields, `self.resolve_config()` in `@task`, `Literal` type |
 | **Analyze** | `field_validator`, `ConfigDict(extra="forbid")`, sequential task chaining in TaskGroup |
 | **Orbit** | Explicit `name`/`version` attributes, `model_validator`, `Field(pattern=)`, nested config |
+| **Relay** | Conditional fields: `applies_when` with a `Condition` discriminator, `mandatory=True`, an `AnyOf` combinator |
 
 ### DAG Arguments (`dags/dag_args.py`)
 
@@ -39,8 +40,8 @@ Custom `BlueprintDagArgs` subclass that converts a `priority` field into a DAG t
 
 | DAG | Features |
 |---|---|
-| **satellite_telemetry** | Per-profile DAG args (`schedule`), variable composition, Jinja2 `env` access, version pinning, context proxy (`{{ context.ds_nodash }}`), custom DAG args |
-| **deep_space_survey** | Project variable (`${agency}`), partial per-profile override, mixed v1/v2 usage, complex dependency graph, context proxy |
+| **satellite_telemetry** | Per-profile DAG args (`schedule`), variable composition, Jinja2 `env` access, version pinning, context proxy (`{{ context.ds_nodash }}`), custom DAG args, the ground-station branch of a conditional config |
+| **deep_space_survey** | Project variable (`${agency}`), partial per-profile override, mixed v1/v2 usage, complex dependency graph, context proxy, the satellite branch of a conditional config |
 
 ### Variables (`dags/blueprint.vars.yaml`)
 

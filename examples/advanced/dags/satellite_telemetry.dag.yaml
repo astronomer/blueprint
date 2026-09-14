@@ -37,3 +37,10 @@ steps:
     destination: ${ground_station}
     protocol: tcp
     archive_path: ${archive_path}
+
+  relay_results:
+    blueprint: relay
+    depends_on: [transmit_results]
+    link: ground_station
+    station_id: ${ground_station}
+    backup_station: DSN-Canberra

@@ -743,6 +743,130 @@ class ETLConfig(BaseModel):
         return v
 ```
 
+## Conditional Fields
+
+Some fields only make sense given the value of another field. A relay has a
+`station_id` when it goes through a ground station and a `relay_sat` when it
+goes through a satellite, never both. Declare that with `applies_when`:
+
+```python
+from typing import Literal
+
+from blueprint import AnyOf, BaseModel, Condition, Field
+
+
+class RelayConfig(BaseModel):
+    link: Literal["ground_station", "satellite"] = "ground_station"
+
+    station_id: str | None = Field(
+        default=None,
+        applies_when=Condition("link", "==", "ground_station"),
+        mandatory=True,
+    )
+    relay_sat: str | None = Field(
+        default=None,
+        applies_when=Condition("link", "==", "satellite"),
+        mandatory=True,
+    )
+    hop_limit: int | None = Field(
+        default=None,
+        applies_when=Condition("link", "==", "satellite"),
+    )
+```
+
+`applies_when` says when a field is **in play**; setting it at any other time is
+an error. `mandatory=True` says it must be set whenever it does apply. The two
+are independent: a field can apply and still be optional, and one that does not
+apply is never required.
+
+```yaml
+steps:
+  relay:
+    blueprint: relay
+    link: satellite
+    relay_sat: SAT-200     # applies
+    hop_limit: 4           # applies
+    station_id: DSN-Madrid # rejected: only applicable when link == 'ground_station'
+```
+
+### Conditions
+
+A condition is a comparison of a **sibling field** against a literal:
+
+```python
+Condition("link", "==", "satellite")
+Condition("hop_limit", ">=", 3)
+Condition("region", "in", ["us", "eu"])
+Condition("name", "matches", r"^SAT-\d{3,}$")
+Condition("archive_path", "set")
+```
+
+| Operator | Meaning |
+|---|---|
+| `==`, `!=` | Equality, against a scalar or a `Literal` member |
+| `>`, `>=`, `<`, `<=` | Ordering, on an `int` or `float` field |
+| `in`, `not in` | Membership in a list of values |
+| `matches` | Regular expression search, on a `str` field |
+| `set`, `unset` | Whether the field has a value (no comparison value) |
+
+Combine them with `AllOf`, `AnyOf` and `Not`, which nest freely:
+
+```python
+backup_station: str | None = Field(
+    default=None,
+    applies_when=AnyOf(
+        Condition("link", "==", "ground_station"),
+        Condition("hop_limit", ">=", 3),
+    ),
+)
+```
+
+### What ends up in the schema
+
+The condition is published in the blueprint's JSON Schema twice: on the property
+itself, for editors that hide inapplicable fields, and compiled into standard
+`if`/`then`/`else`, so any JSON Schema validator enforces exactly what
+`blueprint lint` does.
+
+```jsonc
+"properties": {
+  "relay_sat": {
+    "type": "string",
+    "x-blueprint-applies-when": {"field": "link", "op": "==", "value": "satellite"},
+    "x-blueprint-mandatory": true
+  }
+},
+"allOf": [
+  {
+    "if": {"properties": {"link": {"const": "satellite"}}, "required": ["link"]},
+    "then": {"required": ["relay_sat"]},
+    "else": {"not": {"required": ["relay_sat"]}}
+  }
+]
+```
+
+`then` carries requiredness and `else` carries applicability. A mandatory field
+stays out of the top-level `required` array, since it is only required when its
+condition holds.
+
+`blueprint describe` shows the same thing as a column, and `blueprint new` skips
+prompting for fields the answers so far make inapplicable.
+
+### Rules
+
+- A field with `applies_when` must be declared `X | None` with a default of
+  `None`, so a field that does not apply is indistinguishable from an absent one
+  inside `render()`.
+- Conditions reference sibling fields within the same model. A nested model's
+  conditions refer to that model's own fields, which is what makes a `list[...]`
+  of variant objects work.
+- An explicit `null` counts as absent, so `station_id: null` is accepted even
+  when the field does not apply.
+- Everything is checked when the blueprint class is defined: unknown fields,
+  unknown operators, self-references, and values that the referenced field's
+  type could never hold (`>=` against a `str`, or an `==` value that is not a
+  member of its `Literal`).
+
 ## Config Options for Template Authors
 
 Pydantic offers model-level configuration that can make your Blueprint configs stricter or more flexible. Two options are particularly useful for YAML-based composition:
