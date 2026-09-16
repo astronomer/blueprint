@@ -705,7 +705,7 @@ This is useful for applying cross-cutting concerns like access controls, tags, o
 
 Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **YAML** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself.
 
-`build_all_airflow_dags()` stores each DAG's YAML text in `default_args` under `blueprint_source`. It travels with the serialized DAG, so the tab shows the YAML the DAG was built from and needs no access to the dags folder. Operators ignore `default_args` keys they do not accept, so tasks never see it. Pass `embed_source=False` to leave it out.
+`build_all_airflow_dags()` stores each DAG's YAML text in `default_args` under `blueprint_source`. It travels with the serialized DAG, so the tab shows the YAML the DAG was last parsed from and needs no access to the dags folder. An edit to the file shows up after the next parse. Operators ignore `default_args` keys they do not accept, so tasks never see it. Pass `embed_source=False` to leave it out.
 
 ## Ignoring DAG YAML Files
 

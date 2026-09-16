@@ -94,17 +94,17 @@ def create_app() -> "FastAPI":
 
 try:
     _fastapi_apps = [{"app": create_app(), "url_prefix": URL_PREFIX, "name": "Blueprint"}]
+    _external_views = [
+        {
+            "name": "YAML",
+            "href": f"{URL_PREFIX}/dags/{{DAG_ID}}/yaml",
+            "destination": "dag",
+            "url_route": "blueprint",
+        }
+    ]
 except ImportError:
     _fastapi_apps = []
-
-_external_views = [
-    {
-        "name": "YAML",
-        "href": f"{URL_PREFIX}/dags/{{DAG_ID}}/yaml",
-        "destination": "dag",
-        "url_route": "blueprint",
-    }
-]
+    _external_views = []
 
 
 class BlueprintPlugin(AirflowPlugin):
