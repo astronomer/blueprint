@@ -1026,9 +1026,9 @@ steps:
             render_templates=False,
         )
         tags_by_dag = {dag.dag_id: set(dag.tags) for dag in dags}
-        assert tags_by_dag["missions_dag"] == {"MissionDagArgs"}
-        assert tags_by_dag["observatory_dag"] == {"ObservatoryDagArgs"}
-        assert tags_by_dag["orphan_dag"] == {"MissionDagArgs"}
+        assert "MissionDagArgs" in tags_by_dag["missions_dag"]
+        assert "ObservatoryDagArgs" in tags_by_dag["observatory_dag"]
+        assert "MissionDagArgs" in tags_by_dag["orphan_dag"]
 
     def test_build_all_ambiguous_dag_args_raises(self, tmp_path):
         from blueprint.builder import build_all_airflow_dags
@@ -1763,3 +1763,34 @@ class TestResolveConfig:
         context = {"params": {"greet__count": -1}}
         with pytest.raises(ValidationError):
             bp.resolve_config(config, context)
+
+
+class TestSourceTags:
+    """DAGs built from YAML are tagged with the path of that YAML."""
+
+    def _build(self, tmp_path, **kwargs):
+        from blueprint.builder import build_all_airflow_dags
+
+        write_stub_blueprint(tmp_path)
+        write_dag_yaml(tmp_path / "team", "meta_test")
+        return build_all_airflow_dags(
+            search_path=tmp_path, register_globals={}, render_templates=False, **kwargs
+        )
+
+    def test_tag_names_the_yaml_relative_to_the_search_path(self, tmp_path):
+        (dag,) = self._build(tmp_path)
+        assert "blueprint:team/meta_test.dag.yaml" in dag.tags
+
+    def test_opt_out(self, tmp_path):
+        (dag,) = self._build(tmp_path, source_tags=False)
+        assert not {t for t in dag.tags if t.startswith("blueprint:")}
+
+    def test_tag_skipped_when_it_would_not_fit_airflow_tag_column(self, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        write_stub_blueprint(tmp_path)
+        write_dag_yaml(tmp_path / ("d" * 120), "long_tag_test")
+        (dag,) = build_all_airflow_dags(
+            search_path=tmp_path, register_globals={}, render_templates=False
+        )
+        assert not {t for t in dag.tags if t.startswith("blueprint:")}

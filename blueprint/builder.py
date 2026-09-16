@@ -32,6 +32,9 @@ OnDagBuilt = Callable[["DAG", Path], None]
 
 DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
+SOURCE_TAG_PREFIX = "blueprint:"
+AIRFLOW_TAG_MAX_LEN = 100
+
 _PARAM_SCHEMA_KEYS = frozenset(
     {
         "type",
@@ -576,6 +579,55 @@ def _check_duplicate_dag_id(dag_id: str, yaml_path: Path, dag_id_to_file: dict[s
         raise DuplicateDAGIdError(dag_id, [dag_id_to_file[dag_id], yaml_path])
 
 
+def _load_dag_config(
+    yaml_path: Path,
+    search_root: Path,
+    render_templates: bool,
+    template_context: dict[str, Any] | None,
+    profile: str | None,
+) -> DAGConfig | None:
+    """Render, resolve variables in, and validate one DAG YAML.
+
+    Returns None for YAML files that are not DAG definitions (no ``steps`` field).
+    """
+    from blueprint import vars as bp_vars
+    from blueprint.loaders import render_yaml_template
+
+    if render_templates:
+        raw_config, _rendered = render_yaml_template(
+            yaml_path,
+            context={"profile": profile, **(template_context or {})},
+            use_airflow_context=True,
+        )
+    else:
+        raw_config = yaml.safe_load(yaml_path.read_text())
+
+    if not raw_config or not isinstance(raw_config, dict) or "steps" not in raw_config:
+        logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
+        return None
+
+    raw_config, _resolved = bp_vars.resolve(
+        raw_config, yaml_path, profile=profile, search_root=search_root
+    )
+    return DAGConfig.model_validate(raw_config)
+
+
+def tag_source(dag: "DAG", yaml_path: Path, search_path: Path) -> None:
+    """Tag a DAG with ``blueprint:<path>``, naming the YAML it was built from.
+
+    The path is relative to ``search_path`` so it stays stable across machines.
+    Skipped when the tag would not fit Airflow's tag column.
+
+    Args:
+        dag: The built DAG.
+        yaml_path: The DAG's YAML file.
+        search_path: The directory the DAGs were discovered in.
+    """
+    tag = f"{SOURCE_TAG_PREFIX}{yaml_path.relative_to(search_path).as_posix()}"
+    if len(tag) <= AIRFLOW_TAG_MAX_LEN:
+        dag.tags = {*(dag.tags or ()), tag}
+
+
 def build_all_airflow_dags(
     search_path: str | Path | None = None,
     register_globals: dict | None = None,
@@ -587,6 +639,7 @@ def build_all_airflow_dags(
     skip_invalid_dags: bool = False,
     discover_entry_points: bool = True,
     profile: str | None = None,
+    source_tags: bool = True,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -622,6 +675,8 @@ def build_all_airflow_dags(
             group. Ignored when ``bp_registry`` is supplied directly.
         profile: Active variable profile. Only needed when a referenced variable
             declares a per-profile value.
+        source_tags: Whether to tag each DAG with ``blueprint:<yaml path>``. The
+            Airflow UI plugin reads this tag to find the YAML behind a DAG.
 
     Returns:
         List of built DAGs
@@ -634,8 +689,7 @@ def build_all_airflow_dags(
         build_all_airflow_dags()
         ```
     """
-    from blueprint import vars as bp_vars
-    from blueprint.loaders import discover_yaml_files, render_yaml_template
+    from blueprint.loaders import discover_yaml_files
 
     if register_globals is None:
         frame = inspect.currentframe()
@@ -669,27 +723,17 @@ def build_all_airflow_dags(
     skipped_files: set[str] = set()
     for yaml_path in yaml_files:
         try:
-            if render_templates:
-                raw_config, _rendered = render_yaml_template(
-                    yaml_path,
-                    context={"profile": profile, **(template_context or {})},
-                    use_airflow_context=True,
-                )
-            else:
-                raw_content = yaml_path.read_text()
-                raw_config = yaml.safe_load(raw_content)
-
-            if not raw_config or not isinstance(raw_config, dict) or "steps" not in raw_config:
-                logger.debug("Skipping %s: no 'steps' field", yaml_path.name)
+            dag_config = _load_dag_config(
+                yaml_path, resolved_path, render_templates, template_context, profile
+            )
+            if dag_config is None:
                 continue
 
-            raw_config, _resolved = bp_vars.resolve(
-                raw_config, yaml_path, profile=profile, search_root=resolved_path
-            )
-
-            dag_config = DAGConfig.model_validate(raw_config)
             _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
             dag = builder.build(dag_config, source_path=yaml_path)
+
+            if source_tags:
+                tag_source(dag, yaml_path, resolved_path)
 
             if on_dag_built:
                 on_dag_built(dag, yaml_path)

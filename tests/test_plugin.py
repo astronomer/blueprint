@@ -7,7 +7,15 @@ pytest.importorskip("fastapi")
 from conftest import write_dag_yaml
 from fastapi.testclient import TestClient
 
+from blueprint import plugin
 from blueprint.plugin import URL_PREFIX, BlueprintPlugin, create_app, find_dag_yaml
+
+
+@pytest.fixture(autouse=True)
+def tagged(monkeypatch):
+    tags: dict[str, str] = {}
+    monkeypatch.setattr(plugin, "source_from_tag", tags.get)
+    return tags
 
 
 @pytest.fixture
@@ -19,13 +27,35 @@ def dags_folder(tmp_path):
     return tmp_path
 
 
-def test_find_dag_yaml_matches_on_dag_id_past_broken_files(dags_folder):
-    path, text = find_dag_yaml("plugin_pipeline", dags_folder)
-    assert path == dags_folder / "nested" / "plugin_pipeline.dag.yaml"
-    assert text.startswith("dag_id: plugin_pipeline\n")
+def test_tag_wins_without_a_scan(dags_folder, tagged):
+    tagged["plugin_pipeline"] = "nested/plugin_pipeline.dag.yaml"
+    (dags_folder / "nested" / "plugin_pipeline.dag.yaml").write_text("dag_id: renamed\n")
+    assert find_dag_yaml("plugin_pipeline", dags_folder) == (
+        dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+    )
 
 
-def test_find_dag_yaml_honors_airflowignore(dags_folder):
+def test_tag_outside_the_dags_folder_falls_back_to_scan(dags_folder, tagged):
+    tagged["plugin_pipeline"] = "../../etc/passwd"
+    assert find_dag_yaml("plugin_pipeline", dags_folder) == (
+        dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+    )
+
+
+def test_stale_tag_falls_back_to_scan(dags_folder, tagged):
+    tagged["plugin_pipeline"] = "moved/plugin_pipeline.dag.yaml"
+    assert find_dag_yaml("plugin_pipeline", dags_folder) == (
+        dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+    )
+
+
+def test_scan_matches_on_dag_id_past_broken_files(dags_folder):
+    assert find_dag_yaml("plugin_pipeline", dags_folder) == (
+        dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+    )
+
+
+def test_scan_honors_airflowignore(dags_folder):
     assert find_dag_yaml("ignored_pipeline", dags_folder) is None
 
 

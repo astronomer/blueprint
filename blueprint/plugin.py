@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import yaml
 from airflow.plugins_manager import AirflowPlugin
 
+from blueprint.builder import SOURCE_TAG_PREFIX
 from blueprint.loaders import discover_yaml_files
 
 if TYPE_CHECKING:
@@ -34,29 +35,67 @@ PAGE = """<!doctype html>
 """
 
 
-def find_dag_yaml(dag_id: str, dags_folder: Path) -> tuple[Path, str] | None:
-    """Find the DAG YAML whose raw ``dag_id`` field matches.
-
-    Walks the folder the way the DAG processor does, honoring ``.airflowignore``.
-    Matches on the unrendered file, so a ``dag_id`` set through Jinja or a
-    ``${var}`` reference is not found.
+def source_from_tag(dag_id: str) -> str | None:
+    """Read the ``blueprint:<path>`` tag ``build_all_airflow_dags`` put on the DAG.
 
     Args:
         dag_id: DAG id shown in the Airflow UI.
-        dags_folder: Root of the DAGs folder.
 
     Returns:
-        The matching path and its text, or None.
+        The tagged path, relative to the dags folder, or None if the DAG has no tag.
+    """
+    from airflow.models.dag import DagModel
+    from airflow.utils.session import create_session
+
+    with create_session() as session:
+        dag_model = session.get(DagModel, dag_id)
+        if dag_model is None:
+            return None
+        for tag in dag_model.tags:
+            if tag.name.startswith(SOURCE_TAG_PREFIX):
+                return tag.name[len(SOURCE_TAG_PREFIX) :]
+    return None
+
+
+def scan_for_dag_yaml(dag_id: str, dags_folder: Path) -> Path | None:
+    """Walk the dags folder for the YAML whose raw ``dag_id`` field matches.
+
+    Honors ``.airflowignore`` like the DAG processor. Reads the unrendered file,
+    so a ``dag_id`` set through Jinja or a ``${var}`` reference is not found.
+
+    Args:
+        dag_id: DAG id shown in the Airflow UI.
+        dags_folder: Root of the dags folder.
+
+    Returns:
+        The matching path, or None.
     """
     for path in discover_yaml_files(dags_folder, "*.dag.yaml"):
         try:
-            text = path.read_text(encoding="utf-8")
-            config = yaml.safe_load(text)
+            config = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (yaml.YAMLError, OSError):
             continue
         if isinstance(config, dict) and config.get("dag_id") == dag_id:
-            return path, text
+            return path
     return None
+
+
+def find_dag_yaml(dag_id: str, dags_folder: Path) -> Path | None:
+    """Find the YAML a DAG was built from: by its source tag, else by scanning.
+
+    Args:
+        dag_id: DAG id shown in the Airflow UI.
+        dags_folder: Root of the dags folder. Tagged paths must stay inside it.
+
+    Returns:
+        The matching path, or None.
+    """
+    tagged = source_from_tag(dag_id)
+    if tagged:
+        path = dags_folder / tagged
+        if path.is_file() and path.resolve().is_relative_to(dags_folder.resolve()):
+            return path
+    return scan_for_dag_yaml(dag_id, dags_folder)
 
 
 def create_app(dags_folder: Path | None = None) -> "FastAPI":
@@ -77,10 +116,10 @@ def create_app(dags_folder: Path | None = None) -> "FastAPI":
 
     @app.get("/dags/{dag_id}/yaml", response_class=HTMLResponse)
     def dag_yaml(dag_id: str) -> str:
-        found = find_dag_yaml(dag_id, folder)
-        if found is None:
+        path = find_dag_yaml(dag_id, folder)
+        if path is None:
             raise HTTPException(status_code=404, detail=f"No Blueprint YAML found for {dag_id}")
-        path, text = found
+        text = path.read_text(encoding="utf-8")
         return PAGE.format(title=html.escape(path.name), body=html.escape(text))
 
     return app

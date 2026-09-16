@@ -701,6 +701,12 @@ build_all_airflow_dags(on_dag_built=post_process)
 
 This is useful for applying cross-cutting concerns like access controls, tags, or custom metadata that shouldn't live in individual YAML files. The callback runs once per DAG, after all steps are wired up.
 
+## Viewing the YAML in the Airflow UI
+
+Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **Blueprint** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself.
+
+`build_all_airflow_dags()` tags each DAG with `blueprint:<yaml path>`, relative to the search path, so the tab finds the file without scanning the dags folder. Pass `source_tags=False` to leave the tag off; the tab then falls back to a scan.
+
 ## Ignoring DAG YAML Files
 
 `build_all_airflow_dags()` honors [`.airflowignore`](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#airflowignore) files, with the same syntax and semantics as Airflow's DAG processor (including the `core.dag_ignore_file_syntax` setting and nested ignore files). A YAML file matched by an ignore entry is skipped:
