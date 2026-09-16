@@ -1,108 +1,61 @@
 """Tests for the Airflow UI plugin."""
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
 
-from conftest import write_dag_yaml
 from fastapi.testclient import TestClient
 
 from blueprint import plugin
-from blueprint.plugin import URL_PREFIX, BlueprintPlugin, create_app, find_dag_yaml
+from blueprint.plugin import (
+    NOT_FOUND_MESSAGE,
+    URL_PREFIX,
+    BlueprintPlugin,
+    create_app,
+    source_yaml_from_default_args,
+)
+
+PIPELINE_YAML = "dag_id: plugin_pipeline\nteam: data-eng\nsteps:\n  s1:\n    blueprint: stub\n"
 
 
 @pytest.fixture(autouse=True)
-def tagged(monkeypatch):
-    tags: dict[str, str] = {}
-    monkeypatch.setattr(plugin, "source_from_tag", tags.get)
-    monkeypatch.setattr(plugin, "_found", {})
-    return tags
+def sources(monkeypatch):
+    by_dag: dict[str, str] = {}
+    monkeypatch.setattr(plugin, "source_yaml", by_dag.get)
+    return by_dag
 
 
-@pytest.fixture
-def dags_folder(tmp_path):
-    write_dag_yaml(tmp_path / "nested", "plugin_pipeline", top_level="team: data-eng\n")
-    write_dag_yaml(tmp_path / "drafts", "ignored_pipeline")
-    (tmp_path / ".airflowignore").write_text("drafts/\n")
-    (tmp_path / "broken.dag.yaml").write_text("dag_id: [unclosed")
-    return tmp_path
+def test_reads_yaml_from_serialized_default_args():
+    serialized = {"__type": "dict", "__var": {"owner": "x", "blueprint_source": PIPELINE_YAML}}
+    assert source_yaml_from_default_args(serialized) == PIPELINE_YAML
 
 
-def test_tag_wins_without_a_scan(dags_folder):
-    (dags_folder / "nested" / "plugin_pipeline.dag.yaml").write_text("dag_id: renamed\n")
-    found = find_dag_yaml("plugin_pipeline", dags_folder, "nested/plugin_pipeline.dag.yaml")
-    assert found == dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+def test_reads_yaml_from_plain_default_args():
+    assert source_yaml_from_default_args({"blueprint_source": PIPELINE_YAML}) == PIPELINE_YAML
 
 
-def test_tag_outside_the_dags_folder_falls_back_to_scan(dags_folder):
-    found = find_dag_yaml("plugin_pipeline", dags_folder, "../../etc/passwd")
-    assert found == dags_folder / "nested" / "plugin_pipeline.dag.yaml"
+@pytest.mark.parametrize("default_args", [None, {}, {"owner": "x"}, {"blueprint_source": 3}, "no"])
+def test_no_yaml_when_default_args_lack_it(default_args):
+    assert source_yaml_from_default_args(default_args) is None
 
 
-def test_stale_tag_falls_back_to_scan(dags_folder):
-    found = find_dag_yaml("plugin_pipeline", dags_folder, "moved/plugin_pipeline.dag.yaml")
-    assert found == dags_folder / "nested" / "plugin_pipeline.dag.yaml"
-
-
-def test_scan_matches_on_dag_id_past_broken_files(dags_folder):
-    found = find_dag_yaml("plugin_pipeline", dags_folder, None)
-    assert found == dags_folder / "nested" / "plugin_pipeline.dag.yaml"
-
-
-def test_scan_honors_airflowignore(dags_folder):
-    assert find_dag_yaml("ignored_pipeline", dags_folder, None) is None
-
-
-def test_repeat_lookup_skips_the_scan_while_the_file_is_unchanged(dags_folder, monkeypatch):
-    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
-    monkeypatch.setattr(plugin, "scan_for_dag_yaml", lambda *_: pytest.fail("scanned again"))
-    assert find_dag_yaml("plugin_pipeline", dags_folder, None) == path
-
-
-def test_edited_file_is_scanned_again(dags_folder):
-    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
-    assert path is not None
-    path.write_text("dag_id: renamed\nsteps: {}\n")
-    os.utime(path, (0, 0))
-    assert find_dag_yaml("plugin_pipeline", dags_folder, None) is None
-    assert find_dag_yaml("renamed", dags_folder, None) == path
-
-
-def test_deleted_file_is_scanned_again(dags_folder):
-    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
-    assert path is not None
-    path.unlink()
-    write_dag_yaml(dags_folder / "moved", "plugin_pipeline")
-    assert find_dag_yaml("plugin_pipeline", dags_folder, None) == (
-        dags_folder / "moved" / "plugin_pipeline.dag.yaml"
-    )
-
-
-def test_yaml_page_shows_source(dags_folder):
-    resp = TestClient(create_app(dags_folder)).get("/dags/plugin_pipeline/yaml")
+def test_yaml_page_shows_source(sources):
+    sources["plugin_pipeline"] = PIPELINE_YAML
+    resp = TestClient(create_app()).get("/dags/plugin_pipeline/yaml")
     assert resp.status_code == 200
-    assert "<title>plugin_pipeline.dag.yaml</title>" in resp.text
+    assert "<title>plugin_pipeline</title>" in resp.text
     assert "<pre>dag_id: plugin_pipeline\nteam: data-eng" in resp.text
 
 
-def test_yaml_page_explains_a_dag_without_yaml(dags_folder):
-    resp = TestClient(create_app(dags_folder)).get("/dags/python_dag/yaml")
+def test_yaml_page_explains_a_dag_without_yaml():
+    resp = TestClient(create_app()).get("/dags/python_dag/yaml")
     assert resp.status_code == 200
-    assert "not built from a Blueprint YAML file, or the file is not on this server" in resp.text
+    assert NOT_FOUND_MESSAGE in resp.text
 
 
-def test_yaml_page_names_a_tagged_file_missing_from_this_server(dags_folder, tagged):
-    tagged["moved_dag"] = "elsewhere/moved.dag.yaml"
-    resp = TestClient(create_app(dags_folder)).get("/dags/moved_dag/yaml")
-    assert resp.status_code == 200
-    assert "built from elsewhere/moved.dag.yaml, but that file is not on this server" in resp.text
-
-
-def test_yaml_page_escapes_html(tmp_path):
-    write_dag_yaml(tmp_path, "x", top_level="description: <b>bold</b>\n")
-    resp = TestClient(create_app(tmp_path)).get("/dags/x/yaml")
+def test_yaml_page_escapes_html(sources):
+    sources["x"] = "dag_id: x\ndescription: <b>bold</b>\n"
+    resp = TestClient(create_app()).get("/dags/x/yaml")
     assert "&lt;b&gt;bold&lt;/b&gt;" in resp.text
     assert "<b>bold</b>" not in resp.text
 
@@ -110,6 +63,7 @@ def test_yaml_page_escapes_html(tmp_path):
 def test_plugin_tab_points_at_the_yaml_route():
     (view,) = BlueprintPlugin.external_views
     (fastapi_app,) = BlueprintPlugin.fastapi_apps
+    assert view["name"] == "YAML"
     assert view["destination"] == "dag"
     assert view["href"] == f"{URL_PREFIX}/dags/{{DAG_ID}}/yaml"
     assert fastapi_app["url_prefix"] == URL_PREFIX
@@ -117,4 +71,4 @@ def test_plugin_tab_points_at_the_yaml_route():
         view["href"].replace("{DAG_ID}", "nope")[len(URL_PREFIX) :]
     )
     assert resp.status_code == 200
-    assert "not built from a Blueprint YAML file" in resp.text
+    assert NOT_FOUND_MESSAGE in resp.text

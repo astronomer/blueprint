@@ -1765,32 +1765,31 @@ class TestResolveConfig:
             bp.resolve_config(config, context)
 
 
-class TestSourceTags:
-    """DAGs built from YAML are tagged with the path of that YAML."""
+class TestEmbeddedSourceYaml:
+    """DAGs built from YAML carry that YAML in default_args for the UI plugin."""
 
     def _build(self, tmp_path, **kwargs):
         from blueprint.builder import build_all_airflow_dags
 
         write_stub_blueprint(tmp_path)
-        write_dag_yaml(tmp_path / "team", "meta_test")
+        self.yaml_path = write_dag_yaml(tmp_path / "team", "meta_test")
         return build_all_airflow_dags(
             search_path=tmp_path, register_globals={}, render_templates=False, **kwargs
         )
 
-    def test_tag_names_the_yaml_relative_to_the_search_path(self, tmp_path):
-        (dag,) = self._build(tmp_path, source_tags=True)
-        assert "blueprint:team/meta_test.dag.yaml" in dag.tags
-
-    def test_off_by_default(self, tmp_path):
+    def test_default_args_carry_the_raw_yaml(self, tmp_path):
         (dag,) = self._build(tmp_path)
-        assert not {t for t in dag.tags if t.startswith("blueprint:")}
+        assert dag.default_args["blueprint_source"] == self.yaml_path.read_text()
 
-    def test_tag_skipped_when_it_would_not_fit_airflow_tag_column(self, tmp_path):
-        from blueprint.builder import build_all_airflow_dags
+    def test_opt_out(self, tmp_path):
+        (dag,) = self._build(tmp_path, embed_source=False)
+        assert "blueprint_source" not in dag.default_args
 
-        write_stub_blueprint(tmp_path)
-        write_dag_yaml(tmp_path / ("d" * 120), "long_tag_test")
-        (dag,) = build_all_airflow_dags(
-            search_path=tmp_path, register_globals={}, render_templates=False, source_tags=True
-        )
-        assert not {t for t in dag.tags if t.startswith("blueprint:")}
+    def test_yaml_survives_serialization_and_tasks_ignore_it(self, tmp_path):
+        from airflow.serialization.serialized_objects import SerializedDAG
+
+        (dag,) = self._build(tmp_path)
+        restored = SerializedDAG.from_dict(SerializedDAG.to_dict(dag))
+        assert restored.default_args["blueprint_source"] == self.yaml_path.read_text()
+        for task in restored.tasks:
+            assert not hasattr(task, "blueprint_source")

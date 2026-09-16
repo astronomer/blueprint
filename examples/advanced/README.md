@@ -65,13 +65,12 @@ blueprint vars dags/satellite_telemetry.dag.yaml --profile flight
 only logic in Python is choosing *which* profile is active -- every value lives
 in YAML, so `blueprint lint` resolves exactly what the DAG processor does.
 
-### Blueprint tab in the Airflow UI
+### YAML tab in the Airflow UI
 
-On Airflow 3.1+, every DAG page gets a **Blueprint** tab showing the YAML the
-DAG was built from. Open `deep_space_survey` and click the tab to compare the
-source YAML with the rendered tasks. The tab finds the file by scanning
-`dags/`; pass `source_tags=True` to `build_all_airflow_dags()` to tag each
-DAG with its file instead.
+On Airflow 3.1+, every DAG page gets a **YAML** tab showing the YAML the DAG
+was built from. Open `deep_space_survey` and click the tab to compare the
+source YAML with the rendered tasks. The text comes from the serialized DAG,
+where `build_all_airflow_dags()` stored it, so it matches what was parsed.
 
 ### Ignoring DAG YAML (`dags/.airflowignore`)
 

@@ -32,8 +32,7 @@ OnDagBuilt = Callable[["DAG", Path], None]
 
 DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-SOURCE_TAG_PREFIX = "blueprint:"
-AIRFLOW_TAG_MAX_LEN = 100
+SOURCE_YAML_KEY = "blueprint_source"
 
 _PARAM_SCHEMA_KEYS = frozenset(
     {
@@ -612,20 +611,18 @@ def _load_dag_config(
     return DAGConfig.model_validate(raw_config)
 
 
-def tag_source(dag: "DAG", yaml_path: Path, search_path: Path) -> None:
-    """Tag a DAG with ``blueprint:<path>``, naming the YAML it was built from.
+def embed_source_yaml(dag: "DAG", yaml_path: Path) -> None:
+    """Store the DAG's YAML text in ``default_args`` under ``blueprint_source``.
 
-    The path is relative to ``search_path`` so it stays stable across machines.
-    Skipped when the tag would not fit Airflow's tag column.
+    ``default_args`` survives DAG serialization, so the Airflow UI plugin can show
+    the YAML a DAG version was built from without reading the dags folder.
+    Operators ignore ``default_args`` keys they do not accept, so no task sees it.
 
     Args:
         dag: The built DAG.
         yaml_path: The DAG's YAML file.
-        search_path: The directory the DAGs were discovered in.
     """
-    tag = f"{SOURCE_TAG_PREFIX}{yaml_path.relative_to(search_path).as_posix()}"
-    if len(tag) <= AIRFLOW_TAG_MAX_LEN:
-        dag.tags = {*(dag.tags or ()), tag}
+    dag.default_args = {**dag.default_args, SOURCE_YAML_KEY: yaml_path.read_text()}
 
 
 def build_all_airflow_dags(
@@ -639,7 +636,7 @@ def build_all_airflow_dags(
     skip_invalid_dags: bool = False,
     discover_entry_points: bool = True,
     profile: str | None = None,
-    source_tags: bool = False,
+    embed_source: bool = True,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -675,9 +672,8 @@ def build_all_airflow_dags(
             group. Ignored when ``bp_registry`` is supplied directly.
         profile: Active variable profile. Only needed when a referenced variable
             declares a per-profile value.
-        source_tags: Tag each DAG with ``blueprint:<yaml path>``. Off by default so
-            Blueprint does not add tags users did not ask for. The Airflow UI plugin
-            reads the tag when present and scans the dags folder otherwise.
+        embed_source: Store each DAG's YAML text in ``default_args`` under
+            ``blueprint_source`` so the Airflow UI plugin can show it.
 
     Returns:
         List of built DAGs
@@ -733,8 +729,8 @@ def build_all_airflow_dags(
             _check_duplicate_dag_id(dag_config.dag_id, yaml_path, dag_id_to_file)
             dag = builder.build(dag_config, source_path=yaml_path)
 
-            if source_tags:
-                tag_source(dag, yaml_path, resolved_path)
+            if embed_source:
+                embed_source_yaml(dag, yaml_path)
 
             if on_dag_built:
                 on_dag_built(dag, yaml_path)
