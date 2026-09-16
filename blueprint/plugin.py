@@ -80,22 +80,39 @@ def scan_for_dag_yaml(dag_id: str, dags_folder: Path) -> Path | None:
     return None
 
 
-def find_dag_yaml(dag_id: str, dags_folder: Path) -> Path | None:
+def find_dag_yaml(dag_id: str, dags_folder: Path, tagged: str | None) -> Path | None:
     """Find the YAML a DAG was built from: by its source tag, else by scanning.
 
     Args:
         dag_id: DAG id shown in the Airflow UI.
         dags_folder: Root of the dags folder. Tagged paths must stay inside it.
+        tagged: The path from the DAG's source tag, if it has one.
 
     Returns:
         The matching path, or None.
     """
-    tagged = source_from_tag(dag_id)
     if tagged:
         path = dags_folder / tagged
         if path.is_file() and path.resolve().is_relative_to(dags_folder.resolve()):
             return path
     return scan_for_dag_yaml(dag_id, dags_folder)
+
+
+def not_found_message(tagged: str | None) -> str:
+    """Explain why no YAML is shown, as well as the source tag allows.
+
+    Args:
+        tagged: The path from the DAG's source tag, if it has one.
+
+    Returns:
+        A sentence for the tab body.
+    """
+    if tagged:
+        return f"This DAG was built from {tagged}, but that file is not on this server."
+    return (
+        "This DAG was not built from a Blueprint YAML file. "
+        "It may be a Python DAG, or built with source_tags off."
+    )
 
 
 def create_app(dags_folder: Path | None = None) -> "FastAPI":
@@ -108,7 +125,7 @@ def create_app(dags_folder: Path | None = None) -> "FastAPI":
         The configured FastAPI app.
     """
     from airflow.configuration import conf
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI
     from fastapi.responses import HTMLResponse
 
     folder = dags_folder or Path(conf.get("core", "dags_folder"))
@@ -116,9 +133,11 @@ def create_app(dags_folder: Path | None = None) -> "FastAPI":
 
     @app.get("/dags/{dag_id}/yaml", response_class=HTMLResponse)
     def dag_yaml(dag_id: str) -> str:
-        path = find_dag_yaml(dag_id, folder)
+        tagged = source_from_tag(dag_id)
+        path = find_dag_yaml(dag_id, folder, tagged)
         if path is None:
-            raise HTTPException(status_code=404, detail=f"No Blueprint YAML found for {dag_id}")
+            message = not_found_message(tagged)
+            return PAGE.format(title=html.escape(dag_id), body=html.escape(message))
         text = path.read_text(encoding="utf-8")
         return PAGE.format(title=html.escape(path.name), body=html.escape(text))
 

@@ -28,6 +28,7 @@ def test_yaml_page_serves_the_source_file(api_client):
     assert "dag_id: simple_pipeline" in resp.text
 
 
-def test_yaml_page_404_for_unknown_dag(api_client):
+def test_yaml_page_explains_a_dag_without_yaml(api_client):
     resp = httpx.get(f"{api_client.base_url}/blueprint/dags/nope/yaml", timeout=30)
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    assert "not built from a Blueprint YAML file" in resp.text
