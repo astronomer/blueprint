@@ -6,6 +6,7 @@ attribute. Airflow 2 has no FastAPI, so the app is skipped there.
 """
 
 import html
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,8 +81,22 @@ def scan_for_dag_yaml(dag_id: str, dags_folder: Path) -> Path | None:
     return None
 
 
+_found: dict[str, tuple[Path, float]] = {}
+_found_lock = threading.Lock()
+
+
+def _unchanged(path: Path, mtime: float) -> bool:
+    try:
+        return path.stat().st_mtime == mtime
+    except OSError:
+        return False
+
+
 def find_dag_yaml(dag_id: str, dags_folder: Path, tagged: str | None) -> Path | None:
     """Find the YAML a DAG was built from: by its source tag, else by scanning.
+
+    Scan results are remembered per ``dag_id`` and reused while the file's
+    mtime is unchanged, so repeat visits cost one stat instead of a walk.
 
     Args:
         dag_id: DAG id shown in the Airflow UI.
@@ -95,7 +110,19 @@ def find_dag_yaml(dag_id: str, dags_folder: Path, tagged: str | None) -> Path | 
         path = dags_folder / tagged
         if path.is_file() and path.resolve().is_relative_to(dags_folder.resolve()):
             return path
-    return scan_for_dag_yaml(dag_id, dags_folder)
+
+    with _found_lock:
+        hit = _found.get(dag_id)
+    if hit is not None:
+        remembered, mtime = hit
+        if _unchanged(remembered, mtime):
+            return remembered
+
+    path = scan_for_dag_yaml(dag_id, dags_folder)
+    if path:
+        with _found_lock:
+            _found[dag_id] = (path, path.stat().st_mtime)
+    return path
 
 
 def not_found_message(tagged: str | None) -> str:
@@ -109,10 +136,7 @@ def not_found_message(tagged: str | None) -> str:
     """
     if tagged:
         return f"This DAG was built from {tagged}, but that file is not on this server."
-    return (
-        "This DAG was not built from a Blueprint YAML file. "
-        "It may be a Python DAG, or built with source_tags off."
-    )
+    return "This DAG was not built from a Blueprint YAML file, or the file is not on this server."
 
 
 def create_app(dags_folder: Path | None = None) -> "FastAPI":

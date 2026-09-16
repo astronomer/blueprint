@@ -1778,11 +1778,11 @@ class TestSourceTags:
         )
 
     def test_tag_names_the_yaml_relative_to_the_search_path(self, tmp_path):
-        (dag,) = self._build(tmp_path)
+        (dag,) = self._build(tmp_path, source_tags=True)
         assert "blueprint:team/meta_test.dag.yaml" in dag.tags
 
-    def test_opt_out(self, tmp_path):
-        (dag,) = self._build(tmp_path, source_tags=False)
+    def test_off_by_default(self, tmp_path):
+        (dag,) = self._build(tmp_path)
         assert not {t for t in dag.tags if t.startswith("blueprint:")}
 
     def test_tag_skipped_when_it_would_not_fit_airflow_tag_column(self, tmp_path):
@@ -1791,6 +1791,6 @@ class TestSourceTags:
         write_stub_blueprint(tmp_path)
         write_dag_yaml(tmp_path / ("d" * 120), "long_tag_test")
         (dag,) = build_all_airflow_dags(
-            search_path=tmp_path, register_globals={}, render_templates=False
+            search_path=tmp_path, register_globals={}, render_templates=False, source_tags=True
         )
         assert not {t for t in dag.tags if t.startswith("blueprint:")}

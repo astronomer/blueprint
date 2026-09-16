@@ -705,7 +705,7 @@ This is useful for applying cross-cutting concerns like access controls, tags, o
 
 Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **Blueprint** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself.
 
-`build_all_airflow_dags()` tags each DAG with `blueprint:<yaml path>`, relative to the search path, so the tab finds the file without scanning the dags folder. Pass `source_tags=False` to leave the tag off; the tab then falls back to a scan.
+The tab finds the file by scanning the dags folder for a matching `dag_id` and remembers where each DAG was found. To skip the scan, pass `source_tags=True` to `build_all_airflow_dags()`. Each DAG then carries a `blueprint:<yaml path>` tag, relative to the search path, that the tab reads directly.
 
 ## Ignoring DAG YAML Files
 

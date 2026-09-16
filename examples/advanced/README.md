@@ -69,8 +69,9 @@ in YAML, so `blueprint lint` resolves exactly what the DAG processor does.
 
 On Airflow 3.1+, every DAG page gets a **Blueprint** tab showing the YAML the
 DAG was built from. Open `deep_space_survey` and click the tab to compare the
-source YAML with the rendered tasks. Each DAG also carries a
-`blueprint:<file>` tag that the tab uses to find the file.
+source YAML with the rendered tasks. The tab finds the file by scanning
+`dags/`; pass `source_tags=True` to `build_all_airflow_dags()` to tag each
+DAG with its file instead.
 
 ### Ignoring DAG YAML (`dags/.airflowignore`)
 

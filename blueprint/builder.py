@@ -639,7 +639,7 @@ def build_all_airflow_dags(
     skip_invalid_dags: bool = False,
     discover_entry_points: bool = True,
     profile: str | None = None,
-    source_tags: bool = True,
+    source_tags: bool = False,
 ) -> list["DAG"]:
     """Discover and build all DAGs from YAML files.
 
@@ -675,8 +675,9 @@ def build_all_airflow_dags(
             group. Ignored when ``bp_registry`` is supplied directly.
         profile: Active variable profile. Only needed when a referenced variable
             declares a per-profile value.
-        source_tags: Whether to tag each DAG with ``blueprint:<yaml path>``. The
-            Airflow UI plugin reads this tag to find the YAML behind a DAG.
+        source_tags: Tag each DAG with ``blueprint:<yaml path>``. Off by default so
+            Blueprint does not add tags users did not ask for. The Airflow UI plugin
+            reads the tag when present and scans the dags folder otherwise.
 
     Returns:
         List of built DAGs

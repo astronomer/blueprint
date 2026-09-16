@@ -1,5 +1,7 @@
 """Tests for the Airflow UI plugin."""
 
+import os
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -15,6 +17,7 @@ from blueprint.plugin import URL_PREFIX, BlueprintPlugin, create_app, find_dag_y
 def tagged(monkeypatch):
     tags: dict[str, str] = {}
     monkeypatch.setattr(plugin, "source_from_tag", tags.get)
+    monkeypatch.setattr(plugin, "_found", {})
     return tags
 
 
@@ -52,6 +55,31 @@ def test_scan_honors_airflowignore(dags_folder):
     assert find_dag_yaml("ignored_pipeline", dags_folder, None) is None
 
 
+def test_repeat_lookup_skips_the_scan_while_the_file_is_unchanged(dags_folder, monkeypatch):
+    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
+    monkeypatch.setattr(plugin, "scan_for_dag_yaml", lambda *_: pytest.fail("scanned again"))
+    assert find_dag_yaml("plugin_pipeline", dags_folder, None) == path
+
+
+def test_edited_file_is_scanned_again(dags_folder):
+    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
+    assert path is not None
+    path.write_text("dag_id: renamed\nsteps: {}\n")
+    os.utime(path, (0, 0))
+    assert find_dag_yaml("plugin_pipeline", dags_folder, None) is None
+    assert find_dag_yaml("renamed", dags_folder, None) == path
+
+
+def test_deleted_file_is_scanned_again(dags_folder):
+    path = find_dag_yaml("plugin_pipeline", dags_folder, None)
+    assert path is not None
+    path.unlink()
+    write_dag_yaml(dags_folder / "moved", "plugin_pipeline")
+    assert find_dag_yaml("plugin_pipeline", dags_folder, None) == (
+        dags_folder / "moved" / "plugin_pipeline.dag.yaml"
+    )
+
+
 def test_yaml_page_shows_source(dags_folder):
     resp = TestClient(create_app(dags_folder)).get("/dags/plugin_pipeline/yaml")
     assert resp.status_code == 200
@@ -62,8 +90,7 @@ def test_yaml_page_shows_source(dags_folder):
 def test_yaml_page_explains_a_dag_without_yaml(dags_folder):
     resp = TestClient(create_app(dags_folder)).get("/dags/python_dag/yaml")
     assert resp.status_code == 200
-    assert "not built from a Blueprint YAML file" in resp.text
-    assert "source_tags off" in resp.text
+    assert "not built from a Blueprint YAML file, or the file is not on this server" in resp.text
 
 
 def test_yaml_page_names_a_tagged_file_missing_from_this_server(dags_folder, tagged):
