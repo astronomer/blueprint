@@ -334,7 +334,9 @@ my_project = "my_project.blueprints"
 
 Note that this applies to the discoverability of Blueprint templates. A template can still import from another module that's not included in the `entry-point`.
 
-## Airflow Rendered Templates
+## Airflow UI Integration
+
+### Rendered Templates tab
 
 Every task instance gets two extra fields visible in Airflow's "Rendered Template" tab:
 
@@ -342,6 +344,10 @@ Every task instance gets two extra fields visible in Airflow's "Rendered Templat
 - **blueprint_step_code** -- the full Python source file of the blueprint class
 
 This makes it easy to understand what generated each task instance without leaving the Airflow UI.
+
+### YAML tab
+
+Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **YAML** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself. Pass `embed_source=False` to `build_all_airflow_dags()` to turn it off.
 
 ## Runtime Parameter Overrides
 
@@ -700,12 +706,6 @@ build_all_airflow_dags(on_dag_built=post_process)
 ```
 
 This is useful for applying cross-cutting concerns like access controls, tags, or custom metadata that shouldn't live in individual YAML files. The callback runs once per DAG, after all steps are wired up.
-
-## Viewing the YAML in the Airflow UI
-
-Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **YAML** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself.
-
-`build_all_airflow_dags()` stores each DAG's YAML text in `default_args` under `blueprint_source`. It travels with the serialized DAG, so the tab shows the YAML the DAG was last parsed from and needs no access to the dags folder. An edit to the file shows up after the next parse. Operators ignore `default_args` keys they do not accept, so tasks never see it. Pass `embed_source=False` to leave it out.
 
 ## Ignoring DAG YAML Files
 
