@@ -268,7 +268,9 @@ def show_vars(path: str, profile: str | None, unused: bool, root: str | None):
     config_path = Path(path)
 
     try:
-        config, _ = render_yaml_template(config_path, use_airflow_context=False)
+        config, _ = render_yaml_template(
+            config_path, context={"profile": profile}, use_airflow_context=False
+        )
         vars_root = Path(root) if root else Path.cwd()
         declared = bp_vars.declared_profiles(config_path, search_root=vars_root)
         resolved = bp_vars.collect(config, config_path, profile=profile, search_root=vars_root)
