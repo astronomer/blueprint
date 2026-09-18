@@ -36,6 +36,9 @@ classifiers = [
 [project.scripts]
 blueprint = "blueprint.cli:cli"
 
+[project.entry-points."airflow.plugins"]
+blueprint = "blueprint.plugin:BlueprintPlugin"
+
 [project.urls]
 "Homepage" = "https://github.com/astronomer/blueprint"
 "Repository" = "https://github.com/astronomer/blueprint"

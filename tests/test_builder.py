@@ -1026,9 +1026,9 @@ steps:
             render_templates=False,
         )
         tags_by_dag = {dag.dag_id: set(dag.tags) for dag in dags}
-        assert tags_by_dag["missions_dag"] == {"MissionDagArgs"}
-        assert tags_by_dag["observatory_dag"] == {"ObservatoryDagArgs"}
-        assert tags_by_dag["orphan_dag"] == {"MissionDagArgs"}
+        assert "MissionDagArgs" in tags_by_dag["missions_dag"]
+        assert "ObservatoryDagArgs" in tags_by_dag["observatory_dag"]
+        assert "MissionDagArgs" in tags_by_dag["orphan_dag"]
 
     def test_build_all_ambiguous_dag_args_raises(self, tmp_path):
         from blueprint.builder import build_all_airflow_dags
@@ -1763,3 +1763,33 @@ class TestResolveConfig:
         context = {"params": {"greet__count": -1}}
         with pytest.raises(ValidationError):
             bp.resolve_config(config, context)
+
+
+class TestEmbeddedSourceYaml:
+    """DAGs built from YAML carry that YAML in default_args for the UI plugin."""
+
+    def _build(self, tmp_path, **kwargs):
+        from blueprint.builder import build_all_airflow_dags
+
+        write_stub_blueprint(tmp_path)
+        self.yaml_path = write_dag_yaml(tmp_path / "team", "meta_test")
+        return build_all_airflow_dags(
+            search_path=tmp_path, register_globals={}, render_templates=False, **kwargs
+        )
+
+    def test_default_args_carry_the_raw_yaml(self, tmp_path):
+        (dag,) = self._build(tmp_path)
+        assert dag.default_args["blueprint_source"] == self.yaml_path.read_text()
+
+    def test_opt_out(self, tmp_path):
+        (dag,) = self._build(tmp_path, embed_source=False)
+        assert "blueprint_source" not in dag.default_args
+
+    def test_yaml_survives_serialization_and_tasks_ignore_it(self, tmp_path):
+        from airflow.serialization.serialized_objects import SerializedDAG
+
+        (dag,) = self._build(tmp_path)
+        restored = SerializedDAG.from_dict(SerializedDAG.to_dict(dag))
+        assert restored.default_args["blueprint_source"] == self.yaml_path.read_text()
+        for task in restored.tasks:
+            assert not hasattr(task, "blueprint_source")

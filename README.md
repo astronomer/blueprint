@@ -334,7 +334,9 @@ my_project = "my_project.blueprints"
 
 Note that this applies to the discoverability of Blueprint templates. A template can still import from another module that's not included in the `entry-point`.
 
-## Airflow Rendered Templates
+## Airflow UI Integration
+
+### Rendered Templates tab
 
 Every task instance gets two extra fields visible in Airflow's "Rendered Template" tab:
 
@@ -342,6 +344,10 @@ Every task instance gets two extra fields visible in Airflow's "Rendered Templat
 - **blueprint_step_code** -- the full Python source file of the blueprint class
 
 This makes it easy to understand what generated each task instance without leaving the Airflow UI.
+
+### YAML tab
+
+Airflow's Code tab shows the loader file, not the YAML a DAG was built from. On Airflow 3.1+, installing `airflow-blueprint` adds a **YAML** tab to each DAG page that shows the source YAML. No configuration is needed; the plugin registers itself. Pass `embed_source=False` to `build_all_airflow_dags()` to turn it off.
 
 ## Runtime Parameter Overrides
 
