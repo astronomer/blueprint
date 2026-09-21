@@ -554,6 +554,24 @@ class TestJinjaProfile:
 
         assert config["description"] == "prod run"
 
+    def test_vars_command_renders_the_active_profile(self, tmp_path):
+        from click.testing import CliRunner
+
+        from blueprint.cli import cli
+
+        p = dag_file(
+            tmp_path,
+            'dag_id: d_{{ profile }}\ndescription: "{{ profile }} run"\n'
+            "steps:\n  s:\n    blueprint: b\n",
+        )
+
+        result = CliRunner().invoke(
+            cli, ["vars", str(p), "--profile", "local", "--root", str(tmp_path)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "undefined" not in result.output
+
 
 class TestNoVars:
     def test_config_without_vars_is_untouched(self, tmp_path):
