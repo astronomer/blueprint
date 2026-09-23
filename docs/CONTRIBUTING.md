@@ -19,7 +19,7 @@ Thank you for your interest in contributing to Blueprint! This guide will help y
 
 ### Prerequisites
 
-- Python 3.10+ (we test on 3.10, 3.11, 3.12)
+- Python 3.10+ (CI tests 3.10 to 3.14 against Airflow 2.10 to 3.3)
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - Git
 
@@ -75,12 +75,18 @@ uv run pytest tests/test_cli.py -v         # CLI commands
 uv run pytest tests/test_errors.py -v      # Error types and messages
 ```
 
-### Testing with Different Python Versions
+### Testing Against Other Airflow and Python Versions
+
+CI runs the unit tests on each supported Airflow and Python pair. To reproduce one pair, rebuild `.venv` with that Airflow version and its constraints:
 
 ```bash
-uv python install 3.10
-uv run --python 3.10 pytest
+scripts/install-airflow.sh 2.10.5 3.10
+uv run --no-sync pytest tests/ --ignore=tests/integration
 ```
+
+Run `uv sync --all-extras --dev` to go back to the locked versions.
+
+To run the integration tests on another Airflow version, change the image in `tests/integration/project/Dockerfile`. For Airflow 2, use `quay.io/astronomer/astro-runtime:<version>`.
 
 ## Code Style
 

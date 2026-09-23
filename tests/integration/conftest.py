@@ -11,10 +11,12 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 import httpx
 import pytest
+from packaging.version import Version
 
 ASTRO_CLI = os.environ.get("ASTRO_CLI", "astro")
 INTEGRATION_DIR = Path(__file__).parent
@@ -25,6 +27,7 @@ ENTRY_POINT_PACKAGE_DIR = REPO_ROOT / "tests" / "entry_point_package"
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 2
 DAG_PARSE_TIMEOUT = 60
+HEALTH_PATHS = {"v2": "/api/v2/monitor/health", "v1": "/health"}
 ASTRO_START_TIMEOUT = 600
 
 EXPECTED_DAG_IDS = {
@@ -46,20 +49,26 @@ EXPECTED_DAG_IDS = {
 
 @dataclass
 class AirflowAPI:
-    """Wrapper over the Airflow REST API with auth handling."""
+    """Wrapper over the Airflow REST API: v2 with a JWT on Airflow 3, v1 with basic auth on 2."""
 
     base_url: str
+    api_version: str
     _client: httpx.Client | None = field(default=None, repr=False)
 
     def client(self) -> httpx.Client:
         if self._client is None:
-            token = self._get_jwt_token()
-            self._client = httpx.Client(
-                base_url=self.base_url,
-                timeout=30,
-                headers={"Authorization": f"Bearer {token}"},
-            )
+            if self.api_version == "v2":
+                auth = {"headers": {"Authorization": f"Bearer {self._get_jwt_token()}"}}
+            else:
+                auth = {"auth": ("admin", "admin")}
+            self._client = httpx.Client(base_url=self.base_url, timeout=30, **auth)
         return self._client
+
+    @cached_property
+    def airflow_version(self) -> Version:
+        resp = self.get("/version")
+        resp.raise_for_status()
+        return Version(resp.json()["version"])
 
     def _get_jwt_token(self) -> str:
         resp = httpx.post(
@@ -77,13 +86,13 @@ class AirflowAPI:
             self._client = None
 
     def get(self, path: str) -> httpx.Response:
-        return self.client().get(f"/api/v2{path}")
+        return self.client().get(f"/api/{self.api_version}{path}")
 
     def patch(self, path: str, **kwargs) -> httpx.Response:
-        return self.client().patch(f"/api/v2{path}", **kwargs)
+        return self.client().patch(f"/api/{self.api_version}{path}", **kwargs)
 
     def post(self, path: str, **kwargs) -> httpx.Response:
-        return self.client().post(f"/api/v2{path}", **kwargs)
+        return self.client().post(f"/api/{self.api_version}{path}", **kwargs)
 
     def get_dag_ids(self) -> set[str]:
         resp = self.get("/dags")
@@ -129,20 +138,20 @@ def _run_astro(
     )
 
 
-def _wait_for_health(base_url: str) -> None:
-    health_url = f"{base_url}/api/v2/monitor/health"
+def _wait_for_health(base_url: str) -> str:
+    """Wait until Airflow reports healthy and return the REST API version it serves."""
     deadline = time.monotonic() + HEALTH_CHECK_TIMEOUT
 
     while time.monotonic() < deadline:
-        try:
-            resp = httpx.get(health_url, timeout=5)
-            if resp.status_code == 200:
-                return
-        except (httpx.ConnectError, httpx.RemoteProtocolError):
-            pass
+        for api_version, path in HEALTH_PATHS.items():
+            try:
+                if httpx.get(f"{base_url}{path}", timeout=5).status_code == 200:
+                    return api_version
+            except (httpx.ConnectError, httpx.RemoteProtocolError):
+                pass
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-    msg = f"Airflow did not become healthy within {HEALTH_CHECK_TIMEOUT}s at {health_url}"
+    msg = f"Airflow did not become healthy within {HEALTH_CHECK_TIMEOUT}s at {base_url}"
     raise TimeoutError(msg)
 
 
@@ -211,9 +220,7 @@ def airflow_env():
         raise RuntimeError(msg)
 
     base_url = f"http://localhost:{port}"
-    _wait_for_health(base_url)
-
-    api = AirflowAPI(base_url=base_url)
+    api = AirflowAPI(base_url=base_url, api_version=_wait_for_health(base_url))
     try:
         _wait_for_dags(api)
         yield api

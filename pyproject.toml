@@ -13,8 +13,8 @@ maintainers = [
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
-    "apache-airflow>=2.5.0",
-    "click>=8.0.0",
+    "apache-airflow>=2.10.0",
+    "click>=8.0.0,!=8.3.0,!=8.3.1",
     "pydantic>=2.10.6",
     "rich>=13.9.4",
 ]
@@ -28,6 +28,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Systems Administration",
     "Framework :: Apache Airflow",

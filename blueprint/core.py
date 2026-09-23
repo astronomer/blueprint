@@ -3,10 +3,13 @@
 import copy
 import inspect
 import re
+import sys
+import types
 from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     Any,
+    ForwardRef,
     Generic,
     Literal,
     TypeVar,
@@ -16,6 +19,7 @@ from typing import (
 )
 
 from pydantic import BaseModel, ConfigDict
+from pydantic._internal._model_construction import unpack_lenient_weakvaluedict
 
 if TYPE_CHECKING:
     from airflow.models import BaseOperator
@@ -46,6 +50,25 @@ def _check_dict_args(args: tuple, seen: set[int]) -> str | None:
     return _is_yaml_compatible(value_type, seen)
 
 
+def _resolve_forward_refs(annotation: Any, model: type[BaseModel]) -> Any:
+    """Resolve string references that Python 3.10 leaves inside builtin generics like list["X"]."""
+    if isinstance(annotation, str | ForwardRef):
+        name = annotation if isinstance(annotation, str) else annotation.__forward_arg__
+        namespace = {
+            **vars(sys.modules[model.__module__]),
+            **(unpack_lenient_weakvaluedict(model.__pydantic_parent_namespace__) or {}),
+            model.__name__: model,
+        }
+        return namespace.get(name, annotation)
+    origin = get_origin(annotation)
+    args = tuple(_resolve_forward_refs(arg, model) for arg in get_args(annotation))
+    if origin in (list, dict):
+        return origin[args]
+    if origin is Union or isinstance(annotation, types.UnionType):
+        return Union[args]  # noqa: UP007
+    return annotation
+
+
 def _check_concrete_type(annotation: type, seen: set[int]) -> str | None:
     """Check a concrete (non-generic) type for YAML compatibility."""
     if annotation in _YAML_SCALAR_TYPES:
@@ -56,7 +79,8 @@ def _check_concrete_type(annotation: type, seen: set[int]) -> str | None:
             return None
         seen.add(model_id)
         for field_name, field_info in annotation.model_fields.items():
-            error = _is_yaml_compatible(field_info.annotation, seen)
+            field_type = _resolve_forward_refs(field_info.annotation, annotation)
+            error = _is_yaml_compatible(field_type, seen)
             if error:
                 return f"field '{field_name}': {error}"
         return None
@@ -68,8 +92,6 @@ def _is_yaml_compatible(annotation: Any, seen: set[int] | None = None) -> str | 
 
     Returns None if compatible, or an error message string if not.
     """
-    import types
-
     if seen is None:
         seen = set()
 
@@ -95,7 +117,7 @@ def _is_yaml_compatible(annotation: Any, seen: set[int] | None = None) -> str | 
         return _is_yaml_compatible(args[0], seen) if args else None
     if origin is dict:
         return _check_dict_args(args, seen)
-    if isinstance(annotation, type):
+    if origin is None and isinstance(annotation, type):
         return _check_concrete_type(annotation, seen)
     return f"type {annotation!r} is not YAML-compatible"
 
@@ -347,7 +369,7 @@ class Blueprint(Generic[T]):
         errors: list[str] = []
 
         for field_name, field_info in config_type.model_fields.items():
-            error = _is_yaml_compatible(field_info.annotation)
+            error = _is_yaml_compatible(_resolve_forward_refs(field_info.annotation, config_type))
             if error:
                 errors.append(f"  {field_name}: {error}")
 
@@ -546,7 +568,7 @@ class BlueprintDagArgs(Generic[T]):
         errors: list[str] = []
 
         for field_name, field_info in config_type.model_fields.items():
-            error = _is_yaml_compatible(field_info.annotation)
+            error = _is_yaml_compatible(_resolve_forward_refs(field_info.annotation, config_type))
             if error:
                 errors.append(f"  {field_name}: {error}")
 
