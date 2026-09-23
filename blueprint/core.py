@@ -19,7 +19,14 @@ from typing import (
 )
 
 from pydantic import BaseModel, ConfigDict
-from pydantic._internal._model_construction import unpack_lenient_weakvaluedict
+
+try:
+    from pydantic._internal._model_construction import unpack_lenient_weakvaluedict
+except ImportError:
+
+    def unpack_lenient_weakvaluedict(_namespace: dict[str, Any] | None) -> None:
+        return None
+
 
 if TYPE_CHECKING:
     from airflow.models import BaseOperator

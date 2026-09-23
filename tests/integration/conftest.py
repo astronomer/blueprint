@@ -151,7 +151,8 @@ def _wait_for_health(base_url: str) -> str:
                 pass
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-    msg = f"Airflow did not become healthy within {HEALTH_CHECK_TIMEOUT}s at {base_url}"
+    paths = ", ".join(HEALTH_PATHS.values())
+    msg = f"Airflow did not become healthy within {HEALTH_CHECK_TIMEOUT}s at {base_url} ({paths})"
     raise TimeoutError(msg)
 
 
