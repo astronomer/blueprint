@@ -20,6 +20,11 @@ from blueprint.errors import (
 )
 from blueprint.registry import BlueprintRegistry
 
+
+def _schedule(dag):
+    return dag.schedule if hasattr(dag, "schedule") else dag.schedule_interval
+
+
 # --- Test blueprint classes ---
 
 
@@ -447,7 +452,7 @@ class TestBuilder:
         )
         dag = builder.build(config)
         task = dag.task_dict["my_load"]
-        assert str(task.trigger_rule) == "one_success"
+        assert task.trigger_rule == "one_success"
 
     def test_trigger_rule_task_group_root_only(self, builder):
         config = DAGConfig(
@@ -465,8 +470,8 @@ class TestBuilder:
         dag = builder.build(config)
         first = dag.task_dict["my_chained.first"]
         second = dag.task_dict["my_chained.second"]
-        assert str(first.trigger_rule) == "all_done"
-        assert str(second.trigger_rule) == "all_success"
+        assert first.trigger_rule == "all_done"
+        assert second.trigger_rule == "all_success"
 
     def test_trigger_rule_none_preserves_default(self, builder):
         config = DAGConfig(
@@ -477,7 +482,7 @@ class TestBuilder:
         )
         dag = builder.build(config)
         task = dag.task_dict["my_load"]
-        assert str(task.trigger_rule) == "all_success"
+        assert task.trigger_rule == "all_success"
 
     def test_trigger_rule_without_depends_on(self, builder):
         config = DAGConfig(
@@ -492,7 +497,7 @@ class TestBuilder:
         )
         dag = builder.build(config)
         task = dag.task_dict["my_load"]
-        assert str(task.trigger_rule) == "always"
+        assert task.trigger_rule == "always"
 
 
 class TestBuilderDefaultDagArgs:
@@ -512,7 +517,7 @@ class TestBuilderDefaultDagArgs:
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
         dag = builder.build(config)
-        assert dag.schedule == "@hourly"
+        assert _schedule(dag) == "@hourly"
 
     def test_default_start_date_injected(self, builder):
         from datetime import datetime, timezone
@@ -591,7 +596,7 @@ class TestBuilderCustomDagArgs:
             steps={"s": StepConfig(blueprint="load", target_table="out")},
         )
         dag = builder.build(config)
-        assert dag.schedule == "@daily"
+        assert _schedule(dag) == "@daily"
         assert dag.default_args["owner"] == "analytics-team"
         assert dag.default_args["retries"] == 5
 
@@ -721,7 +726,7 @@ steps:
 
         dag = builder.build_from_yaml(yaml_file, render_template=False)
         task = dag.task_dict["my_load"]
-        assert str(task.trigger_rule) == "one_success"
+        assert task.trigger_rule == "one_success"
 
 
 class TestBuildFromYamlJinja:
@@ -1011,7 +1016,7 @@ steps:
             render_templates=False,
         )
         assert len(dags) == 1
-        assert dags[0].schedule == "@weekly"
+        assert _schedule(dags[0]) == "@weekly"
         assert dags[0].default_args["owner"] == "analytics"
 
     def test_build_all_dag_args_from_nearest_directory(self, tmp_path):
@@ -1786,10 +1791,13 @@ class TestEmbeddedSourceYaml:
         assert "blueprint_source" not in dag.default_args
 
     def test_yaml_survives_serialization_and_tasks_ignore_it(self, tmp_path):
-        from airflow.serialization.serialized_objects import SerializedDAG
+        try:
+            from airflow.serialization.serialized_objects import DagSerialization
+        except ImportError:
+            from airflow.serialization.serialized_objects import SerializedDAG as DagSerialization
 
         (dag,) = self._build(tmp_path)
-        restored = SerializedDAG.from_dict(SerializedDAG.to_dict(dag))
+        restored = DagSerialization.from_dict(DagSerialization.to_dict(dag))
         assert restored.default_args["blueprint_source"] == self.yaml_path.read_text()
         for task in restored.tasks:
             assert not hasattr(task, "blueprint_source")

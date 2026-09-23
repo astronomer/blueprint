@@ -1,0 +1,68 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    environment: integration
+    steps:
+      - run: echo "Integration tests approved"
+
+  integration:
+    needs: approve
+    name: integration (airflow ${{ matrix.airflow }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - airflow: "2.10"
+            image: quay.io/astronomer/astro-runtime:12.12.0
+          - airflow: "2.11"
+            image: quay.io/astronomer/astro-runtime:13.11.0
+          - airflow: "3.0"
+            image: astrocrpublic.azurecr.io/runtime:3.0-18
+          - airflow: "3.1"
+            image: astrocrpublic.azurecr.io/runtime:3.1-21
+          - airflow: "3.2"
+            image: astrocrpublic.azurecr.io/runtime:3.2-9
+          - airflow: "3.3"
+            image: astrocrpublic.azurecr.io/runtime:3.3-7
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install Astro CLI
+        run: curl -sSL install.astronomer.io | sudo bash -s
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Use the Runtime image for Airflow ${{ matrix.airflow }}
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: echo "FROM $IMAGE" > tests/integration/project/Dockerfile
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v
+
+  integration-test:
+    needs: integration
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that every Airflow version passed
+        run: test "${{ needs.integration.result }}" = success
