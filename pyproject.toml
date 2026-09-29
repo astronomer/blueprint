@@ -3,7 +3,7 @@ name = "airflow-blueprint"
 dynamic = ["version"]
 description = "Reusable task group templates composed into Airflow DAGs via YAML"
 readme = "README.md"
-license = {text = "MIT"}
+license = "Apache-2.0"
 authors = [
     { name = "Astronomer", email = "humans@astronomer.io" }
 ]
@@ -22,7 +22,6 @@ keywords = ["airflow", "dags", "templates", "blueprints", "automation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

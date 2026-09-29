@@ -932,4 +932,4 @@ We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.
 
 ## License
 
-Apache 2.0
+[Apache 2.0](LICENSE)
