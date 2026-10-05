@@ -147,6 +147,11 @@ def builder(test_registry):
     return Builder(bp_registry=test_registry)
 
 
+def rendered(task, field: str) -> str:
+    """Render one template field the way Airflow does when the task runs."""
+    return task.render_template(getattr(task, field), {"task": task})
+
+
 # --- StepConfig tests ---
 
 
@@ -396,7 +401,7 @@ class TestBuilder:
         dag = builder.build(config)
         task = dag.task_dict["my_load"]
 
-        parsed = yaml.safe_load(task.blueprint_step_config)
+        parsed = yaml.safe_load(rendered(task, "blueprint_step_config"))
         assert parsed["version"] == 1
 
     def test_source_code_in_context(self, builder):
@@ -409,7 +414,7 @@ class TestBuilder:
         dag = builder.build(config)
         task = dag.task_dict["my_load"]
 
-        assert "class Load" in task.blueprint_step_code
+        assert "class Load" in rendered(task, "blueprint_step_code")
 
     def test_nested_task_group_context_injection(self, builder):
         config = DAGConfig(
@@ -627,7 +632,7 @@ class TestBuilderCustomDagArgs:
         task = dag.task_dict["s"]
 
         assert "blueprint_dag_args" in task.template_fields
-        assert yaml.safe_load(task.blueprint_dag_args) == {
+        assert yaml.safe_load(rendered(task, "blueprint_dag_args")) == {
             "template": "custom_dag_args",
             "defined_in": "test.py",
         }
@@ -1793,3 +1798,72 @@ class TestEmbeddedSourceYaml:
         assert restored.default_args["blueprint_source"] == self.yaml_path.read_text()
         for task in restored.tasks:
             assert not hasattr(task, "blueprint_source")
+
+
+JINJA_BLUEPRINT_SOURCE = """
+from pydantic import BaseModel
+from blueprint.core import Blueprint
+
+UNUSED_TEMPLATE = "{{ task.no_such_attr }}"
+
+class StubConfig(BaseModel):
+    cmd: str
+
+class Stub(Blueprint[StubConfig]):
+    def render(self, config):
+        from airflow.operators.bash import BashOperator
+        return BashOperator(task_id=self.step_id, bash_command=config.cmd)
+"""
+
+
+class TestStepContextIsLiteral:
+    """Blueprint source and step config show as written and never render as Jinja."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "{{ task.x }} {% if %}",
+            "{% endraw %}{{ task.x }}",
+            "{%- endraw -%}{%endraw%}{%+ endraw %}",
+            "ends with {",
+            "{{% endraw %}",
+        ],
+    )
+    def test_jinja_literal_survives_rendering(self, text):
+        from jinja2 import StrictUndefined
+        from jinja2.sandbox import SandboxedEnvironment
+
+        from blueprint.builder import _jinja_literal
+
+        env = SandboxedEnvironment(undefined=StrictUndefined)
+        assert env.from_string(_jinja_literal(text)).render() == text
+
+    @pytest.fixture(params=[True, False], ids=["embed_source", "no_embed_source"])
+    def task(self, request, tmp_path):
+        from blueprint.builder import build_all_airflow_dags
+
+        (tmp_path / "blueprints.py").write_text(JINJA_BLUEPRINT_SOURCE)
+        self.yaml_path = tmp_path / "jinja.dag.yaml"
+        self.yaml_path.write_text(
+            'dag_id: jinja\nsteps:\n  s1:\n    blueprint: stub\n    cmd: "echo {{ context.ds }}"\n'
+        )
+        self.embed_source = request.param
+        (self.dag,) = build_all_airflow_dags(
+            search_path=tmp_path, register_globals={}, embed_source=self.embed_source
+        )
+        return self.dag.task_dict["s1"]
+
+    def test_render_leaves_step_context_as_written(self, task, tmp_path):
+        task.render_template_fields({"task": task, "ds": "2024-01-01"})
+
+        assert task.bash_command == "echo 2024-01-01"
+        assert task.blueprint_step_code == (tmp_path / "blueprints.py").read_text()
+        assert yaml.safe_load(task.blueprint_step_config)["cmd"] == "echo {{ ds }}"
+
+    def test_embedded_yaml_is_raw_text(self, task):
+        task.render_template_fields({"task": task, "ds": "2024-01-01"})
+
+        if self.embed_source:
+            assert self.dag.default_args["blueprint_source"] == self.yaml_path.read_text()
+        else:
+            assert "blueprint_source" not in self.dag.default_args
