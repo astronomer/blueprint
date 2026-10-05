@@ -34,6 +34,16 @@ DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 SOURCE_YAML_KEY = "blueprint_source"
 
+
+def _jinja_literal(text: str) -> str:
+    """Wrap text so Airflow's Jinja rendering returns it unchanged.
+
+    Splitting every ``{%`` keeps any ``endraw`` tag inside the text from closing the raw block.
+    """
+    escaped = text.replace("{%", "{{% endraw %}{% raw %}%")
+    return f"{{% raw %}}{escaped}{{% endraw %}}"
+
+
 _PARAM_SCHEMA_KEYS = frozenset(
     {
         "type",
@@ -532,9 +542,9 @@ class Builder:
             return
 
         for task in tasks:
-            task.blueprint_step_config = step_yaml  # type: ignore[attr-defined]
-            task.blueprint_step_code = source_code  # type: ignore[attr-defined]
-            task.blueprint_dag_args = dag_args_yaml  # type: ignore[attr-defined]
+            task.blueprint_step_config = _jinja_literal(step_yaml)  # type: ignore[attr-defined]
+            task.blueprint_step_code = _jinja_literal(source_code)  # type: ignore[attr-defined]
+            task.blueprint_dag_args = _jinja_literal(dag_args_yaml)  # type: ignore[attr-defined]
 
             existing_fields = getattr(task, "template_fields", ()) or ()
             new_fields = []
