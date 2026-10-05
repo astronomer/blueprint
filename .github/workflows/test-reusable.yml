@@ -2,20 +2,37 @@ name: Test (Reusable)
 
 on:
   workflow_call:
-    inputs:
-      python-version:
-        description: "Python version to test with"
-        required: true
-        type: string
-      os:
-        description: "Operating system to run on"
-        required: false
-        type: string
-        default: "ubuntu-latest"
 
 jobs:
-  test:
-    runs-on: ${{ inputs.os }}
+  unit:
+    name: py${{ matrix.python-version }} / airflow ${{ matrix.airflow-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        airflow-version:
+          ["2.10.5", "2.11.2", "3.0.6", "3.1.8", "3.2.2", "3.3.2"]
+        exclude:
+          - python-version: "3.13"
+            airflow-version: "2.10.5"
+          - python-version: "3.13"
+            airflow-version: "2.11.2"
+          - python-version: "3.13"
+            airflow-version: "3.0.6"
+          - python-version: "3.14"
+            airflow-version: "2.10.5"
+          - python-version: "3.14"
+            airflow-version: "2.11.2"
+          - python-version: "3.14"
+            airflow-version: "3.0.6"
+          - python-version: "3.14"
+            airflow-version: "3.1.8"
+        include:
+          - os: macos-latest
+            python-version: "3.14"
+            airflow-version: "3.3.2"
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -25,12 +42,16 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python ${{ inputs.python-version }}
-        run: uv python install ${{ inputs.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
+      - name: Install Airflow ${{ matrix.airflow-version }} on Python ${{ matrix.python-version }}
+        run: scripts/install-airflow.sh "${{ matrix.airflow-version }}" "${{ matrix.python-version }}"
 
       - name: Run tests
-        run: |
-          uv run pytest tests/ --ignore=tests/integration -v
+        run: uv run --no-sync pytest tests/ --ignore=tests/integration -v
+
+  test:
+    needs: unit
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that every matrix job passed
+        run: test "${{ needs.unit.result }}" = success

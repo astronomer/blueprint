@@ -670,6 +670,19 @@ class TestYamlTypeValidation:
 
         assert TreeBp.get_config_type() is TreeConfig
 
+    def test_valid_forward_reference_in_config_field(self):
+        class Item(BaseModel):
+            name: str
+
+        class ItemsConfig(BaseModel):
+            items: list["Item"]
+
+        class ItemsBp(Blueprint[ItemsConfig]):
+            def render(self, config):
+                pass
+
+        assert ItemsBp.get_config_type() is ItemsConfig
+
     def test_invalid_union_with_bad_member(self):
         class BadUnionConfig(BaseModel):
             x: str | bytes

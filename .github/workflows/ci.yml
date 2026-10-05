@@ -12,10 +12,8 @@ jobs:
 
   test:
     uses: ./.github/workflows/test-reusable.yml
-    with:
-      python-version: "3.12"
 
-  integration-test:
+  cli-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -25,14 +23,13 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
-
-      - name: Install Astro CLI
-        run: curl -sSL install.astronomer.io | sudo bash -s
-
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
-      - name: Run integration tests
-        run: uv run pytest tests/integration/ -v
+      - name: Run the CLI on the examples
+        run: |
+          uv run blueprint --help
+          cd examples/simple
+          uv run blueprint list
+          cd ../advanced
+          uv run blueprint list

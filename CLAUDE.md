@@ -6,7 +6,7 @@ Reusable task group templates composed into Airflow DAGs via YAML.
 - Python package for defining reusable Airflow task group templates (Blueprints)
 - Blueprints render into tasks or TaskGroups; DAGs are composed from YAML
 - CLI tool accessible via `blueprint` command
-- Supports Python 3.10+ and Apache Airflow 2.5.0+
+- Supports Python 3.10+ and Apache Airflow 2.10+
 - Uses Pydantic for configuration validation
 - Template versioning via separate classes with V{N} suffix
 
@@ -35,6 +35,7 @@ Reusable task group templates composed into Airflow DAGs via YAML.
 ## Testing
 - Run unit tests: `uv run pytest tests/ --ignore=tests/integration -v`
 - Run specific test: `uv run pytest tests/test_<module>.py`
+- Test one Airflow/Python pair: `scripts/install-airflow.sh 2.10.5 3.10 && uv run --no-sync pytest tests/ --ignore=tests/integration` (`uv sync --all-extras --dev` restores the lock)
 - Run with coverage: `uv run pytest --cov=blueprint tests/`
 - Run integration tests locally: `uv run pytest tests/integration/ -v` (requires Astro CLI — `astro version` to verify; starts a local Airflow instance via `astro dev start --standalone`, runs tests against the REST API, then tears down)
 - New features must include integration test coverage (`tests/integration/`) and be demonstrated in the advanced example (`examples/advanced/`)
