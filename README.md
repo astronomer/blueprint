@@ -91,6 +91,19 @@ from blueprint import build_all_airflow_dags
 build_all_airflow_dags()
 ```
 
+#### On Airflow 3.4+: load YAML natively
+
+Airflow 3.4 can load Dags from other formats through Dag importers, so a loader file is no longer needed. Register `BlueprintDagImporter` as follows:
+
+```ini
+[dag_processor]
+dag_importer_configs = ["blueprint.importer.BlueprintDagImporter"]
+```
+
+Airflow then builds a Dag from every `*.dag.yaml` file in the bundle, finding blueprints and DAG args in the bundle's Python files, applying `.airflowignore`, and showing the YAML on the Code tab. Build errors show up as import errors for the YAML file itself.
+
+The importer accepts these `kwargs`: `extensions` (default `[".yaml"]`), `pattern` (default `*.dag.yaml`; widen it together with `extensions` to load `.yml` files), `profile`, `discover_entry_points`, and `embed_source`. An extension belongs to one importer, so do not register this alongside Airflow's built-in `YamlDagImporter` for the same files.
+
 ### 4. Validate
 
 ```bash
