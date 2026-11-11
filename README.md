@@ -93,7 +93,7 @@ build_all_airflow_dags()
 
 #### On Airflow 3.4+: load YAML natively
 
-Airflow 3.4 can load Dags from other formats through Dag importers, so the loader file is no longer needed. Register `BlueprintDagImporter` on every component that parses Dags (Dag processor, workers, and wherever you run `airflow dags` commands):
+Airflow 3.4 can load Dags from other formats through Dag importers, so a loader file is no longer needed. Register `BlueprintDagImporter` as follows:
 
 ```ini
 [dag_processor]
