@@ -1,11 +1,11 @@
 """Airflow Dag importer that builds Dags from Blueprint YAML files.
 
-Requires Airflow 3.4+, which introduced the ``AbstractDagImporter`` interface. Register it with::
+Requires Airflow 3.4+, which introduced the ``AbstractDagImporter`` interface. Register it with:
 
-    [dag_processor]
-    dag_importer_configs = ["blueprint.importer.BlueprintDagImporter"]
-
-With the importer registered, no loader file calling ``build_all_airflow_dags()`` is needed.
+```
+[dag_processor]
+dag_importer_configs = ["blueprint.importer.BlueprintDagImporter"]
+```
 """
 
 import logging
